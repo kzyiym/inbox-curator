@@ -17,6 +17,16 @@ export interface ReviewJobResult {
   attempts?: number;
 }
 
+export interface QueueHistoryEntry {
+  id: string;
+  notePath: string;
+  source: ReviewJobSource;
+  status: Extract<ReviewJobStatus, 'processed' | 'skipped' | 'failed' | 'cancelled'>;
+  timestamp: number;
+  error?: string;
+  attempts?: number;
+}
+
 export interface ReviewQueueSnapshot {
   pending: number;
   running: number;
@@ -27,6 +37,10 @@ export interface ReviewQueueSnapshot {
   stopping: boolean;
   maxConcurrentJobs: number;
   availableSlots: number;
+  paused: boolean;
+  pendingJobs: ReviewJob[];
+  runningJobs: ReviewJob[];
+  history: QueueHistoryEntry[];
 }
 
 export interface ReviewQueueEnqueueResult {

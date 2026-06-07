@@ -1,6 +1,7 @@
 import { ReviewRateLimiter } from './rateLimiter';
 import { createDefaultReviewRetryPolicy, type ReviewRetryPolicy } from './retry';
 import type {
+  QueueHistoryEntry,
   ReviewJob,
   ReviewJobProcessor,
   ReviewJobResult,
@@ -39,6 +40,9 @@ export class ReviewQueue {
   private cancelledCount = 0;
   private draining = false;
   private stopping = false;
+  private paused = false;
+  private readonly history: QueueHistoryEntry[] = [];
+  private readonly cancelledRunningIds = new Set<string>();
   private readonly retryPolicy: ReviewRetryPolicy;
   private readonly rateLimiter: ReviewRateLimiter;
   private readonly onRetry?: (job: ReviewJob, attempt: number, delayMs: number, result: ReviewJobResult) => void;
@@ -98,6 +102,10 @@ export class ReviewQueue {
       stopping: this.stopping,
       maxConcurrentJobs: this.maxConcurrentJobs,
       availableSlots: Math.max(0, this.maxConcurrentJobs - this.runningByPath.size),
+      paused: this.paused,
+      pendingJobs: this.pendingEntries.map((e) => e.job),
+      runningJobs: Array.from(this.runningByPath.values()),
+      history: [...this.history],
     };
   }
 
@@ -115,20 +123,90 @@ export class ReviewQueue {
 
       this.pendingByPath.delete(entry.job.notePath);
       this.cancelledCount += 1;
-      entry.resolve({ status: 'cancelled' });
+      const result: ReviewJobResult = { status: 'cancelled' };
+      this.recordHistory(entry.job, result);
+      entry.resolve(result);
     }
 
     this.rateLimiter.reset();
   }
 
+  pause(): void {
+    this.paused = true;
+  }
+
+  resume(): void {
+    if (!this.paused) {
+      return;
+    }
+    this.paused = false;
+    void this.drainQueue();
+  }
+
+  cancelJob(id: string): boolean {
+    const pendingIndex = this.pendingEntries.findIndex((e) => e.job.id === id);
+    if (pendingIndex !== -1) {
+      const entry = this.pendingEntries[pendingIndex];
+      this.pendingEntries.splice(pendingIndex, 1);
+      this.pendingByPath.delete(entry.job.notePath);
+      this.cancelledCount += 1;
+
+      const result: ReviewJobResult = { status: 'cancelled' };
+      this.recordHistory(entry.job, result);
+      entry.resolve(result);
+      return true;
+    }
+
+    for (const job of this.runningByPath.values()) {
+      if (job.id === id) {
+        this.cancelledRunningIds.add(id);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  cancelPendingJobs(): void {
+    while (this.pendingEntries.length > 0) {
+      const entry = this.pendingEntries.shift();
+      if (!entry) {
+        continue;
+      }
+
+      this.pendingByPath.delete(entry.job.notePath);
+      this.cancelledCount += 1;
+      const result: ReviewJobResult = { status: 'cancelled' };
+      this.recordHistory(entry.job, result);
+      entry.resolve(result);
+    }
+  }
+
+  private recordHistory(job: ReviewJob, result: ReviewJobResult): void {
+    const MAX_HISTORY_SIZE = 50;
+    this.history.push({
+      id: job.id,
+      notePath: job.notePath,
+      source: job.source,
+      status: result.status,
+      timestamp: Date.now(),
+      error: result.error,
+      attempts: result.attempts,
+    });
+
+    if (this.history.length > MAX_HISTORY_SIZE) {
+      this.history.shift();
+    }
+  }
+
   private async drainQueue(): Promise<void> {
-    if (this.draining || this.stopping) {
+    if (this.draining || this.stopping || this.paused) {
       return;
     }
 
     this.draining = true;
     try {
-      while (!this.stopping && this.runningByPath.size < this.maxConcurrentJobs) {
+      while (!this.stopping && !this.paused && this.runningByPath.size < this.maxConcurrentJobs) {
         const entry = this.pendingEntries.shift();
         if (!entry) {
           break;
@@ -144,10 +222,21 @@ export class ReviewQueue {
   }
 
   private async runEntry(entry: InternalQueueEntry): Promise<void> {
-    const result = await this.executeJob(entry.job);
+    let result = await this.executeJob(entry.job);
 
     this.runningByPath.delete(entry.job.notePath);
+
+    if (this.cancelledRunningIds.has(entry.job.id)) {
+      this.cancelledRunningIds.delete(entry.job.id);
+      result = {
+        status: 'cancelled',
+        attempts: result.attempts,
+        error: result.error ?? 'Job was cancelled during execution',
+      };
+    }
+
     this.recordResult(result);
+    this.recordHistory(entry.job, result);
     entry.resolve(result);
     void this.drainQueue();
   }

@@ -2,6 +2,7 @@ node_modules/
 dist/
 main.js
 *.map
+.hermes
 
 .DS_Store
 Thumbs.db
@@ -17,3 +18,4 @@ coverage/
 
 *.md
 !README.md
+!docs/**/*.md
