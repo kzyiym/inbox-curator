@@ -1,7 +1,10 @@
 import { MarkdownView, Notice, Plugin, TFile, normalizePath } from 'obsidian';
 import { registerInboxCuratorCommands } from './src/commands';
 import { readAiReviewSourceHash } from './src/frontmatter';
-import { buildReviewSourceInfo, runReviewPipeline } from './src/reviewPipeline';
+import { createReviewJob } from './src/queue/job';
+import { ReviewQueue } from './src/queue/reviewQueue';
+import type { ReviewJob, ReviewJobResult } from './src/queue/queueTypes';
+import { buildReviewSourceInfo, runReviewPipeline, type ReviewPipelineOptions } from './src/reviewPipeline';
 import { DEFAULT_SETTINGS, InboxCuratorSettings, InboxCuratorSettingTab } from './src/settings';
 
 const REVIEWING_STATUS_TEXT = 'Inbox Curator: Reviewing...';
@@ -19,6 +22,11 @@ interface WatchedFolderProcessingSummary {
   remaining: number;
 }
 
+interface QueuedReviewTask {
+  file: TFile;
+  resultPromise: Promise<ReviewJobResult>;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -27,13 +35,20 @@ export default class InboxCuratorPlugin extends Plugin {
   settings: InboxCuratorSettings = DEFAULT_SETTINGS;
   private processingInProgress = false;
   private reviewStatusBarEl!: HTMLElement;
+  private reviewQueue!: ReviewQueue;
 
   async onload(): Promise<void> {
     await this.loadSettings();
     this.reviewStatusBarEl = this.addStatusBarItem();
     this.setStatusIdle();
+    this.reviewQueue = new ReviewQueue(async (job) => this.runQueuedReviewJob(job));
     this.addSettingTab(new InboxCuratorSettingTab(this.app, this));
     registerInboxCuratorCommands(this);
+  }
+
+  onunload(): void {
+    this.reviewQueue.stop();
+    this.finishProcessing();
   }
 
   async loadSettings(): Promise<void> {
@@ -99,6 +114,56 @@ export default class InboxCuratorPlugin extends Plugin {
     this.setStatusIdle();
   }
 
+  private getReviewPipelineOptions(): ReviewPipelineOptions {
+    return {
+      outputFolder: this.settings.reviewOutputFolder,
+      provider: this.settings.provider,
+      endpointUrl: this.settings.endpointUrl,
+      model: this.settings.model,
+      fetchUrlMetadata: this.settings.fetchUrlMetadata,
+    };
+  }
+
+  private resolveMarkdownFile(notePath: string): TFile | null {
+    const file = this.app.vault.getAbstractFileByPath(notePath);
+    if (!(file instanceof TFile) || file.extension !== 'md') {
+      return null;
+    }
+
+    return file;
+  }
+
+  private async runQueuedReviewJob(job: ReviewJob): Promise<ReviewJobResult> {
+    if (job.delayBeforeStartMs > 0) {
+      await sleep(job.delayBeforeStartMs);
+    }
+
+    const file = this.resolveMarkdownFile(job.notePath);
+    if (!file) {
+      return {
+        status: 'failed',
+        error: 'Markdown note not found',
+      };
+    }
+
+    try {
+      const result = await runReviewPipeline(this.app, file, this.getReviewPipelineOptions());
+      if (result.ok === false) {
+        return {
+          status: 'failed',
+          error: result.error,
+        };
+      }
+
+      return { status: 'processed' };
+    } catch (error) {
+      return {
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
   private isInWatchedFolder(file: TFile, watchedFolder: string): boolean {
     const normalizedFolder = normalizePath(watchedFolder);
     return file.path === normalizedFolder || file.path.startsWith(`${normalizedFolder}/`);
@@ -137,6 +202,16 @@ export default class InboxCuratorPlugin extends Plugin {
     return Math.max(configuredDelay, rateDelay);
   }
 
+  private logQueuedReviewFailure(file: TFile, error: string | undefined): void {
+    console.warn('Inbox Curator queued review failed', {
+      provider: this.settings.provider,
+      endpointUrl: this.settings.endpointUrl,
+      model: this.settings.model,
+      notePath: file.path,
+      error: error ?? 'Unknown error',
+    });
+  }
+
   getActiveMarkdownFile(): TFile | null {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     const file = view?.file;
@@ -166,23 +241,16 @@ export default class InboxCuratorPlugin extends Plugin {
     await this.flushStatusText(REVIEWING_STATUS_TEXT);
 
     try {
-      const result = await runReviewPipeline(this.app, file, {
-        outputFolder: this.settings.reviewOutputFolder,
-        provider: this.settings.provider,
-        endpointUrl: this.settings.endpointUrl,
-        model: this.settings.model,
-        fetchUrlMetadata: this.settings.fetchUrlMetadata,
-      });
+      const job = createReviewJob('current-note', file.path);
+      const queued = this.reviewQueue.enqueue(job);
+      const result = await queued.promise;
 
-      if (result.ok === false) {
-        new Notice(this.buildShortReviewError(result.error));
+      if (result.status !== 'processed') {
+        new Notice(this.buildShortReviewError(result.error ?? 'Review did not complete'));
         return;
       }
 
       new Notice(REVIEW_COMPLETED_NOTICE_TEXT);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      new Notice(this.buildShortReviewError(message));
     } finally {
       this.finishProcessing();
     }
@@ -211,7 +279,8 @@ export default class InboxCuratorPlugin extends Plugin {
       };
       const maxNotesPerRun = Math.max(1, Math.round(this.settings.maxNotesPerRun));
       const delayMs = this.getWatchedFolderRequestDelayMs();
-      let attemptedReviews = 0;
+      const queuedTasks: QueuedReviewTask[] = [];
+      let queuedReviewCount = 0;
 
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
@@ -223,37 +292,25 @@ export default class InboxCuratorPlugin extends Plugin {
             continue;
           }
 
-          if (attemptedReviews >= maxNotesPerRun) {
+          if (queuedReviewCount >= maxNotesPerRun) {
             summary.remaining += 1;
             continue;
           }
 
-          if (attemptedReviews > 0 && delayMs > 0) {
-            await sleep(delayMs);
-          }
-
-          attemptedReviews += 1;
-          const result = await runReviewPipeline(this.app, file, {
-            outputFolder: this.settings.reviewOutputFolder,
-            provider: this.settings.provider,
-            endpointUrl: this.settings.endpointUrl,
-            model: this.settings.model,
-            fetchUrlMetadata: this.settings.fetchUrlMetadata,
-          });
-
-          if (result.ok === false) {
+          const delayBeforeStartMs = queuedReviewCount > 0 ? delayMs : 0;
+          const job = createReviewJob('watched-folder-manual', file.path, delayBeforeStartMs);
+          const queued = this.reviewQueue.enqueue(job);
+          if (!queued.accepted) {
             summary.failed += 1;
-            console.warn('Inbox Curator watched folder review failed', {
-              provider: this.settings.provider,
-              endpointUrl: this.settings.endpointUrl,
-              model: this.settings.model,
-              notePath: file.path,
-              error: result.error,
-            });
+            this.logQueuedReviewFailure(file, queued.duplicate ? 'Duplicate queued review job' : 'Queue is stopping');
             continue;
           }
 
-          summary.processed += 1;
+          queuedTasks.push({
+            file,
+            resultPromise: queued.promise,
+          });
+          queuedReviewCount += 1;
         } catch (error) {
           summary.failed += 1;
           console.warn('Inbox Curator watched folder processing crashed', {
@@ -264,6 +321,25 @@ export default class InboxCuratorPlugin extends Plugin {
             error: error instanceof Error ? error.message : 'Unknown error',
           });
         }
+      }
+
+      for (let index = 0; index < queuedTasks.length; index += 1) {
+        const task = queuedTasks[index];
+        await this.flushStatusText(`Inbox Curator: Reviewing ${index + 1}/${queuedTasks.length}...`);
+        const result = await task.resultPromise;
+
+        if (result.status === 'processed') {
+          summary.processed += 1;
+          continue;
+        }
+
+        if (result.status === 'skipped') {
+          summary.skipped += 1;
+          continue;
+        }
+
+        summary.failed += 1;
+        this.logQueuedReviewFailure(task.file, result.error);
       }
 
       new Notice(
