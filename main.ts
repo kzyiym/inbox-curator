@@ -16,6 +16,11 @@ interface WatchedFolderProcessingSummary {
   processed: number;
   skipped: number;
   failed: number;
+  remaining: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 export default class InboxCuratorPlugin extends Plugin {
@@ -43,6 +48,12 @@ export default class InboxCuratorPlugin extends Plugin {
       provider: this.settings.provider,
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
+      maxNotesPerRun: this.settings.maxNotesPerRun,
+      requestsPerMinute: this.settings.requestsPerMinute,
+      delayBetweenRequestsMs: this.settings.delayBetweenRequestsMs,
+      fetchUrlMetadata: this.settings.fetchUrlMetadata,
+      readImages: this.settings.readImages,
+      readVideos: this.settings.readVideos,
     });
   }
 
@@ -119,6 +130,13 @@ export default class InboxCuratorPlugin extends Plugin {
       .filter((file) => !file.path.endsWith('.ai-review.md'));
   }
 
+  private getWatchedFolderRequestDelayMs(): number {
+    const requestsPerMinute = Math.max(1, Math.round(this.settings.requestsPerMinute));
+    const configuredDelay = Math.max(0, Math.round(this.settings.delayBetweenRequestsMs));
+    const rateDelay = Math.ceil(60000 / requestsPerMinute);
+    return Math.max(configuredDelay, rateDelay);
+  }
+
   getActiveMarkdownFile(): TFile | null {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     const file = view?.file;
@@ -153,6 +171,7 @@ export default class InboxCuratorPlugin extends Plugin {
         provider: this.settings.provider,
         endpointUrl: this.settings.endpointUrl,
         model: this.settings.model,
+        fetchUrlMetadata: this.settings.fetchUrlMetadata,
       });
 
       if (result.ok === false) {
@@ -183,11 +202,16 @@ export default class InboxCuratorPlugin extends Plugin {
     try {
       const files = this.getWatchedFolderMarkdownFiles();
       await this.flushStatusText(`Inbox Curator: Processing 0/${files.length}...`);
+
       const summary: WatchedFolderProcessingSummary = {
         processed: 0,
         skipped: 0,
         failed: 0,
+        remaining: 0,
       };
+      const maxNotesPerRun = Math.max(1, Math.round(this.settings.maxNotesPerRun));
+      const delayMs = this.getWatchedFolderRequestDelayMs();
+      let attemptedReviews = 0;
 
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
@@ -199,16 +223,30 @@ export default class InboxCuratorPlugin extends Plugin {
             continue;
           }
 
+          if (attemptedReviews >= maxNotesPerRun) {
+            summary.remaining += 1;
+            continue;
+          }
+
+          if (attemptedReviews > 0 && delayMs > 0) {
+            await sleep(delayMs);
+          }
+
+          attemptedReviews += 1;
           const result = await runReviewPipeline(this.app, file, {
             outputFolder: this.settings.reviewOutputFolder,
             provider: this.settings.provider,
             endpointUrl: this.settings.endpointUrl,
             model: this.settings.model,
+            fetchUrlMetadata: this.settings.fetchUrlMetadata,
           });
 
           if (result.ok === false) {
             summary.failed += 1;
             console.warn('Inbox Curator watched folder review failed', {
+              provider: this.settings.provider,
+              endpointUrl: this.settings.endpointUrl,
+              model: this.settings.model,
               notePath: file.path,
               error: result.error,
             });
@@ -219,6 +257,9 @@ export default class InboxCuratorPlugin extends Plugin {
         } catch (error) {
           summary.failed += 1;
           console.warn('Inbox Curator watched folder processing crashed', {
+            provider: this.settings.provider,
+            endpointUrl: this.settings.endpointUrl,
+            model: this.settings.model,
             notePath: file.path,
             error: error instanceof Error ? error.message : 'Unknown error',
           });
@@ -226,7 +267,7 @@ export default class InboxCuratorPlugin extends Plugin {
       }
 
       new Notice(
-        `Inbox Curator: Watched folder completed (${summary.processed} processed, ${summary.skipped} skipped, ${summary.failed} failed)`,
+        `Inbox Curator: Watched folder completed (${summary.processed} processed, ${summary.skipped} skipped, ${summary.failed} failed, ${summary.remaining} remaining)`,
       );
     } finally {
       this.finishProcessing();

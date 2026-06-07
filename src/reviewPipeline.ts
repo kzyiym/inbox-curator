@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath } from 'obsidian';
+import { App, TFile, normalizePath, requestUrl } from 'obsidian';
 import * as yaml from 'js-yaml';
 import { getApiKey } from './secrets';
 import { upsertReviewFrontmatter } from './frontmatter';
@@ -16,12 +16,27 @@ import type { InboxCuratorProvider } from './settings';
 
 const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n?/;
 const SOURCE_URL_KEYS = ['source_url', 'sourceUrl', 'url'] as const;
+const URL_REGEX = /https?:\/\/[^\s<>()\]]+/gi;
 
 export interface ReviewPipelineOptions {
   outputFolder: string;
   provider: InboxCuratorProvider;
   endpointUrl: string;
   model: string;
+  fetchUrlMetadata: boolean;
+}
+
+export interface UrlMetadata {
+  title?: string;
+  description?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  ogSiteName?: string;
+  ogType?: string;
+  ogUrl?: string;
+  twitterTitle?: string;
+  twitterDescription?: string;
+  canonicalUrl?: string;
 }
 
 export interface ReviewModelInputPayload {
@@ -36,6 +51,8 @@ export interface ReviewModelInputPayload {
   noteContent: string;
   noteCharacterCount: number;
   notePreview: string;
+  fetchStatus: ReviewFetchStatus;
+  urlMetadata?: UrlMetadata;
 }
 
 export interface ReviewPipelineSuccess {
@@ -54,14 +71,31 @@ export type ReviewPipelineResult = ReviewPipelineFailure | ReviewPipelineSuccess
 
 type ReviewRawResponse = Record<string, unknown>;
 
-function parseFrontmatter(content: string): Record<string, unknown> {
+interface ParsedDocument {
+  frontmatter: Record<string, unknown>;
+  body: string;
+}
+
+interface UrlOnlyDetectionResult {
+  isUrlOnly: boolean;
+  firstUrl?: string;
+}
+
+interface UrlMetadataFetchResult {
+  fetchStatus: ReviewFetchStatus;
+  metadata?: UrlMetadata;
+}
+
+function parseDocument(content: string): ParsedDocument {
   const match = content.match(FRONTMATTER_REGEX);
   if (!match) {
-    return {};
+    return { frontmatter: {}, body: content };
   }
 
   const parsed = yaml.load(match[1]);
-  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...(parsed as Record<string, unknown>) } : {};
+  const frontmatter = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...(parsed as Record<string, unknown>) } : {};
+  const body = content.slice(match[0].length);
+  return { frontmatter, body };
 }
 
 function extractSourceUrl(frontmatter: Record<string, unknown>): string | undefined {
@@ -73,6 +107,31 @@ function extractSourceUrl(frontmatter: Record<string, unknown>): string | undefi
   }
 
   return undefined;
+}
+
+function stripHeadingOnlyLines(body: string): string {
+  return body
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*#{1,6}\s+.*$/.test(line))
+    .join('\n');
+}
+
+function detectUrlOnlyBody(body: string): UrlOnlyDetectionResult {
+  const withoutHeadings = stripHeadingOnlyLines(body).trim();
+  const urls = withoutHeadings.match(URL_REGEX) ?? [];
+  if (urls.length === 0) {
+    return { isUrlOnly: false };
+  }
+
+  const remaining = withoutHeadings.replace(URL_REGEX, '').replace(/\s+/g, '');
+  if (remaining !== '') {
+    return { isUrlOnly: false };
+  }
+
+  return {
+    isUrlOnly: true,
+    firstUrl: urls[0],
+  };
 }
 
 function buildOutputPath(file: TFile, outputFolder: string): string {
@@ -130,8 +189,9 @@ function buildSourceHash(file: TFile, noteContent: string): string {
 }
 
 export function buildReviewSourceInfo(file: TFile, outputFolder: string, noteContent: string): ReviewSourceInfo {
-  const frontmatter = parseFrontmatter(noteContent);
-  const sourceUrl = extractSourceUrl(frontmatter);
+  const { frontmatter, body } = parseDocument(noteContent);
+  const extractedUrl = detectUrlOnlyBody(body).firstUrl;
+  const sourceUrl = extractSourceUrl(frontmatter) ?? extractedUrl;
 
   return {
     noteTitle: file.basename,
@@ -157,24 +217,188 @@ function looksJapanese(text: string): boolean {
   return Boolean(matches && matches.length >= 8);
 }
 
-export function buildReviewModelInputPayload(
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&nbsp;/gi, ' ')
+    .trim();
+}
+
+function extractTitleTag(html: string): string | undefined {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return match?.[1] ? decodeHtmlEntities(match[1].replace(/\s+/g, ' ')) : undefined;
+}
+
+function parseAttributes(tag: string): Record<string, string> {
+  const attributes: Record<string, string> = {};
+  for (const match of Array.from(tag.matchAll(/([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g))) {
+    const [, key, doubleQuoted, singleQuoted, unquoted] = match;
+    const rawValue = doubleQuoted ?? singleQuoted ?? unquoted ?? '';
+    attributes[key.toLowerCase()] = decodeHtmlEntities(rawValue);
+  }
+
+  return attributes;
+}
+
+function extractMetaContent(html: string, attributeName: 'name' | 'property', attributeValue: string): string | undefined {
+  for (const match of Array.from(html.matchAll(/<meta\b[^>]*>/gi))) {
+    const tag = match[0];
+    const attributes = parseAttributes(tag);
+    if (attributes[attributeName] === attributeValue) {
+      return attributes.content;
+    }
+  }
+
+  return undefined;
+}
+
+function extractCanonicalUrl(html: string): string | undefined {
+  for (const match of Array.from(html.matchAll(/<link\b[^>]*>/gi))) {
+    const tag = match[0];
+    const attributes = parseAttributes(tag);
+    if (attributes.rel?.toLowerCase() === 'canonical') {
+      return attributes.href;
+    }
+  }
+
+  return undefined;
+}
+
+function buildUrlMetadata(html: string): UrlMetadata {
+  const metadata: UrlMetadata = {
+    title: extractTitleTag(html),
+    description: extractMetaContent(html, 'name', 'description'),
+    ogTitle: extractMetaContent(html, 'property', 'og:title'),
+    ogDescription: extractMetaContent(html, 'property', 'og:description'),
+    ogSiteName: extractMetaContent(html, 'property', 'og:site_name'),
+    ogType: extractMetaContent(html, 'property', 'og:type'),
+    ogUrl: extractMetaContent(html, 'property', 'og:url'),
+    twitterTitle: extractMetaContent(html, 'name', 'twitter:title'),
+    twitterDescription: extractMetaContent(html, 'name', 'twitter:description'),
+    canonicalUrl: extractCanonicalUrl(html),
+  };
+
+  return Object.fromEntries(Object.entries(metadata).filter(([, value]) => typeof value === 'string' && value.trim() !== '')) as UrlMetadata;
+}
+
+function buildSafeSnippet(value: string | undefined, maxLength = 160): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}…`;
+}
+
+async function fetchUrlMetadata(url: string, notePath: string): Promise<UrlMetadataFetchResult> {
+  try {
+    const response = await requestUrl({
+      url,
+      method: 'GET',
+      throw: false,
+      headers: {
+        'User-Agent': 'Inbox Curator',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+    });
+
+    if (response.status < 200 || response.status >= 300) {
+      console.warn('Inbox Curator URL metadata fetch failed', {
+        notePath,
+        status: response.status,
+        error: `HTTP ${response.status}`,
+        responseSnippet: buildSafeSnippet(response.text),
+      });
+      return { fetchStatus: 'failed' };
+    }
+
+    const metadata = buildUrlMetadata(response.text);
+    return {
+      fetchStatus: 'success',
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    };
+  } catch (error) {
+    console.warn('Inbox Curator URL metadata fetch crashed', {
+      notePath,
+      error: error instanceof Error ? buildSafeSnippet(error.message) : 'Unknown error',
+    });
+    return { fetchStatus: 'failed' };
+  }
+}
+
+function buildUrlOnlyPromptContent(sourceUrl: string, body: string, fetchStatus: ReviewFetchStatus, metadata?: UrlMetadata): string {
+  const lines = [
+    'URL-only note detected.',
+    'The note body does not contain the full article text.',
+    `Extracted URL: ${sourceUrl}`,
+    `Metadata fetch status: ${fetchStatus}`,
+    '',
+    'Original note body:',
+    body.trim() || '(empty)',
+  ];
+
+  if (metadata && Object.keys(metadata).length > 0) {
+    lines.push('', 'Fetched URL metadata:');
+    for (const [key, value] of Object.entries(metadata)) {
+      lines.push(`- ${key}: ${value}`);
+    }
+  } else {
+    lines.push('', 'Fetched URL metadata: unavailable');
+  }
+
+  return lines.join('\n');
+}
+
+export async function buildReviewModelInputPayload(
   file: TFile,
   noteContent: string,
   source: ReviewSourceInfo,
   options: ReviewPipelineOptions,
-): ReviewModelInputPayload {
+): Promise<ReviewModelInputPayload> {
+  const { body } = parseDocument(noteContent);
+  const urlOnly = detectUrlOnlyBody(body);
+  const contentType: ReviewContentType = urlOnly.isUrlOnly ? 'url_only' : 'plain_note';
+  const inputProfile: ReviewInputProfile = urlOnly.isUrlOnly ? 'url_only' : 'plain_note';
+  const sourceUrl = source.sourceUrl ?? urlOnly.firstUrl;
+
+  let fetchStatus: ReviewFetchStatus = 'not_applicable';
+  let urlMetadata: UrlMetadata | undefined;
+  let promptContent = noteContent;
+  let previewSource = noteContent;
+
+  if (urlOnly.isUrlOnly && sourceUrl) {
+    if (options.fetchUrlMetadata) {
+      const metadataResult = await fetchUrlMetadata(sourceUrl, file.path);
+      fetchStatus = metadataResult.fetchStatus;
+      urlMetadata = metadataResult.metadata;
+    }
+
+    promptContent = buildUrlOnlyPromptContent(sourceUrl, body, fetchStatus, urlMetadata);
+    previewSource = promptContent;
+  }
+
   return {
     noteTitle: file.basename,
     notePath: file.path,
-    ...(source.sourceUrl ? { sourceUrl: source.sourceUrl } : {}),
-    contentType: 'plain_note',
-    inputProfile: 'plain_note',
+    ...(sourceUrl ? { sourceUrl } : {}),
+    contentType,
+    inputProfile,
     provider: options.provider,
     endpointUrl: options.endpointUrl.trim() || 'https://api.openai.com/v1',
     model: options.model.trim() || 'gpt-4o-mini',
-    noteContent,
-    noteCharacterCount: noteContent.length,
-    notePreview: buildNotePreview(noteContent),
+    noteContent: promptContent,
+    noteCharacterCount: promptContent.length,
+    notePreview: buildNotePreview(previewSource),
+    fetchStatus,
+    ...(urlMetadata ? { urlMetadata } : {}),
   };
 }
 
@@ -191,7 +415,7 @@ function buildMappingContext(source: ReviewSourceInfo, modelInput: ReviewModelIn
     source,
     contentType: modelInput.contentType,
     inputProfile: modelInput.inputProfile,
-    fetchStatus: 'not_applicable',
+    fetchStatus: modelInput.fetchStatus,
     domainProfile: 'none',
     provider: modelInput.provider,
     model: modelInput.model,
@@ -202,6 +426,14 @@ function buildReviewPrompt(modelInput: ReviewModelInputPayload): { system: strin
   const shouldUseJapanese = looksJapanese(`${modelInput.noteTitle}\n${modelInput.noteContent}`);
   const responseLanguage = shouldUseJapanese ? '日本語' : 'the same language as the note';
   const sourceUrlLine = modelInput.sourceUrl ? `Source URL: ${modelInput.sourceUrl}` : 'Source URL: none';
+  const urlOnlyGuidance =
+    modelInput.contentType === 'url_only'
+      ? [
+          'This is a URL-only note.',
+          'Do not assume the full article body was read or extracted.',
+          'If metadata is sparse or missing, keep the judgment provisional and reliability conservative.',
+        ]
+      : [];
 
   return {
     system: [
@@ -217,6 +449,7 @@ function buildReviewPrompt(modelInput: ReviewModelInputPayload): { system: strin
       'deleteCandidate must be a suggestion only, not an instruction.',
       'suggestedFolder must be a category-style suggestion, not the note title or a folder that simply repeats the note name.',
       'Do not overfit suggestedFolder to an assumed vault structure. Prefer broad category suggestions such as References/Companies, Clippings/Web Production, or Research/Competitors.',
+      ...urlOnlyGuidance,
       'Return only JSON with this schema:',
       '{',
       '  "verdict": {',
@@ -257,6 +490,7 @@ function buildReviewPrompt(modelInput: ReviewModelInputPayload): { system: strin
       sourceUrlLine,
       `Content type: ${modelInput.contentType}`,
       `Input profile: ${modelInput.inputProfile}`,
+      `Fetch status: ${modelInput.fetchStatus}`,
       'Evaluate the following note content and return JSON only.',
       '',
       modelInput.noteContent,
@@ -291,19 +525,6 @@ function tryParseJsonObject(text: string): ReviewRawResponse | null {
   }
 
   return null;
-}
-
-function buildSafeSnippet(value: string | undefined, maxLength = 160): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return undefined;
-  }
-
-  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}…`;
 }
 
 async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayload): Promise<ReviewRawResponse> {
@@ -359,7 +580,7 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
   const outputFolder = options.outputFolder.trim() || 'AI Reviews';
   const noteContent = await app.vault.read(file);
   const source = buildReviewSourceInfo(file, outputFolder, noteContent);
-  const modelInput = buildReviewModelInputPayload(file, noteContent, source, options);
+  const modelInput = await buildReviewModelInputPayload(file, noteContent, source, options);
 
   try {
     const rawReview = await getReviewRawResponse(app, modelInput);

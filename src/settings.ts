@@ -11,6 +11,12 @@ export interface InboxCuratorSettings {
   provider: InboxCuratorProvider;
   endpointUrl: string;
   model: string;
+  maxNotesPerRun: number;
+  requestsPerMinute: number;
+  delayBetweenRequestsMs: number;
+  fetchUrlMetadata: boolean;
+  readImages: boolean;
+  readVideos: boolean;
 }
 
 export const DEFAULT_SETTINGS: InboxCuratorSettings = {
@@ -19,7 +25,21 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   provider: 'openai-compatible',
   endpointUrl: 'https://api.openai.com/v1',
   model: 'gpt-4o-mini',
+  maxNotesPerRun: 10,
+  requestsPerMinute: 10,
+  delayBetweenRequestsMs: 1000,
+  fetchUrlMetadata: true,
+  readImages: false,
+  readVideos: false,
 };
+
+function clampInteger(value: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
 
 function buildConnectionFailureNotice(status: number | undefined, responseBody: string | undefined, error: string): string {
   const normalizedResponse = responseBody?.toLowerCase() ?? '';
@@ -33,6 +53,15 @@ function buildConnectionFailureNotice(status: number | undefined, responseBody: 
   }
 
   return `Connection test failed: ${error}`;
+}
+
+function buildSafeSnippet(value: string | undefined, maxLength = 160): string | undefined {
+  const normalized = value?.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}…`;
 }
 
 export class InboxCuratorSettingTab extends PluginSettingTab {
@@ -82,6 +111,81 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             this.plugin.settings.reviewOutputFolder = value.trim() || DEFAULT_SETTINGS.reviewOutputFolder;
             await this.plugin.saveSettings();
           }),
+      );
+
+    new Setting(containerEl)
+      .setName('Max notes per run')
+      .setDesc('Maximum number of AI-reviewed candidates per watched-folder run. Skipped notes do not count toward this cap.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.min = '1';
+        text.inputEl.max = '100';
+        text.setPlaceholder(String(DEFAULT_SETTINGS.maxNotesPerRun));
+        text.setValue(String(this.plugin.settings.maxNotesPerRun));
+        text.onChange(async (value) => {
+          this.plugin.settings.maxNotesPerRun = clampInteger(Number(value), 1, 100, DEFAULT_SETTINGS.maxNotesPerRun);
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('Requests per minute')
+      .setDesc('Used to derive a minimum delay between watched-folder AI review requests.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.min = '1';
+        text.inputEl.max = '60';
+        text.setPlaceholder(String(DEFAULT_SETTINGS.requestsPerMinute));
+        text.setValue(String(this.plugin.settings.requestsPerMinute));
+        text.onChange(async (value) => {
+          this.plugin.settings.requestsPerMinute = clampInteger(Number(value), 1, 60, DEFAULT_SETTINGS.requestsPerMinute);
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('Delay between requests')
+      .setDesc('Extra delay in milliseconds between watched-folder AI review requests. The larger of this and the requests-per-minute delay is used.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.min = '0';
+        text.inputEl.max = '60000';
+        text.setPlaceholder(String(DEFAULT_SETTINGS.delayBetweenRequestsMs));
+        text.setValue(String(this.plugin.settings.delayBetweenRequestsMs));
+        text.onChange(async (value) => {
+          this.plugin.settings.delayBetweenRequestsMs = clampInteger(Number(value), 0, 60000, DEFAULT_SETTINGS.delayBetweenRequestsMs);
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('Fetch URL metadata')
+      .setDesc('URL-only notes can fetch title, description, and Open Graph metadata. Full article extraction is not implemented yet.')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.fetchUrlMetadata).onChange(async (value) => {
+          this.plugin.settings.fetchUrlMetadata = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName('Read images')
+      .setDesc('Reserved for future image understanding. Image analysis is not implemented yet.')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.readImages).onChange(async (value) => {
+          this.plugin.settings.readImages = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName('Read videos')
+      .setDesc('Reserved for future video understanding. Video analysis is not implemented yet.')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.readVideos).onChange(async (value) => {
+          this.plugin.settings.readVideos = value;
+          await this.plugin.saveSettings();
+        }),
       );
 
     new Setting(containerEl)
@@ -232,10 +336,9 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             provider: this.plugin.settings.provider,
             endpointUrl: this.plugin.settings.endpointUrl,
             model: this.plugin.settings.model,
-            finalUrl: result.finalUrl,
             status: result.status,
             error: result.error,
-            responseBody: result.responseBody,
+            responseSnippet: buildSafeSnippet(result.responseBody),
           });
         }),
       );
