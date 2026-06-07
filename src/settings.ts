@@ -1,7 +1,7 @@
 import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import type InboxCuratorPlugin from '../main';
 import { testConnection } from './connectionTest';
-import { deleteApiKey, getApiKey, getApiKeySecretId, hasApiKey, saveApiKey } from './secrets';
+import { deleteApiKey, getApiKey, getApiKeySecretId, hasApiKey, isMaskedApiKeyValue, SAVED_API_KEY_MASK, saveApiKey } from './secrets';
 
 export type InboxCuratorProvider = 'openai-compatible';
 
@@ -20,8 +20,6 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   endpointUrl: 'https://api.openai.com/v1',
   model: 'gpt-4o-mini',
 };
-
-const MASKED_API_KEY_VALUE = '•••••••• saved';
 
 export class InboxCuratorSettingTab extends PluginSettingTab {
   plugin: InboxCuratorPlugin;
@@ -120,17 +118,14 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     apiKeySetting.addText((text) => {
       text.inputEl.type = 'text';
+      text.setPlaceholder('Paste API key');
+
       void hasApiKey(this.app).then((saved) => {
-        if (saved) {
-          text.setValue(MASKED_API_KEY_VALUE);
-        } else {
-          text.setValue('');
-          text.setPlaceholder('Paste API key');
-        }
+        text.setValue(saved ? SAVED_API_KEY_MASK : '');
       });
 
       text.inputEl.addEventListener('focus', () => {
-        if (!hasEditedApiKey && text.inputEl.value === MASKED_API_KEY_VALUE) {
+        if (!hasEditedApiKey && text.inputEl.value === SAVED_API_KEY_MASK) {
           text.setValue('');
         }
       });
@@ -139,7 +134,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         if (!hasEditedApiKey) {
           void hasApiKey(this.app).then((saved) => {
             if (saved && text.inputEl.value.trim() === '') {
-              text.setValue(MASKED_API_KEY_VALUE);
+              text.setValue(SAVED_API_KEY_MASK);
             }
           });
         }
@@ -147,7 +142,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
       text.onChange((value) => {
         const trimmed = value.trim();
-        if (trimmed === MASKED_API_KEY_VALUE && hasEditedApiKey === false) {
+        if (!hasEditedApiKey && trimmed === SAVED_API_KEY_MASK) {
           draftValue = '';
           return;
         }
@@ -159,16 +154,23 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     apiKeySetting.addButton((button) =>
       button.setButtonText('Save API key').onClick(async () => {
-        if (!hasEditedApiKey || !draftValue) {
+        if (!hasEditedApiKey || !draftValue || isMaskedApiKeyValue(draftValue)) {
           new Notice('No new API key to save. Existing saved key was kept.');
           return;
         }
 
-        await saveApiKey(this.app, draftValue);
-        draftValue = '';
-        hasEditedApiKey = false;
-        this.display();
-        new Notice('API key saved to SecretStorage.');
+        try {
+          await saveApiKey(this.app, draftValue);
+          draftValue = '';
+          hasEditedApiKey = false;
+          this.display();
+          new Notice('API key saved to SecretStorage.');
+        } catch (error) {
+          new Notice('API key save failed');
+          console.warn('Inbox Curator API key save failed', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
       }),
     );
 
@@ -187,14 +189,14 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       .setDesc('Send a minimal OpenAI-compatible chat completion request using the saved API key.')
       .addButton((button) =>
         button.setButtonText('Test connection').onClick(async () => {
-          const apiKey = hasEditedApiKey && draftValue ? draftValue : await getApiKey(this.app);
-          if (!apiKey) {
-            new Notice('Connection test failed');
+          const apiKeyCandidate = hasEditedApiKey && draftValue ? draftValue : await getApiKey(this.app);
+          if (!apiKeyCandidate || isMaskedApiKeyValue(apiKeyCandidate)) {
+            new Notice('Connection test failed: missing API key');
             console.warn('Inbox Curator connection test aborted', {
               provider: this.plugin.settings.provider,
               endpointUrl: this.plugin.settings.endpointUrl,
               model: this.plugin.settings.model,
-              reason: 'Missing API key',
+              reason: 'Missing or masked API key',
             });
             return;
           }
@@ -203,15 +205,26 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             provider: this.plugin.settings.provider,
             endpointUrl: this.plugin.settings.endpointUrl,
             model: this.plugin.settings.model,
-            apiKey,
+            apiKey: apiKeyCandidate,
           });
 
-          if (result.ok) {
+          if (result.ok === true) {
             new Notice('Connection test succeeded');
             return;
           }
 
-          new Notice('Connection test failed');
+          const statusPart = result.status ? `HTTP ${result.status}` : result.error;
+          const reasonPart = result.responseBody ? `: ${result.responseBody}` : '';
+          new Notice(`Connection test failed: ${statusPart}${reasonPart}`);
+          console.warn('Inbox Curator connection test failed', {
+            provider: this.plugin.settings.provider,
+            endpointUrl: this.plugin.settings.endpointUrl,
+            model: this.plugin.settings.model,
+            finalUrl: result.finalUrl,
+            status: result.status,
+            error: result.error,
+            responseBody: result.responseBody,
+          });
         }),
       );
 
