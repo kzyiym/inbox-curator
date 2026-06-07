@@ -18,5 +18,4 @@ coverage/
 
 *.md
 !README.md
-!AGENTS.md
 docs/
