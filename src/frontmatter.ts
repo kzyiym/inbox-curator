@@ -52,6 +52,10 @@ export async function upsertReviewFrontmatter(app: App, file: TFile, result: Rev
   frontmatter.ai_review_needs_verification = result.flags.needsVerification;
   frontmatter.ai_review_delete_candidate = result.flags.deleteCandidate;
   frontmatter.ai_review_version = '0.1.0';
+  if (result.attachmentSummary) {
+    frontmatter.ai_review_attachment_count = result.attachmentSummary.totalCount;
+    frontmatter.ai_review_unresolved_attachment_count = result.attachmentSummary.unresolvedCount;
+  }
   if (result.source.sourceUrl) {
     frontmatter.ai_review_source_url = result.source.sourceUrl;
   }

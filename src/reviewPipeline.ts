@@ -13,6 +13,7 @@ import type {
   ReviewSourceInfo,
 } from './types';
 import { fetchUrlContext, type UrlMetadata } from './urlExtraction';
+import { extractAttachmentContext } from './attachmentContext';
 import type { InboxCuratorProvider } from './settings';
 
 const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n?/;
@@ -27,6 +28,8 @@ export interface ReviewPipelineOptions {
   fetchUrlMetadata: boolean;
   extractUrlArticleText: boolean;
   maxExtractedCharacters: number;
+  readImages: boolean;
+  readVideos: boolean;
 }
 
 export interface ReviewModelInputPayload {
@@ -44,6 +47,10 @@ export interface ReviewModelInputPayload {
   fetchStatus: ReviewFetchStatus;
   urlMetadata?: UrlMetadata;
   extractedTitle?: string;
+  readImages: boolean;
+  readVideos: boolean;
+  attachments?: import('./types').ReviewAttachment[];
+  attachmentSummary?: import('./types').ReviewAttachmentSummary;
 }
 
 export interface ReviewPipelineSuccess {
@@ -281,6 +288,7 @@ function buildUrlOnlyPromptContent(
 }
 
 export async function buildReviewModelInputPayload(
+  app: App,
   file: TFile,
   noteContent: string,
   source: ReviewSourceInfo,
@@ -289,6 +297,7 @@ export async function buildReviewModelInputPayload(
   const { body } = parseDocument(noteContent);
   const urlOnly = detectUrlOnlyBody(body);
   const sourceUrl = source.sourceUrl ?? urlOnly.firstUrl;
+  const attachmentContext = extractAttachmentContext(app, file, noteContent);
 
   let contentType: ReviewContentType = urlOnly.isUrlOnly ? 'url_only' : 'plain_note';
   let inputProfile: ReviewInputProfile = urlOnly.isUrlOnly ? 'url_only' : 'plain_note';
@@ -352,9 +361,55 @@ export async function buildReviewModelInputPayload(
     noteCharacterCount: promptContent.length,
     notePreview: buildNotePreview(previewSource),
     fetchStatus,
+    readImages: options.readImages,
+    readVideos: options.readVideos,
     ...(urlMetadata ? { urlMetadata } : {}),
     ...(extractedTitle ? { extractedTitle } : {}),
+    ...(attachmentContext.attachments.length > 0 ? { attachments: attachmentContext.attachments } : {}),
+    ...(attachmentContext.attachmentSummary ? { attachmentSummary: attachmentContext.attachmentSummary } : {}),
   };
+}
+
+function buildAttachmentPromptSection(modelInput: ReviewModelInputPayload, options: ReviewPipelineOptions): string[] {
+  const attachments = modelInput.attachments ?? [];
+  const summary = modelInput.attachmentSummary;
+  if (!summary || attachments.length === 0) {
+    return [];
+  }
+
+  const lines = [
+    'Attachment context:',
+    `- total: ${summary.totalCount}`,
+    `- images: ${summary.imageCount}`,
+    `- videos: ${summary.videoCount}`,
+    `- audio: ${summary.audioCount}`,
+    `- pdfs: ${summary.pdfCount}`,
+    `- documents: ${summary.documentCount}`,
+    `- archives: ${summary.archiveCount}`,
+    `- other: ${summary.otherCount}`,
+    `- unresolved: ${summary.unresolvedCount}`,
+    `- image reading enabled setting: ${options.readImages ? 'true' : 'false'}`,
+    `- video reading enabled setting: ${options.readVideos ? 'true' : 'false'}`,
+    '',
+    'Treat attachments conservatively:',
+    '- You were not given binary image/video/audio/PDF contents.',
+    '- Do not claim to have seen or listened to attachment contents unless the note text itself describes them.',
+    '- You may mention that attachments likely contain relevant context and propose verification or follow-up actions.',
+    '',
+    'Detected attachments:',
+  ];
+
+  for (const attachment of attachments.slice(0, 12)) {
+    lines.push(
+      `- ${attachment.displayName} | kind=${attachment.kind} | embedded=${attachment.embedded ? 'yes' : 'no'} | exists=${attachment.exists ? 'yes' : 'no'} | path=${attachment.path}`,
+    );
+  }
+
+  if (attachments.length > 12) {
+    lines.push(`- ... ${attachments.length - 12} more attachments omitted`);
+  }
+
+  return lines;
 }
 
 function buildMappingContext(source: ReviewSourceInfo, modelInput: ReviewModelInputPayload): {
@@ -365,6 +420,8 @@ function buildMappingContext(source: ReviewSourceInfo, modelInput: ReviewModelIn
   domainProfile: string;
   provider: string;
   model: string;
+  attachments?: import('./types').ReviewAttachment[];
+  attachmentSummary?: import('./types').ReviewAttachmentSummary;
 } {
   return {
     source,
@@ -374,6 +431,8 @@ function buildMappingContext(source: ReviewSourceInfo, modelInput: ReviewModelIn
     domainProfile: 'none',
     provider: modelInput.provider,
     model: modelInput.model,
+    ...(modelInput.attachments ? { attachments: modelInput.attachments } : {}),
+    ...(modelInput.attachmentSummary ? { attachmentSummary: modelInput.attachmentSummary } : {}),
   };
 }
 
@@ -381,6 +440,17 @@ function buildReviewPrompt(modelInput: ReviewModelInputPayload): { system: strin
   const shouldUseJapanese = looksJapanese(`${modelInput.noteTitle}\n${modelInput.noteContent}`);
   const responseLanguage = shouldUseJapanese ? '日本語' : 'the same language as the note';
   const sourceUrlLine = modelInput.sourceUrl ? `Source URL: ${modelInput.sourceUrl}` : 'Source URL: none';
+  const attachmentGuidance = buildAttachmentPromptSection(modelInput, {
+    outputFolder: '',
+    provider: modelInput.provider,
+    endpointUrl: modelInput.endpointUrl,
+    model: modelInput.model,
+    fetchUrlMetadata: false,
+    extractUrlArticleText: false,
+    maxExtractedCharacters: 0,
+    readImages: modelInput.readImages,
+    readVideos: modelInput.readVideos,
+  });
   const urlOnlyGuidance =
     modelInput.contentType === 'url_only'
       ? [
@@ -400,6 +470,8 @@ function buildReviewPrompt(modelInput: ReviewModelInputPayload): { system: strin
       'summary is a quickSummary field in practice: return at most 3 concise bullet-style items.',
       'retentionReasons must describe why the note is worth keeping, not just generic strengths. Return at most 4 items.',
       'nextActions must be concrete and limited to at most 4 items.',
+      'actionItems is optional. Use it for concrete follow-up actions, especially when attachments likely need manual review.',
+      'If attachments are present but their contents were not actually provided, explicitly avoid pretending they were analyzed.',
       'structuredSummary must organize the article for later reuse, not as a long narrative summary.',
       'structuredSummary.centralClaim must capture the main claim in one clear sentence.',
       'structuredSummary.keyPoints must list the reusable sub-points or claims from the note.',
@@ -445,6 +517,7 @@ function buildReviewPrompt(modelInput: ReviewModelInputPayload): { system: strin
       '  "risksOrGaps": [string],',
       '  "verificationNeeded": [string],',
       '  "nextActions": [string],',
+      '  "actionItems": [{ "type": "note|task|verify|extract|review_attachment|follow_up", "title": string, "detail": string, "targetPath": string }],',
       '  "suggestedTags": [string],',
       '  "suggestedFolder": string,',
       '  "flags": {',
@@ -460,6 +533,7 @@ function buildReviewPrompt(modelInput: ReviewModelInputPayload): { system: strin
       `Content type: ${modelInput.contentType}`,
       `Input profile: ${modelInput.inputProfile}`,
       `Fetch status: ${modelInput.fetchStatus}`,
+      ...(attachmentGuidance.length > 0 ? ['', ...attachmentGuidance] : []),
       'Evaluate the following note content and return JSON only.',
       '',
       modelInput.noteContent,
@@ -562,7 +636,7 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
   const outputFolder = options.outputFolder.trim() || 'AI Reviews';
   const noteContent = await app.vault.read(file);
   const source = buildReviewSourceInfo(file, outputFolder, noteContent);
-  const modelInput = await buildReviewModelInputPayload(file, noteContent, source, options);
+  const modelInput = await buildReviewModelInputPayload(app, file, noteContent, source, options);
 
   try {
     const rawReview = await getReviewRawResponse(app, modelInput);

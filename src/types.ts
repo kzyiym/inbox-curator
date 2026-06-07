@@ -27,6 +27,9 @@ export type RecommendedAction =
   | 'delete_candidate'
   | 'ignore';
 
+export type ReviewAttachmentKind = 'image' | 'video' | 'audio' | 'pdf' | 'document' | 'archive' | 'other';
+export type ReviewActionItemType = 'note' | 'task' | 'verify' | 'extract' | 'review_attachment' | 'follow_up';
+
 export interface ReviewSourceInfo {
   noteTitle: string;
   notePath: string;
@@ -68,6 +71,34 @@ export interface StructuredSummary {
   evidenceMentioned: string[];
 }
 
+export interface ReviewAttachment {
+  path: string;
+  displayName: string;
+  extension: string;
+  kind: ReviewAttachmentKind;
+  embedded: boolean;
+  exists: boolean;
+}
+
+export interface ReviewAttachmentSummary {
+  totalCount: number;
+  imageCount: number;
+  videoCount: number;
+  audioCount: number;
+  pdfCount: number;
+  documentCount: number;
+  archiveCount: number;
+  otherCount: number;
+  unresolvedCount: number;
+}
+
+export interface ReviewActionItem {
+  type: ReviewActionItemType;
+  title: string;
+  detail?: string;
+  targetPath?: string;
+}
+
 export interface ReviewResult {
   source: ReviewSourceInfo;
   contentType: ReviewContentType;
@@ -76,6 +107,8 @@ export interface ReviewResult {
   domainProfile: string;
   provider: string;
   model: string;
+  attachments?: ReviewAttachment[];
+  attachmentSummary?: ReviewAttachmentSummary;
   verdict: ReviewVerdict;
   scores: ReviewScores;
   summary: string[];
@@ -90,6 +123,7 @@ export interface ReviewResult {
   risksOrGaps: string[];
   verificationNeeded: string[];
   nextActions: string[];
+  actionItems?: ReviewActionItem[];
   suggestedTags: string[];
   suggestedFolder?: string;
   flags: ReviewFlags;

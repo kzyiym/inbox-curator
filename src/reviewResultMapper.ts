@@ -1,5 +1,8 @@
 import type {
   RecommendedAction,
+  ReviewActionItem,
+  ReviewAttachment,
+  ReviewAttachmentSummary,
   ReviewContentType,
   ReviewFetchStatus,
   ReviewInputProfile,
@@ -104,6 +107,22 @@ function normalizeStringMatrix(value: unknown): string[][] {
     .filter((row) => row.length > 0);
 }
 
+function normalizeActionItems(value: unknown): ReviewActionItem[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item))
+    .map((item) => ({
+      type: typeof item.type === 'string' && item.type.trim() !== '' ? (item.type.trim() as ReviewActionItem['type']) : 'follow_up',
+      title: typeof item.title === 'string' ? item.title.trim() : '',
+      ...(typeof item.detail === 'string' && item.detail.trim() !== '' ? { detail: item.detail.trim() } : {}),
+      ...(typeof item.targetPath === 'string' && item.targetPath.trim() !== '' ? { targetPath: item.targetPath.trim() } : {}),
+    }))
+    .filter((item) => item.title !== '');
+}
+
 function normalizeStructuredSummary(value: unknown): StructuredSummary | undefined {
   const summary = asRecord(value);
   const centralClaim = pickOptionalString(summary.centralClaim);
@@ -146,6 +165,8 @@ export interface ReviewResultMappingContext {
   domainProfile?: string;
   provider?: string;
   model?: string;
+  attachments?: ReviewAttachment[];
+  attachmentSummary?: ReviewAttachmentSummary;
 }
 
 export function mapToReviewResult(raw: unknown, context: ReviewResultMappingContext): ReviewResultMappingResult {
@@ -177,6 +198,8 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
     domainProfile: pickString(raw.domainProfile, context.domainProfile ?? 'none'),
     provider: pickString(raw.provider, context.provider ?? 'unknown'),
     model: pickString(raw.model, context.model ?? 'unknown'),
+    ...(Array.isArray(context.attachments) && context.attachments.length > 0 ? { attachments: context.attachments } : {}),
+    ...(context.attachmentSummary ? { attachmentSummary: context.attachmentSummary } : {}),
     verdict: {
       readingValueLabel: pickEnumValue(verdict.readingValueLabel, REVIEW_VALUE_LABELS, 'medium'),
       savingValueLabel: pickEnumValue(verdict.savingValueLabel, REVIEW_VALUE_LABELS, 'medium'),
@@ -202,6 +225,7 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
     risksOrGaps: normalizeStringArray(raw.risksOrGaps),
     verificationNeeded: normalizeStringArray(raw.verificationNeeded),
     nextActions: normalizeStringArray(raw.nextActions),
+    actionItems: normalizeActionItems(raw.actionItems),
     suggestedTags: normalizeStringArray(raw.suggestedTags),
     suggestedFolder: pickOptionalString(raw.suggestedFolder),
     flags: {

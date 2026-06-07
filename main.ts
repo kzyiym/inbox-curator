@@ -166,6 +166,8 @@ export default class InboxCuratorPlugin extends Plugin {
       fetchUrlMetadata: this.settings.fetchUrlMetadata,
       extractUrlArticleText: this.settings.extractUrlArticleText,
       maxExtractedCharacters: this.settings.maxExtractedCharacters,
+      readImages: this.settings.readImages,
+      readVideos: this.settings.readVideos,
     };
   }
 

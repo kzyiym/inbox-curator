@@ -21,8 +21,9 @@ Current implementation focuses on:
 - detecting URL-only notes and fetching URL context
 - extracting readable text from some static HTML article pages
 - provider abstraction for AI chat transport
+- attachment-aware prompting with conservative media handling
 
-Automatic watching and polling are now available, but both are default OFF. The plugin still does not implement persistent queue workers, JavaScript page rendering, PDF extraction, image analysis, or video analysis.
+Automatic watching and polling are now available, but both are default OFF. The plugin still does not implement persistent queue workers, JavaScript page rendering, PDF extraction, actual image analysis, or actual video analysis.
 
 ## What works now
 
@@ -79,11 +80,13 @@ The review note currently includes:
 - `Why this decision`
 - `Quick Summary`
 - `Structured Summary`
+- `Attachments`
 - `Retention Value`
 - `Evidence Basis`
 - `Risks / Gaps`
 - `Verification Needed`
 - `Next Actions`
+- `Action Items`
 - `Organization`
 
 `Quick Summary`
@@ -111,6 +114,7 @@ After a successful review, the source note is updated with minimal `ai_review_*`
 - priority
 - recommended action
 - verification flags
+- attachment counts when attachments were detected
 - source URL when available
 
 The plugin ignores its own `ai_review_*` frontmatter when calculating the source hash, so it does not force pointless re-review loops.
@@ -178,11 +182,13 @@ Saved API keys are masked in the settings UI.
 - `Max extracted characters`
   - caps the extracted article text included in the AI review prompt
 - `Read images`
-  - saved for future use only
-  - image analysis is not implemented yet
+  - currently affects prompting only
+  - the plugin may tell the AI that image attachments exist
+  - image bytes are not actually sent or analyzed yet
 - `Read videos`
-  - saved for future use only
-  - video analysis is not implemented yet
+  - currently affects prompting only
+  - the plugin may tell the AI that video attachments exist
+  - video bytes or transcripts are not actually sent or analyzed yet
 - `Provider`
   - provider abstraction exists
   - only `openai-compatible` is implemented right now
@@ -212,6 +218,20 @@ Saved API keys are masked in the settings UI.
 - Default max extracted characters: `12000`
 - Default read images: `false`
 - Default read videos: `false`
+
+## Attachment-aware prompting
+
+The current implementation can inspect note links and embeds to build a conservative attachment inventory.
+
+It currently:
+- detects linked or embedded non-Markdown attachments from wikilinks and markdown links
+- classifies likely attachment kinds such as image, video, audio, PDF, document, archive, or other
+- records attachment counts in the review result and source-note frontmatter
+- passes attachment inventory into the AI prompt
+- explicitly tells the AI not to pretend image/video/audio/PDF contents were actually read unless the note text itself provides that content
+
+This is intentionally not real attachment analysis.
+The plugin does not currently upload image bytes, render video, fetch transcripts, OCR PDFs, or inspect attachment contents directly.
 
 ## URL-only note handling
 
@@ -282,9 +302,9 @@ The following are intentionally not implemented yet:
 - JavaScript page rendering
 - screenshot-based browsing
 - PDF extraction
-- image analysis
-- video analysis
-- attachment analysis
+- actual image analysis
+- actual video analysis
+- attachment content analysis
 - automatic file moves
 - automatic deletion
 - model list fetch

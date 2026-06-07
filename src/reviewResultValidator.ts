@@ -1,5 +1,6 @@
 import type {
   RecommendedAction,
+  ReviewActionItem,
   ReviewContentType,
   ReviewFetchStatus,
   ReviewInputProfile,
@@ -44,6 +45,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+function isActionItemArray(value: unknown): value is ReviewActionItem[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.type === 'string' &&
+        typeof item.title === 'string' &&
+        (item.detail === undefined || typeof item.detail === 'string') &&
+        (item.targetPath === undefined || typeof item.targetPath === 'string'),
+    )
+  );
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -263,6 +278,10 @@ export function validateReviewResult(value: unknown): ReviewResultValidationResu
 
   if (!isStringArray(value.nextActions)) {
     return { ok: false, error: 'ReviewResult.nextActions must be a string array.' };
+  }
+
+  if (value.actionItems !== undefined && !isActionItemArray(value.actionItems)) {
+    return { ok: false, error: 'ReviewResult.actionItems must be an action-item array when present.' };
   }
 
   if (!isStringArray(value.suggestedTags)) {
