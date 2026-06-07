@@ -2,6 +2,7 @@ import { MarkdownView, Notice, Plugin, TFile, normalizePath } from 'obsidian';
 import { registerInboxCuratorCommands } from './src/commands';
 import { readAiReviewSourceHash } from './src/frontmatter';
 import { createReviewJob } from './src/queue/job';
+import { ReviewRateLimiter } from './src/queue/rateLimiter';
 import { ReviewQueue } from './src/queue/reviewQueue';
 import type { ReviewJob, ReviewJobResult } from './src/queue/queueTypes';
 import { buildReviewSourceInfo, runReviewPipeline, type ReviewPipelineOptions } from './src/reviewPipeline';
@@ -36,18 +37,25 @@ export default class InboxCuratorPlugin extends Plugin {
   private processingInProgress = false;
   private reviewStatusBarEl!: HTMLElement;
   private reviewQueue!: ReviewQueue;
+  private reviewRateLimiter = new ReviewRateLimiter();
 
   async onload(): Promise<void> {
     await this.loadSettings();
     this.reviewStatusBarEl = this.addStatusBarItem();
     this.setStatusIdle();
-    this.reviewQueue = new ReviewQueue(async (job) => this.runQueuedReviewJob(job));
+    this.reviewQueue = new ReviewQueue(async (job) => this.runQueuedReviewJob(job), {
+      rateLimiter: this.reviewRateLimiter,
+      onRetry: (job, attempt, delayMs, result) => {
+        this.logQueuedReviewRetry(job, attempt, delayMs, result.error);
+      },
+    });
     this.addSettingTab(new InboxCuratorSettingTab(this.app, this));
     registerInboxCuratorCommands(this);
   }
 
   onunload(): void {
     this.reviewQueue.stop();
+    this.reviewRateLimiter.reset();
     this.finishProcessing();
   }
 
@@ -152,6 +160,7 @@ export default class InboxCuratorPlugin extends Plugin {
         return {
           status: 'failed',
           error: result.error,
+          retryable: result.retryable,
         };
       }
 
@@ -208,6 +217,18 @@ export default class InboxCuratorPlugin extends Plugin {
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
       notePath: file.path,
+      error: error ?? 'Unknown error',
+    });
+  }
+
+  private logQueuedReviewRetry(job: ReviewJob, attempt: number, delayMs: number, error: string | undefined): void {
+    console.warn('Inbox Curator queued review retry scheduled', {
+      provider: this.settings.provider,
+      endpointUrl: this.settings.endpointUrl,
+      model: this.settings.model,
+      notePath: job.notePath,
+      nextAttempt: attempt,
+      delayMs,
       error: error ?? 'Unknown error',
     });
   }

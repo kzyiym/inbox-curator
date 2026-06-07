@@ -13,6 +13,8 @@ export interface ReviewJob {
 export interface ReviewJobResult {
   status: Extract<ReviewJobStatus, 'processed' | 'skipped' | 'failed' | 'cancelled'>;
   error?: string;
+  retryable?: boolean;
+  attempts?: number;
 }
 
 export interface ReviewQueueSnapshot {

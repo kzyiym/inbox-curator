@@ -1,3 +1,5 @@
+import { ReviewRateLimiter } from './rateLimiter';
+import { createDefaultReviewRetryPolicy, type ReviewRetryPolicy } from './retry';
 import type {
   ReviewJob,
   ReviewJobProcessor,
@@ -12,6 +14,12 @@ interface InternalQueueEntry {
   resolve: (result: ReviewJobResult) => void;
 }
 
+interface ReviewQueueOptions {
+  retryPolicy?: ReviewRetryPolicy;
+  rateLimiter?: ReviewRateLimiter;
+  onRetry?: (job: ReviewJob, attempt: number, delayMs: number, result: ReviewJobResult) => void;
+}
+
 export class ReviewQueue {
   private readonly pendingEntries: InternalQueueEntry[] = [];
   private readonly pendingByPath = new Map<string, InternalQueueEntry>();
@@ -22,8 +30,18 @@ export class ReviewQueue {
   private cancelledCount = 0;
   private draining = false;
   private stopping = false;
+  private readonly retryPolicy: ReviewRetryPolicy;
+  private readonly rateLimiter: ReviewRateLimiter;
+  private readonly onRetry?: (job: ReviewJob, attempt: number, delayMs: number, result: ReviewJobResult) => void;
 
-  constructor(private readonly processor: ReviewJobProcessor) {}
+  constructor(
+    private readonly processor: ReviewJobProcessor,
+    options: ReviewQueueOptions = {},
+  ) {
+    this.retryPolicy = options.retryPolicy ?? createDefaultReviewRetryPolicy();
+    this.rateLimiter = options.rateLimiter ?? new ReviewRateLimiter();
+    this.onRetry = options.onRetry;
+  }
 
   enqueue(job: ReviewJob): ReviewQueueEnqueueResult {
     const existingPending = this.pendingByPath.get(job.notePath);
@@ -81,6 +99,8 @@ export class ReviewQueue {
       this.cancelledCount += 1;
       entry.resolve({ status: 'cancelled' });
     }
+
+    this.rateLimiter.reset();
   }
 
   private async drainQueue(): Promise<void> {
@@ -99,15 +119,7 @@ export class ReviewQueue {
         this.pendingByPath.delete(entry.job.notePath);
         this.runningByPath.set(entry.job.notePath, entry.job);
 
-        let result: ReviewJobResult;
-        try {
-          result = await this.processor(entry.job);
-        } catch (error) {
-          result = {
-            status: 'failed',
-            error: error instanceof Error ? error.message : 'Unknown error',
-          };
-        }
+        const result = await this.executeJob(entry.job);
 
         this.runningByPath.delete(entry.job.notePath);
         this.recordResult(result);
@@ -115,6 +127,35 @@ export class ReviewQueue {
       }
     } finally {
       this.draining = false;
+    }
+  }
+
+  private async executeJob(job: ReviewJob): Promise<ReviewJobResult> {
+    let attempt = 0;
+    let pendingDelayMs = job.delayBeforeStartMs;
+
+    while (true) {
+      attempt += 1;
+      await this.rateLimiter.wait(pendingDelayMs);
+
+      let result: ReviewJobResult;
+      try {
+        result = await this.processor(job);
+      } catch (error) {
+        result = {
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+        };
+      }
+
+      const withAttempt = { ...result, attempts: attempt } satisfies ReviewJobResult;
+      if (!this.retryPolicy.shouldRetry(job, withAttempt, attempt)) {
+        return withAttempt;
+      }
+
+      const retryDelayMs = this.retryPolicy.getRetryDelayMs(job, withAttempt, attempt);
+      this.onRetry?.(job, attempt + 1, retryDelayMs, withAttempt);
+      pendingDelayMs = retryDelayMs;
     }
   }
 

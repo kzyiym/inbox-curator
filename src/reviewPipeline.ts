@@ -4,7 +4,7 @@ import { getApiKey } from './secrets';
 import { upsertReviewFrontmatter } from './frontmatter';
 import { mapToReviewResult } from './reviewResultMapper';
 import { writeReviewNote, type ReviewNoteWriteResult } from './reviewWriter';
-import { postOpenAiCompatibleChat } from './openAiCompatible';
+import { classifyOpenAiCompatibleFailure, postOpenAiCompatibleChat } from './openAiCompatible';
 import type {
   ReviewContentType,
   ReviewFetchStatus,
@@ -65,11 +65,28 @@ export interface ReviewPipelineSuccess {
 export interface ReviewPipelineFailure {
   ok: false;
   error: string;
+  status?: number;
+  retryable?: boolean;
+  stage?: 'request' | 'response_parse' | 'mapping' | 'write' | 'unknown';
 }
 
 export type ReviewPipelineResult = ReviewPipelineFailure | ReviewPipelineSuccess;
 
 type ReviewRawResponse = Record<string, unknown>;
+
+class ReviewPipelineError extends Error {
+  status?: number;
+  retryable?: boolean;
+  stage: 'request' | 'response_parse' | 'mapping' | 'write' | 'unknown';
+
+  constructor(message: string, options: { status?: number; retryable?: boolean; stage: 'request' | 'response_parse' | 'mapping' | 'write' | 'unknown' }) {
+    super(message);
+    this.name = 'ReviewPipelineError';
+    this.status = options.status;
+    this.retryable = options.retryable;
+    this.stage = options.stage;
+  }
+}
 
 interface ParsedDocument {
   frontmatter: Record<string, unknown>;
@@ -544,11 +561,17 @@ function tryParseJsonObject(text: string): ReviewRawResponse | null {
 async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayload): Promise<ReviewRawResponse> {
   const apiKey = await getApiKey(app);
   if (!apiKey) {
-    throw new Error('API key is not saved in SecretStorage.');
+    throw new ReviewPipelineError('API key is not saved in SecretStorage.', {
+      retryable: false,
+      stage: 'request',
+    });
   }
 
   if (modelInput.provider !== 'openai-compatible') {
-    throw new Error(`Unsupported provider: ${modelInput.provider}`);
+    throw new ReviewPipelineError(`Unsupported provider: ${modelInput.provider}`, {
+      retryable: false,
+      stage: 'request',
+    });
   }
 
   const prompt = buildReviewPrompt(modelInput);
@@ -564,15 +587,24 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
   });
 
   if (response.ok === false) {
+    const retryHint = classifyOpenAiCompatibleFailure(response);
     console.warn('Inbox Curator review request failed', {
       provider: modelInput.provider,
       endpointUrl: modelInput.endpointUrl,
       model: modelInput.model,
       status: response.status,
       error: response.error,
+      retryable: retryHint.retryable,
       responseSnippet: buildSafeSnippet(response.responseBody),
     });
-    throw new Error(response.status ? `AI review request failed (${response.status}).` : `AI review request failed: ${response.error}`);
+    throw new ReviewPipelineError(
+      response.status ? `AI review request failed (${response.status}).` : `AI review request failed: ${response.error}`,
+      {
+        status: response.status,
+        retryable: retryHint.retryable,
+        stage: 'request',
+      },
+    );
   }
 
   const parsed = tryParseJsonObject(response.content);
@@ -584,7 +616,11 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
       status: response.status,
       contentLength: response.content.length,
     });
-    throw new Error('AI review response was not valid JSON.');
+    throw new ReviewPipelineError('AI review response was not valid JSON.', {
+      retryable: false,
+      stage: 'response_parse',
+      status: response.status,
+    });
   }
 
   return parsed;
@@ -601,7 +637,7 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
     const mapping = mapToReviewResult(rawReview, buildMappingContext(source, modelInput));
 
     if (mapping.ok === false) {
-      return { ok: false, error: mapping.error };
+      return { ok: false, error: mapping.error, retryable: false, stage: 'mapping' };
     }
 
     const writeResult = await writeReviewNote(app, file, mapping.result);
@@ -614,9 +650,21 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
       modelInput,
     };
   } catch (error) {
+    if (error instanceof ReviewPipelineError) {
+      return {
+        ok: false,
+        error: error.message,
+        status: error.status,
+        retryable: error.retryable,
+        stage: error.stage,
+      };
+    }
+
     return {
       ok: false,
       error: error instanceof Error ? error.message : 'Unknown review pipeline error.',
+      retryable: false,
+      stage: 'unknown',
     };
   }
 }

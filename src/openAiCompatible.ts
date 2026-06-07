@@ -29,6 +29,38 @@ export interface OpenAiCompatibleChatFailure {
 
 export type OpenAiCompatibleChatResult = OpenAiCompatibleChatSuccess | OpenAiCompatibleChatFailure;
 
+export interface OpenAiCompatibleRetryHint {
+  retryable: boolean;
+  reason?: string;
+}
+
+export function classifyOpenAiCompatibleFailure(failure: OpenAiCompatibleChatFailure): OpenAiCompatibleRetryHint {
+  const responseText = failure.responseBody?.toLowerCase() ?? '';
+  const errorText = failure.error.toLowerCase();
+
+  if (failure.status === 429 && responseText.includes('prepayment credits are depleted')) {
+    return { retryable: false, reason: 'credits_depleted' };
+  }
+
+  if (failure.status !== undefined) {
+    if (failure.status === 429 || failure.status === 408 || failure.status === 409) {
+      return { retryable: true, reason: `http_${failure.status}` };
+    }
+
+    if (failure.status >= 500 && failure.status <= 504) {
+      return { retryable: true, reason: `http_${failure.status}` };
+    }
+
+    return { retryable: false, reason: `http_${failure.status}` };
+  }
+
+  if (/(timeout|timed out|network|econnreset|socket hang up|temporarily unavailable)/i.test(errorText)) {
+    return { retryable: true, reason: 'transient_network_error' };
+  }
+
+  return { retryable: false, reason: 'non_retryable_request_error' };
+}
+
 export function normalizeEndpointUrl(endpointUrl: string): string {
   return endpointUrl.trim().replace(/\/+$/, '');
 }
