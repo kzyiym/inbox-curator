@@ -39,6 +39,22 @@ const options = {
   readVideos: false,
 };
 
+describe('buildReviewSourceInfo source hash behavior', () => {
+  it('keeps the same source hash when only ai_review frontmatter and file stat metadata change', () => {
+    const file = createTFile('Inbox/note.md');
+    const originalContent = `---\ntags:\n  - inbox\n---\nBody text\n`;
+    const original = buildReviewSourceInfo(file, 'AI Reviews', originalContent);
+
+    file.stat.mtime = 999999;
+    file.stat.size = 999999;
+
+    const reviewedContent = `---\ntags:\n  - inbox\nai_review_status: completed\nai_review_source_hash: deadbeef\nai_review_processed_at: 2026-06-07T00:00:00.000Z\n---\nBody text\n`;
+    const reviewed = buildReviewSourceInfo(file, 'AI Reviews', reviewedContent);
+
+    expect(reviewed.sourceHash).toBe(original.sourceHash);
+  });
+});
+
 describe('buildReviewModelInputPayload URL-only behavior', () => {
   it('treats URL-only body plus heading-only structure as url_only', async () => {
     vi.mocked(fetchUrlContext).mockResolvedValue({

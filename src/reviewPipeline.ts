@@ -199,8 +199,6 @@ function buildSourceHash(file: TFile, noteContent: string): string {
   return hashString(
     JSON.stringify({
       notePath: file.path,
-      mtime: file.stat.mtime,
-      size: file.stat.size,
       noteContent: buildHashSourceContent(noteContent),
     }),
   );

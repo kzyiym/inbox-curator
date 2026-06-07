@@ -80,6 +80,20 @@ function buildSafeSnippet(value: string | undefined, maxLength = 160): string | 
   return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}…`;
 }
 
+export interface SettingsUiVisibility {
+  showAutomaticWatchingDetails: boolean;
+  showPollingDetails: boolean;
+  showArticleExtractionDetails: boolean;
+}
+
+export function getSettingsUiVisibility(settings: InboxCuratorSettings): SettingsUiVisibility {
+  return {
+    showAutomaticWatchingDetails: settings.enableAutomaticWatching,
+    showPollingDetails: settings.enablePolling,
+    showArticleExtractionDetails: settings.extractUrlArticleText,
+  };
+}
+
 export class InboxCuratorSettingTab extends PluginSettingTab {
   plugin: InboxCuratorPlugin;
 
@@ -88,8 +102,17 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+  private renderSectionHeading(containerEl: HTMLElement, title: string, description?: string): void {
+    containerEl.createEl('h3', { text: title });
+    if (description) {
+      containerEl.createEl('p', { text: description });
+    }
+  }
+
   display(): void {
     const { containerEl } = this;
+    const settings = this.plugin.settings;
+    const visibility = getSettingsUiVisibility(settings);
     containerEl.empty();
 
     containerEl.createEl('h2', { text: 'Inbox Curator' });
@@ -103,15 +126,17 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       text: 'Saved API keys are masked and never displayed.',
     });
 
+    this.renderSectionHeading(containerEl, 'Folders & review scope', 'Basic watched-folder scope and bounded batch settings.');
+
     new Setting(containerEl)
       .setName('Watched folder')
       .setDesc('Single watched folder for the current MVP.')
       .addText((text) =>
         text
           .setPlaceholder('Inbox')
-          .setValue(this.plugin.settings.watchedFolder)
+          .setValue(settings.watchedFolder)
           .onChange(async (value) => {
-            this.plugin.settings.watchedFolder = value.trim();
+            settings.watchedFolder = value.trim();
             await this.plugin.saveSettings();
           }),
       );
@@ -122,9 +147,9 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       .addText((text) =>
         text
           .setPlaceholder('AI Reviews')
-          .setValue(this.plugin.settings.reviewOutputFolder)
+          .setValue(settings.reviewOutputFolder)
           .onChange(async (value) => {
-            this.plugin.settings.reviewOutputFolder = value.trim() || DEFAULT_SETTINGS.reviewOutputFolder;
+            settings.reviewOutputFolder = value.trim() || DEFAULT_SETTINGS.reviewOutputFolder;
             await this.plugin.saveSettings();
           }),
       );
@@ -137,12 +162,14 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         text.inputEl.min = '1';
         text.inputEl.max = '100';
         text.setPlaceholder(String(DEFAULT_SETTINGS.maxNotesPerRun));
-        text.setValue(String(this.plugin.settings.maxNotesPerRun));
+        text.setValue(String(settings.maxNotesPerRun));
         text.onChange(async (value) => {
-          this.plugin.settings.maxNotesPerRun = clampInteger(Number(value), 1, 100, DEFAULT_SETTINGS.maxNotesPerRun);
+          settings.maxNotesPerRun = clampInteger(Number(value), 1, 100, DEFAULT_SETTINGS.maxNotesPerRun);
           await this.plugin.saveSettings();
         });
       });
+
+    this.renderSectionHeading(containerEl, 'Request pacing', 'These settings control deliberate request spacing for watched-folder reviews.');
 
     new Setting(containerEl)
       .setName('Requests per minute')
@@ -152,9 +179,9 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         text.inputEl.min = '1';
         text.inputEl.max = '60';
         text.setPlaceholder(String(DEFAULT_SETTINGS.requestsPerMinute));
-        text.setValue(String(this.plugin.settings.requestsPerMinute));
+        text.setValue(String(settings.requestsPerMinute));
         text.onChange(async (value) => {
-          this.plugin.settings.requestsPerMinute = clampInteger(Number(value), 1, 60, DEFAULT_SETTINGS.requestsPerMinute);
+          settings.requestsPerMinute = clampInteger(Number(value), 1, 60, DEFAULT_SETTINGS.requestsPerMinute);
           await this.plugin.saveSettings();
         });
       });
@@ -167,89 +194,99 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         text.inputEl.min = '0';
         text.inputEl.max = '60000';
         text.setPlaceholder(String(DEFAULT_SETTINGS.delayBetweenRequestsMs));
-        text.setValue(String(this.plugin.settings.delayBetweenRequestsMs));
+        text.setValue(String(settings.delayBetweenRequestsMs));
         text.onChange(async (value) => {
-          this.plugin.settings.delayBetweenRequestsMs = clampInteger(Number(value), 0, 60000, DEFAULT_SETTINGS.delayBetweenRequestsMs);
+          settings.delayBetweenRequestsMs = clampInteger(Number(value), 0, 60000, DEFAULT_SETTINGS.delayBetweenRequestsMs);
           await this.plugin.saveSettings();
         });
       });
+
+    this.renderSectionHeading(containerEl, 'Automation', 'Automatic behavior stays conservative by default. Related controls appear only when their parent mode is enabled.');
 
     new Setting(containerEl)
       .setName('Automatic watching')
       .setDesc('Default OFF. Watch the configured folder for new or changed Markdown notes and enqueue automatic reviews.')
       .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.enableAutomaticWatching).onChange(async (value) => {
-          this.plugin.settings.enableAutomaticWatching = value;
+        toggle.setValue(settings.enableAutomaticWatching).onChange(async (value) => {
+          settings.enableAutomaticWatching = value;
           await this.plugin.saveSettings();
+          this.display();
         }),
       );
 
-    new Setting(containerEl)
-      .setName('Auto-review on create')
-      .setDesc('When automatic watching is enabled, enqueue review for new Markdown notes in the watched folder.')
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.autoReviewOnCreate).onChange(async (value) => {
-          this.plugin.settings.autoReviewOnCreate = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+    if (visibility.showAutomaticWatchingDetails) {
+      new Setting(containerEl)
+        .setName('Auto-review on create')
+        .setDesc('When automatic watching is enabled, enqueue review for new Markdown notes in the watched folder.')
+        .addToggle((toggle) =>
+          toggle.setValue(settings.autoReviewOnCreate).onChange(async (value) => {
+            settings.autoReviewOnCreate = value;
+            await this.plugin.saveSettings();
+          }),
+        );
 
-    new Setting(containerEl)
-      .setName('Auto-review on modify')
-      .setDesc('When automatic watching is enabled, enqueue review for changed Markdown notes in the watched folder.')
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.autoReviewOnModify).onChange(async (value) => {
-          this.plugin.settings.autoReviewOnModify = value;
-          await this.plugin.saveSettings();
-        }),
-      );
+      new Setting(containerEl)
+        .setName('Auto-review on modify')
+        .setDesc('When automatic watching is enabled, enqueue review for changed Markdown notes in the watched folder.')
+        .addToggle((toggle) =>
+          toggle.setValue(settings.autoReviewOnModify).onChange(async (value) => {
+            settings.autoReviewOnModify = value;
+            await this.plugin.saveSettings();
+          }),
+        );
 
-    new Setting(containerEl)
-      .setName('Watch debounce')
-      .setDesc('Delay in milliseconds before an automatic watched-folder change is queued. Helps collapse noisy modify bursts.')
-      .addText((text) => {
-        text.inputEl.type = 'number';
-        text.inputEl.min = '0';
-        text.inputEl.max = '60000';
-        text.setPlaceholder(String(DEFAULT_SETTINGS.watchDebounceMs));
-        text.setValue(String(this.plugin.settings.watchDebounceMs));
-        text.onChange(async (value) => {
-          this.plugin.settings.watchDebounceMs = clampInteger(Number(value), 0, 60000, DEFAULT_SETTINGS.watchDebounceMs);
-          await this.plugin.saveSettings();
+      new Setting(containerEl)
+        .setName('Watch debounce')
+        .setDesc('Delay in milliseconds before an automatic watched-folder change is queued. Helps collapse noisy modify bursts.')
+        .addText((text) => {
+          text.inputEl.type = 'number';
+          text.inputEl.min = '0';
+          text.inputEl.max = '60000';
+          text.setPlaceholder(String(DEFAULT_SETTINGS.watchDebounceMs));
+          text.setValue(String(settings.watchDebounceMs));
+          text.onChange(async (value) => {
+            settings.watchDebounceMs = clampInteger(Number(value), 0, 60000, DEFAULT_SETTINGS.watchDebounceMs);
+            await this.plugin.saveSettings();
+          });
         });
-      });
+    }
 
     new Setting(containerEl)
       .setName('Polling fallback')
       .setDesc('Default OFF. Periodically rescan the watched folder for changed notes that may have been missed by file events.')
       .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.enablePolling).onChange(async (value) => {
-          this.plugin.settings.enablePolling = value;
+        toggle.setValue(settings.enablePolling).onChange(async (value) => {
+          settings.enablePolling = value;
           await this.plugin.saveSettings();
+          this.display();
         }),
       );
 
-    new Setting(containerEl)
-      .setName('Polling interval')
-      .setDesc('Polling interval in milliseconds. Used only when polling fallback is enabled.')
-      .addText((text) => {
-        text.inputEl.type = 'number';
-        text.inputEl.min = '5000';
-        text.inputEl.max = '600000';
-        text.setPlaceholder(String(DEFAULT_SETTINGS.pollingIntervalMs));
-        text.setValue(String(this.plugin.settings.pollingIntervalMs));
-        text.onChange(async (value) => {
-          this.plugin.settings.pollingIntervalMs = clampInteger(Number(value), 5000, 600000, DEFAULT_SETTINGS.pollingIntervalMs);
-          await this.plugin.saveSettings();
+    if (visibility.showPollingDetails) {
+      new Setting(containerEl)
+        .setName('Polling interval')
+        .setDesc('Polling interval in milliseconds. Used only when polling fallback is enabled.')
+        .addText((text) => {
+          text.inputEl.type = 'number';
+          text.inputEl.min = '5000';
+          text.inputEl.max = '600000';
+          text.setPlaceholder(String(DEFAULT_SETTINGS.pollingIntervalMs));
+          text.setValue(String(settings.pollingIntervalMs));
+          text.onChange(async (value) => {
+            settings.pollingIntervalMs = clampInteger(Number(value), 5000, 600000, DEFAULT_SETTINGS.pollingIntervalMs);
+            await this.plugin.saveSettings();
+          });
         });
-      });
+    }
+
+    this.renderSectionHeading(containerEl, 'URL extraction', 'Control how URL-only notes gather metadata and static article-like text.');
 
     new Setting(containerEl)
       .setName('Fetch URL metadata')
       .setDesc('URL-only notes can fetch title, description, and Open Graph metadata. This can be used with or without article text extraction.')
       .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.fetchUrlMetadata).onChange(async (value) => {
-          this.plugin.settings.fetchUrlMetadata = value;
+        toggle.setValue(settings.fetchUrlMetadata).onChange(async (value) => {
+          settings.fetchUrlMetadata = value;
           await this.plugin.saveSettings();
         }),
       );
@@ -258,33 +295,38 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       .setName('Extract URL article text')
       .setDesc('Fetch static HTML for URL-only notes and try to extract readable article text. JavaScript rendering and PDF extraction are still not supported.')
       .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.extractUrlArticleText).onChange(async (value) => {
-          this.plugin.settings.extractUrlArticleText = value;
+        toggle.setValue(settings.extractUrlArticleText).onChange(async (value) => {
+          settings.extractUrlArticleText = value;
           await this.plugin.saveSettings();
+          this.display();
         }),
       );
 
-    new Setting(containerEl)
-      .setName('Max extracted characters')
-      .setDesc('Upper bound for extracted article text included in the AI review prompt for URL-only notes.')
-      .addText((text) => {
-        text.inputEl.type = 'number';
-        text.inputEl.min = '1000';
-        text.inputEl.max = '50000';
-        text.setPlaceholder(String(DEFAULT_SETTINGS.maxExtractedCharacters));
-        text.setValue(String(this.plugin.settings.maxExtractedCharacters));
-        text.onChange(async (value) => {
-          this.plugin.settings.maxExtractedCharacters = clampInteger(Number(value), 1000, 50000, DEFAULT_SETTINGS.maxExtractedCharacters);
-          await this.plugin.saveSettings();
+    if (visibility.showArticleExtractionDetails) {
+      new Setting(containerEl)
+        .setName('Max extracted characters')
+        .setDesc('Upper bound for extracted article text included in the AI review prompt for URL-only notes.')
+        .addText((text) => {
+          text.inputEl.type = 'number';
+          text.inputEl.min = '1000';
+          text.inputEl.max = '50000';
+          text.setPlaceholder(String(DEFAULT_SETTINGS.maxExtractedCharacters));
+          text.setValue(String(settings.maxExtractedCharacters));
+          text.onChange(async (value) => {
+            settings.maxExtractedCharacters = clampInteger(Number(value), 1000, 50000, DEFAULT_SETTINGS.maxExtractedCharacters);
+            await this.plugin.saveSettings();
+          });
         });
-      });
+    }
+
+    this.renderSectionHeading(containerEl, 'Attachments & media', 'These settings are conservative. Attachments can inform prompting, but image, video, and PDF bytes are not directly analyzed yet.');
 
     new Setting(containerEl)
       .setName('Read images')
       .setDesc('Currently affects prompting only. The plugin may tell the AI that image attachments exist, but image bytes are not actually sent or analyzed yet.')
       .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.readImages).onChange(async (value) => {
-          this.plugin.settings.readImages = value;
+        toggle.setValue(settings.readImages).onChange(async (value) => {
+          settings.readImages = value;
           await this.plugin.saveSettings();
         }),
       );
@@ -293,11 +335,17 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       .setName('Read videos')
       .setDesc('Currently affects prompting only. The plugin may tell the AI that video attachments exist, but video bytes or transcripts are not actually sent or analyzed yet.')
       .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.readVideos).onChange(async (value) => {
-          this.plugin.settings.readVideos = value;
+        toggle.setValue(settings.readVideos).onChange(async (value) => {
+          settings.readVideos = value;
           await this.plugin.saveSettings();
         }),
       );
+
+    containerEl.createEl('p', {
+      text: 'PDF extraction is still not implemented. Linked PDFs can be counted as attachments, but their contents are not read yet.',
+    });
+
+    this.renderSectionHeading(containerEl, 'Provider & credentials', 'Connection settings live in plugin settings, while the API key stays in SecretStorage.');
 
     new Setting(containerEl)
       .setName('Provider')
@@ -305,9 +353,9 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       .addDropdown((dropdown) =>
         dropdown
           .addOption('openai-compatible', 'openai-compatible')
-          .setValue(this.plugin.settings.provider)
+          .setValue(settings.provider)
           .onChange(async (value) => {
-            this.plugin.settings.provider = value as InboxCuratorProvider;
+            settings.provider = value as InboxCuratorProvider;
             await this.plugin.saveSettings();
           }),
       );
@@ -318,9 +366,9 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       .addText((text) =>
         text
           .setPlaceholder(DEFAULT_SETTINGS.endpointUrl)
-          .setValue(this.plugin.settings.endpointUrl)
+          .setValue(settings.endpointUrl)
           .onChange(async (value) => {
-            this.plugin.settings.endpointUrl = value.trim() || DEFAULT_SETTINGS.endpointUrl;
+            settings.endpointUrl = value.trim() || DEFAULT_SETTINGS.endpointUrl;
             await this.plugin.saveSettings();
           }),
       );
@@ -331,9 +379,9 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       .addText((text) =>
         text
           .setPlaceholder(DEFAULT_SETTINGS.model)
-          .setValue(this.plugin.settings.model)
+          .setValue(settings.model)
           .onChange(async (value) => {
-            this.plugin.settings.model = value.trim() || DEFAULT_SETTINGS.model;
+            settings.model = value.trim() || DEFAULT_SETTINGS.model;
             await this.plugin.saveSettings();
           }),
       );
@@ -422,18 +470,18 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           if (!apiKeyCandidate || isMaskedApiKeyValue(apiKeyCandidate)) {
             new Notice('Connection test failed: missing API key');
             console.warn('Inbox Curator connection test aborted', {
-              provider: this.plugin.settings.provider,
-              endpointUrl: this.plugin.settings.endpointUrl,
-              model: this.plugin.settings.model,
+              provider: settings.provider,
+              endpointUrl: settings.endpointUrl,
+              model: settings.model,
               reason: 'Missing or masked API key',
             });
             return;
           }
 
           const result = await testConnection({
-            provider: this.plugin.settings.provider,
-            endpointUrl: this.plugin.settings.endpointUrl,
-            model: this.plugin.settings.model,
+            provider: settings.provider,
+            endpointUrl: settings.endpointUrl,
+            model: settings.model,
             apiKey: apiKeyCandidate,
           });
 
@@ -444,9 +492,9 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
           new Notice(buildConnectionFailureNotice(result.status, result.responseBody, result.error));
           console.warn('Inbox Curator connection test failed', {
-            provider: this.plugin.settings.provider,
-            endpointUrl: this.plugin.settings.endpointUrl,
-            model: this.plugin.settings.model,
+            provider: settings.provider,
+            endpointUrl: settings.endpointUrl,
+            model: settings.model,
             status: result.status,
             error: result.error,
             responseSnippet: buildSafeSnippet(result.responseBody),

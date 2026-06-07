@@ -10,7 +10,11 @@ export class TFile {
 }
 
 export class Notice {
-  constructor(_message?: string) {}
+  constructor(_message?: string, _duration?: number) {}
+  setMessage(_message: string) {
+    return this;
+  }
+  hide() {}
 }
 
 export class PluginSettingTab {}

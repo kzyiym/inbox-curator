@@ -1,14 +1,13 @@
 import { MarkdownView, Notice, Plugin, TFile, normalizePath } from 'obsidian';
 import { registerInboxCuratorCommands } from './src/commands';
 import { readAiReviewSourceHash } from './src/frontmatter';
+import { ProcessingNoticeManager } from './src/processingNotice';
 import { createReviewJob } from './src/queue/job';
 import { ReviewRateLimiter } from './src/queue/rateLimiter';
 import { ReviewQueue } from './src/queue/reviewQueue';
 import type { ReviewJob, ReviewJobResult, ReviewJobSource } from './src/queue/queueTypes';
 import { buildReviewSourceInfo, runReviewPipeline, type ReviewPipelineOptions } from './src/reviewPipeline';
 import { DEFAULT_SETTINGS, InboxCuratorSettings, InboxCuratorSettingTab } from './src/settings';
-
-const REVIEWING_STATUS_TEXT = 'Inbox Curator: Reviewing...';
 const REVIEWING_NOTICE_TEXT = 'Inbox Curator: Reviewing current note...';
 const PROCESSING_IN_PROGRESS_NOTICE_TEXT = 'Inbox Curator: Review already in progress';
 const REVIEW_COMPLETED_NOTICE_TEXT = 'Inbox Curator: Review completed';
@@ -41,7 +40,7 @@ interface AutomaticEnqueueResult {
 export default class InboxCuratorPlugin extends Plugin {
   settings: InboxCuratorSettings = DEFAULT_SETTINGS;
   private processingInProgress = false;
-  private reviewStatusBarEl!: HTMLElement;
+  private readonly processingNotice = new ProcessingNoticeManager();
   private reviewQueue!: ReviewQueue;
   private reviewRateLimiter = new ReviewRateLimiter();
   private readonly automaticReviewTimers = new Map<string, number>();
@@ -50,8 +49,6 @@ export default class InboxCuratorPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
-    this.reviewStatusBarEl = this.addStatusBarItem();
-    this.setStatusIdle();
     this.reviewQueue = new ReviewQueue(async (job) => this.runQueuedReviewJob(job), {
       rateLimiter: this.reviewRateLimiter,
       onRetry: (job, attempt, delayMs, result) => {
@@ -115,19 +112,8 @@ export default class InboxCuratorPlugin extends Plugin {
     this.configurePolling();
   }
 
-  private setStatusIdle(): void {
-    this.reviewStatusBarEl.textContent = '';
-    this.reviewStatusBarEl.style.display = 'none';
-  }
-
-  private setStatusText(text: string): void {
-    this.reviewStatusBarEl.textContent = text;
-    this.reviewStatusBarEl.style.display = '';
-  }
-
-  private async flushStatusText(text: string): Promise<void> {
-    this.setStatusText(text);
-    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  private updateProcessingStatus(text: string): void {
+    this.processingNotice.update(text);
   }
 
   private buildShortReviewError(message: string): string {
@@ -148,13 +134,13 @@ export default class InboxCuratorPlugin extends Plugin {
     }
 
     this.processingInProgress = true;
-    new Notice(noticeText);
+    this.processingNotice.show(noticeText);
     return true;
   }
 
   private finishProcessing(): void {
     this.processingInProgress = false;
-    this.setStatusIdle();
+    this.processingNotice.clear();
   }
 
   private getReviewPipelineOptions(): ReviewPipelineOptions {
@@ -488,7 +474,7 @@ export default class InboxCuratorPlugin extends Plugin {
       return;
     }
 
-    await this.flushStatusText(REVIEWING_STATUS_TEXT);
+    this.updateProcessingStatus(REVIEWING_NOTICE_TEXT);
 
     try {
       const job = createReviewJob('current-note', file.path);
@@ -519,7 +505,7 @@ export default class InboxCuratorPlugin extends Plugin {
 
     try {
       const files = this.getWatchedFolderMarkdownFiles();
-      await this.flushStatusText(`Inbox Curator: Processing 0/${files.length}...`);
+      this.updateProcessingStatus(`Inbox Curator: Processing 0/${files.length}...`);
 
       const summary: WatchedFolderProcessingSummary = {
         processed: 0,
@@ -534,7 +520,7 @@ export default class InboxCuratorPlugin extends Plugin {
 
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
-        await this.flushStatusText(`Inbox Curator: Processing ${index + 1}/${files.length}...`);
+        this.updateProcessingStatus(`Inbox Curator: Processing ${index + 1}/${files.length}...`);
 
         try {
           if (await this.shouldSkipWatchedFile(file)) {
@@ -575,7 +561,7 @@ export default class InboxCuratorPlugin extends Plugin {
 
       for (let index = 0; index < queuedTasks.length; index += 1) {
         const task = queuedTasks[index];
-        await this.flushStatusText(`Inbox Curator: Reviewing ${index + 1}/${queuedTasks.length}...`);
+        this.updateProcessingStatus(`Inbox Curator: Reviewing ${index + 1}/${queuedTasks.length}...`);
         const result = await task.resultPromise;
 
         if (result.status === 'processed') {
