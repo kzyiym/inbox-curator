@@ -70,6 +70,9 @@ export interface ReviewResult {
   detailedSummary: string;
   credibilityReview: string;
   practicalityReview: string;
+  decisionReason?: string;
+  retentionReasons?: string[];
+  evidenceBasis?: string[];
   strengths: string[];
   risksOrGaps: string[];
   verificationNeeded: string[];

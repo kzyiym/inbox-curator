@@ -181,6 +181,9 @@ function buildReviewPrompt(modelInput: ReviewModelInputPayload): { system: strin
       'Do not use markdown fences or commentary.',
       `Write all natural-language fields in ${responseLanguage}.`,
       'Assess reading value, saving value, reliability, practicality, risks or missing context, and next actions.',
+      'decisionReason must explain why the recommended handling is appropriate in 1-3 sentences. It is not a summary.',
+      'retentionReasons must describe why the note is worth keeping, not just generic strengths.',
+      'evidenceBasis must classify the reliability basis using one or more of: official_documentation, primary_source, first_hand_experience, cited_secondary_source, uncited_secondary_source, ai_generated, social_claim, unclear.',
       'deleteCandidate must be a suggestion only, not an instruction.',
       'suggestedFolder must be a suggestion only.',
       'Return only JSON with this schema:',
@@ -198,10 +201,13 @@ function buildReviewPrompt(modelInput: ReviewModelInputPayload): { system: strin
       '    "reliability": 0-100 integer,',
       '    "practicality": 0-100 integer',
       '  },',
+      '  "decisionReason": string,',
       '  "summary": [string],',
       '  "detailedSummary": string,',
       '  "credibilityReview": string,',
       '  "practicalityReview": string,',
+      '  "retentionReasons": [string],',
+      '  "evidenceBasis": [string],',
       '  "strengths": [string],',
       '  "risksOrGaps": [string],',
       '  "verificationNeeded": [string],',
@@ -256,6 +262,19 @@ function tryParseJsonObject(text: string): ReviewRawResponse | null {
   return null;
 }
 
+function buildSafeSnippet(value: string | undefined, maxLength = 160): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}…`;
+}
+
 async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayload): Promise<ReviewRawResponse> {
   const apiKey = await getApiKey(app);
   if (!apiKey) {
@@ -285,7 +304,7 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
       model: modelInput.model,
       status: response.status,
       error: response.error,
-      responseBody: response.responseBody,
+      responseSnippet: buildSafeSnippet(response.responseBody),
     });
     throw new Error(response.status ? `AI review request failed (${response.status}).` : `AI review request failed: ${response.error}`);
   }

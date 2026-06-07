@@ -199,6 +199,18 @@ export function validateReviewResult(value: unknown): ReviewResultValidationResu
     return { ok: false, error: 'ReviewResult.practicalityReview must be a string.' };
   }
 
+  if (value.decisionReason !== undefined && typeof value.decisionReason !== 'string') {
+    return { ok: false, error: 'ReviewResult.decisionReason must be a string when present.' };
+  }
+
+  if (value.retentionReasons !== undefined && !isStringArray(value.retentionReasons)) {
+    return { ok: false, error: 'ReviewResult.retentionReasons must be a string array when present.' };
+  }
+
+  if (value.evidenceBasis !== undefined && !isStringArray(value.evidenceBasis)) {
+    return { ok: false, error: 'ReviewResult.evidenceBasis must be a string array when present.' };
+  }
+
   if (!isStringArray(value.strengths)) {
     return { ok: false, error: 'ReviewResult.strengths must be a string array.' };
   }

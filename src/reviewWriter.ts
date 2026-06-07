@@ -62,6 +62,11 @@ function firstSentence(text: string): string {
 }
 
 function buildDecisionReason(result: ReviewResult): string {
+  const explicitDecisionReason = typeof result.decisionReason === 'string' ? compactWhitespace(result.decisionReason) : '';
+  if (explicitDecisionReason) {
+    return explicitDecisionReason;
+  }
+
   const summaryLead = firstNonEmpty(result.summary);
   if (summaryLead) {
     return summaryLead;
@@ -90,6 +95,10 @@ function buildQuickSummaryItems(result: ReviewResult): string[] {
 }
 
 function buildRetentionValueItems(result: ReviewResult): string[] {
+  if (Array.isArray(result.retentionReasons) && result.retentionReasons.length > 0) {
+    return result.retentionReasons;
+  }
+
   if (result.strengths.length > 0) {
     return result.strengths;
   }
@@ -106,6 +115,10 @@ function buildRetentionValueItems(result: ReviewResult): string[] {
 }
 
 function buildEvidenceBasisItems(result: ReviewResult): string[] {
+  if (Array.isArray(result.evidenceBasis) && result.evidenceBasis.length > 0) {
+    return result.evidenceBasis;
+  }
+
   const items = ['Not explicitly classified yet'];
   const credibilityLead = firstSentence(result.credibilityReview);
   if (credibilityLead) {

@@ -24,6 +24,9 @@ export interface DummyReviewRawResponse {
   detailedSummary: string;
   credibilityReview: string;
   practicalityReview: string;
+  decisionReason: string;
+  retentionReasons: string[];
+  evidenceBasis: string[];
   strengths: string[];
   risksOrGaps: string[];
   verificationNeeded: string[];
@@ -66,6 +69,12 @@ export function buildDummyReviewRawResponse(input: ReviewModelInputPayload): Dum
     detailedSummary: `Dummy review generated for ${input.noteTitle}. Preview basis: ${input.notePreview || 'No preview available.'}`,
     credibilityReview: 'No AI credibility analysis has been run yet.',
     practicalityReview: `Prepared an AI input payload for ${input.provider} at ${input.endpointUrl} with ${input.noteCharacterCount} characters without logging the full note body.`,
+    decisionReason: 'This note is being kept as a reference because the current pipeline can already normalize and write a reusable review artifact, but the judgment still needs real AI backing.',
+    retentionReasons: [
+      'The note already passes through the shared review pipeline and can be revisited later.',
+      'The normalized review output can still support iterative improvement of the review experience.',
+    ],
+    evidenceBasis: ['ai_generated', 'unclear'],
     strengths: [
       'Review note writing is routed through the shared review pipeline.',
       'Frontmatter updates are still based on the normalized ReviewResult object.',
