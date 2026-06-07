@@ -21,6 +21,20 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   model: 'gpt-4o-mini',
 };
 
+function buildConnectionFailureNotice(status: number | undefined, responseBody: string | undefined, error: string): string {
+  const normalizedResponse = responseBody?.toLowerCase() ?? '';
+
+  if (status === 429 && normalizedResponse.includes('prepayment credits are depleted')) {
+    return 'Connection failed: Google AI Studio credits are depleted';
+  }
+
+  if (status) {
+    return `Connection test failed: HTTP ${status}`;
+  }
+
+  return `Connection test failed: ${error}`;
+}
+
 export class InboxCuratorSettingTab extends PluginSettingTab {
   plugin: InboxCuratorPlugin;
 
@@ -213,9 +227,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             return;
           }
 
-          const statusPart = result.status ? `HTTP ${result.status}` : result.error;
-          const reasonPart = result.responseBody ? `: ${result.responseBody}` : '';
-          new Notice(`Connection test failed: ${statusPart}${reasonPart}`);
+          new Notice(buildConnectionFailureNotice(result.status, result.responseBody, result.error));
           console.warn('Inbox Curator connection test failed', {
             provider: this.plugin.settings.provider,
             endpointUrl: this.plugin.settings.endpointUrl,
