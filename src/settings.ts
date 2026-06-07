@@ -301,7 +301,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Provider')
-      .setDesc('Stored in data.json. Real provider branching is not implemented yet.')
+      .setDesc('Stored in data.json. Provider abstraction exists, but only openai-compatible is implemented right now.')
       .addDropdown((dropdown) =>
         dropdown
           .addOption('openai-compatible', 'openai-compatible')

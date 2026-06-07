@@ -1,5 +1,5 @@
+import { buildProviderChatUrl, postProviderChat } from './providerClient';
 import type { InboxCuratorProvider } from './settings';
-import { buildChatCompletionsUrl, postOpenAiCompatibleChat } from './openAiCompatible';
 
 export interface ConnectionTestOptions {
   provider: InboxCuratorProvider;
@@ -36,7 +36,7 @@ export interface ConnectionTestFailure {
 export type ConnectionTestResult = ConnectionTestSuccess | ConnectionTestFailure;
 
 export async function testConnection(options: ConnectionTestOptions): Promise<ConnectionTestResult> {
-  const finalUrl = buildChatCompletionsUrl(options.endpointUrl);
+  const finalUrl = buildProviderChatUrl(options.provider, options.endpointUrl);
   const requestBody = {
     model: options.model.trim(),
     messages: [
@@ -46,11 +46,8 @@ export async function testConnection(options: ConnectionTestOptions): Promise<Co
     temperature: 0,
   };
 
-  if (options.provider !== 'openai-compatible') {
-    return { ok: false, error: `Unsupported provider: ${options.provider}`, finalUrl, requestBody };
-  }
-
-  const response = await postOpenAiCompatibleChat({
+  const response = await postProviderChat({
+    provider: options.provider,
     endpointUrl: options.endpointUrl,
     model: options.model,
     apiKey: options.apiKey,

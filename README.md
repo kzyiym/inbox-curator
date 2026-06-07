@@ -20,6 +20,7 @@ Current implementation focuses on:
 - skipping unchanged notes with a source hash
 - detecting URL-only notes and fetching URL context
 - extracting readable text from some static HTML article pages
+- provider abstraction for AI chat transport
 
 Automatic watching and polling are now available, but both are default OFF. The plugin still does not implement persistent queue workers, JavaScript page rendering, PDF extraction, image analysis, or video analysis.
 
@@ -183,6 +184,7 @@ Saved API keys are masked in the settings UI.
   - saved for future use only
   - video analysis is not implemented yet
 - `Provider`
+  - provider abstraction exists
   - only `openai-compatible` is implemented right now
 - `Endpoint URL`
   - stored in `data.json`
@@ -286,7 +288,7 @@ The following are intentionally not implemented yet:
 - automatic file moves
 - automatic deletion
 - model list fetch
-- provider-specific branching beyond `openai-compatible`
+- provider-specific implementations beyond `openai-compatible`
 
 ## Development
 

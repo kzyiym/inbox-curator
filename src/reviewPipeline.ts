@@ -4,7 +4,7 @@ import { getApiKey } from './secrets';
 import { upsertReviewFrontmatter } from './frontmatter';
 import { mapToReviewResult } from './reviewResultMapper';
 import { writeReviewNote, type ReviewNoteWriteResult } from './reviewWriter';
-import { classifyOpenAiCompatibleFailure, postOpenAiCompatibleChat } from './openAiCompatible';
+import { classifyProviderFailure, postProviderChat } from './providerClient';
 import type {
   ReviewContentType,
   ReviewFetchStatus,
@@ -505,15 +505,9 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
     });
   }
 
-  if (modelInput.provider !== 'openai-compatible') {
-    throw new ReviewPipelineError(`Unsupported provider: ${modelInput.provider}`, {
-      retryable: false,
-      stage: 'request',
-    });
-  }
-
   const prompt = buildReviewPrompt(modelInput);
-  const response = await postOpenAiCompatibleChat({
+  const response = await postProviderChat({
+    provider: modelInput.provider,
     endpointUrl: modelInput.endpointUrl,
     model: modelInput.model,
     apiKey,
@@ -525,7 +519,7 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
   });
 
   if (response.ok === false) {
-    const retryHint = classifyOpenAiCompatibleFailure(response);
+    const retryHint = classifyProviderFailure(modelInput.provider, response);
     console.warn('Inbox Curator review request failed', {
       provider: modelInput.provider,
       endpointUrl: modelInput.endpointUrl,
