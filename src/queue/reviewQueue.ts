@@ -18,6 +18,15 @@ interface ReviewQueueOptions {
   retryPolicy?: ReviewRetryPolicy;
   rateLimiter?: ReviewRateLimiter;
   onRetry?: (job: ReviewJob, attempt: number, delayMs: number, result: ReviewJobResult) => void;
+  maxConcurrentJobs?: number;
+}
+
+function clampMaxConcurrentJobs(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+
+  return Math.min(8, Math.max(1, Math.round(value ?? 1)));
 }
 
 export class ReviewQueue {
@@ -33,6 +42,7 @@ export class ReviewQueue {
   private readonly retryPolicy: ReviewRetryPolicy;
   private readonly rateLimiter: ReviewRateLimiter;
   private readonly onRetry?: (job: ReviewJob, attempt: number, delayMs: number, result: ReviewJobResult) => void;
+  private maxConcurrentJobs: number;
 
   constructor(
     private readonly processor: ReviewJobProcessor,
@@ -41,6 +51,7 @@ export class ReviewQueue {
     this.retryPolicy = options.retryPolicy ?? createDefaultReviewRetryPolicy();
     this.rateLimiter = options.rateLimiter ?? new ReviewRateLimiter();
     this.onRetry = options.onRetry;
+    this.maxConcurrentJobs = clampMaxConcurrentJobs(options.maxConcurrentJobs);
   }
 
   enqueue(job: ReviewJob): ReviewQueueEnqueueResult {
@@ -71,6 +82,11 @@ export class ReviewQueue {
     return { accepted: true, duplicate: false, promise };
   }
 
+  setMaxConcurrentJobs(value: number): void {
+    this.maxConcurrentJobs = clampMaxConcurrentJobs(value);
+    void this.drainQueue();
+  }
+
   getSnapshot(): ReviewQueueSnapshot {
     return {
       pending: this.pendingEntries.length,
@@ -80,6 +96,8 @@ export class ReviewQueue {
       failed: this.failedCount,
       cancelled: this.cancelledCount,
       stopping: this.stopping,
+      maxConcurrentJobs: this.maxConcurrentJobs,
+      availableSlots: Math.max(0, this.maxConcurrentJobs - this.runningByPath.size),
     };
   }
 
@@ -110,7 +128,7 @@ export class ReviewQueue {
 
     this.draining = true;
     try {
-      while (!this.stopping) {
+      while (!this.stopping && this.runningByPath.size < this.maxConcurrentJobs) {
         const entry = this.pendingEntries.shift();
         if (!entry) {
           break;
@@ -118,16 +136,20 @@ export class ReviewQueue {
 
         this.pendingByPath.delete(entry.job.notePath);
         this.runningByPath.set(entry.job.notePath, entry.job);
-
-        const result = await this.executeJob(entry.job);
-
-        this.runningByPath.delete(entry.job.notePath);
-        this.recordResult(result);
-        entry.resolve(result);
+        void this.runEntry(entry);
       }
     } finally {
       this.draining = false;
     }
+  }
+
+  private async runEntry(entry: InternalQueueEntry): Promise<void> {
+    const result = await this.executeJob(entry.job);
+
+    this.runningByPath.delete(entry.job.notePath);
+    this.recordResult(result);
+    entry.resolve(result);
+    void this.drainQueue();
   }
 
   private async executeJob(job: ReviewJob): Promise<ReviewJobResult> {

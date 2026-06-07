@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS, getSettingsUiVisibility } from '../src/settings';
 
+
 describe('getSettingsUiVisibility', () => {
+  it('keeps bounded review concurrency conservative by default', () => {
+    expect(DEFAULT_SETTINGS.maxConcurrentReviews).toBe(1);
+  });
+
   it('hides automatic watching child settings when automatic watching is off', () => {
     const visibility = getSettingsUiVisibility({
       ...DEFAULT_SETTINGS,

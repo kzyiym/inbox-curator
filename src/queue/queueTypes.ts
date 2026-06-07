@@ -25,6 +25,8 @@ export interface ReviewQueueSnapshot {
   failed: number;
   cancelled: number;
   stopping: boolean;
+  maxConcurrentJobs: number;
+  availableSlots: number;
 }
 
 export interface ReviewQueueEnqueueResult {

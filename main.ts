@@ -51,6 +51,7 @@ export default class InboxCuratorPlugin extends Plugin {
     await this.loadSettings();
     this.reviewQueue = new ReviewQueue(async (job) => this.runQueuedReviewJob(job), {
       rateLimiter: this.reviewRateLimiter,
+      maxConcurrentJobs: this.settings.maxConcurrentReviews,
       onRetry: (job, attempt, delayMs, result) => {
         this.logQueuedReviewRetry(job, attempt, delayMs, result.error);
       },
@@ -93,6 +94,7 @@ export default class InboxCuratorPlugin extends Plugin {
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
       maxNotesPerRun: this.settings.maxNotesPerRun,
+      maxConcurrentReviews: this.settings.maxConcurrentReviews,
       requestsPerMinute: this.settings.requestsPerMinute,
       delayBetweenRequestsMs: this.settings.delayBetweenRequestsMs,
       enableAutomaticWatching: this.settings.enableAutomaticWatching,
@@ -108,6 +110,7 @@ export default class InboxCuratorPlugin extends Plugin {
       readVideos: this.settings.readVideos,
     });
 
+    this.reviewQueue?.setMaxConcurrentJobs(this.settings.maxConcurrentReviews);
     this.clearAutomaticReviewTimers();
     this.configurePolling();
   }

@@ -12,6 +12,7 @@ export interface InboxCuratorSettings {
   endpointUrl: string;
   model: string;
   maxNotesPerRun: number;
+  maxConcurrentReviews: number;
   requestsPerMinute: number;
   delayBetweenRequestsMs: number;
   enableAutomaticWatching: boolean;
@@ -34,6 +35,7 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   endpointUrl: 'https://api.openai.com/v1',
   model: 'gpt-4o-mini',
   maxNotesPerRun: 10,
+  maxConcurrentReviews: 1,
   requestsPerMinute: 10,
   delayBetweenRequestsMs: 1000,
   enableAutomaticWatching: false,
@@ -165,6 +167,21 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         text.setValue(String(settings.maxNotesPerRun));
         text.onChange(async (value) => {
           settings.maxNotesPerRun = clampInteger(Number(value), 1, 100, DEFAULT_SETTINGS.maxNotesPerRun);
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('Max concurrent reviews')
+      .setDesc('Maximum number of watched-folder reviews allowed to run at once. 1 keeps the most conservative behavior.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.min = '1';
+        text.inputEl.max = '8';
+        text.setPlaceholder(String(DEFAULT_SETTINGS.maxConcurrentReviews));
+        text.setValue(String(settings.maxConcurrentReviews));
+        text.onChange(async (value) => {
+          settings.maxConcurrentReviews = clampInteger(Number(value), 1, 8, DEFAULT_SETTINGS.maxConcurrentReviews);
           await this.plugin.saveSettings();
         });
       });

@@ -67,7 +67,8 @@ When enabled, the plugin:
 - debounces noisy modify bursts with `Watch debounce`
 - re-checks the source hash before enqueueing an automatic review
 - uses polling as a fallback rescan mechanism when enabled
-- keeps automatic jobs on the same serial queue and shared rate limit as manual jobs
+- keeps automatic jobs on the same shared queue and shared rate limit as manual jobs
+- supports bounded parallel watched-folder processing via `Max concurrent reviews`
 
 Polling is intended as a fallback, not as a replacement for explicit manual batch runs.
 
@@ -154,6 +155,9 @@ Saved API keys are masked in the settings UI.
 - `Max notes per run`
   - caps only AI-reviewed candidates in watched-folder runs
   - skipped notes do not count toward the cap
+- `Max concurrent reviews`
+  - caps how many watched-folder reviews may run at the same time
+  - default `1` keeps the most conservative behavior
 - `Requests per minute`
   - sets a minimum delay between queued AI review attempts
 - `Delay between requests`
@@ -297,7 +301,7 @@ Failure logs are kept short and typically include only:
 
 The following are intentionally not implemented yet:
 - persistent queue workers
-- parallel processing
+- unbounded or persistent parallel processing
 - robust Readability-quality extraction
 - JavaScript page rendering
 - screenshot-based browsing
