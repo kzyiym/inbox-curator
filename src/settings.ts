@@ -14,6 +14,12 @@ export interface InboxCuratorSettings {
   maxNotesPerRun: number;
   requestsPerMinute: number;
   delayBetweenRequestsMs: number;
+  enableAutomaticWatching: boolean;
+  autoReviewOnCreate: boolean;
+  autoReviewOnModify: boolean;
+  watchDebounceMs: number;
+  enablePolling: boolean;
+  pollingIntervalMs: number;
   fetchUrlMetadata: boolean;
   readImages: boolean;
   readVideos: boolean;
@@ -28,6 +34,12 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   maxNotesPerRun: 10,
   requestsPerMinute: 10,
   delayBetweenRequestsMs: 1000,
+  enableAutomaticWatching: false,
+  autoReviewOnCreate: false,
+  autoReviewOnModify: false,
+  watchDebounceMs: 1500,
+  enablePolling: false,
+  pollingIntervalMs: 30000,
   fetchUrlMetadata: true,
   readImages: false,
   readVideos: false,
@@ -154,6 +166,76 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         text.setValue(String(this.plugin.settings.delayBetweenRequestsMs));
         text.onChange(async (value) => {
           this.plugin.settings.delayBetweenRequestsMs = clampInteger(Number(value), 0, 60000, DEFAULT_SETTINGS.delayBetweenRequestsMs);
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('Automatic watching')
+      .setDesc('Default OFF. Watch the configured folder for new or changed Markdown notes and enqueue automatic reviews.')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.enableAutomaticWatching).onChange(async (value) => {
+          this.plugin.settings.enableAutomaticWatching = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName('Auto-review on create')
+      .setDesc('When automatic watching is enabled, enqueue review for new Markdown notes in the watched folder.')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.autoReviewOnCreate).onChange(async (value) => {
+          this.plugin.settings.autoReviewOnCreate = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName('Auto-review on modify')
+      .setDesc('When automatic watching is enabled, enqueue review for changed Markdown notes in the watched folder.')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.autoReviewOnModify).onChange(async (value) => {
+          this.plugin.settings.autoReviewOnModify = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName('Watch debounce')
+      .setDesc('Delay in milliseconds before an automatic watched-folder change is queued. Helps collapse noisy modify bursts.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.min = '0';
+        text.inputEl.max = '60000';
+        text.setPlaceholder(String(DEFAULT_SETTINGS.watchDebounceMs));
+        text.setValue(String(this.plugin.settings.watchDebounceMs));
+        text.onChange(async (value) => {
+          this.plugin.settings.watchDebounceMs = clampInteger(Number(value), 0, 60000, DEFAULT_SETTINGS.watchDebounceMs);
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('Polling fallback')
+      .setDesc('Default OFF. Periodically rescan the watched folder for changed notes that may have been missed by file events.')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.enablePolling).onChange(async (value) => {
+          this.plugin.settings.enablePolling = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName('Polling interval')
+      .setDesc('Polling interval in milliseconds. Used only when polling fallback is enabled.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.min = '5000';
+        text.inputEl.max = '600000';
+        text.setPlaceholder(String(DEFAULT_SETTINGS.pollingIntervalMs));
+        text.setValue(String(this.plugin.settings.pollingIntervalMs));
+        text.onChange(async (value) => {
+          this.plugin.settings.pollingIntervalMs = clampInteger(Number(value), 5000, 600000, DEFAULT_SETTINGS.pollingIntervalMs);
           await this.plugin.saveSettings();
         });
       });

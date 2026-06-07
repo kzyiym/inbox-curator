@@ -13,12 +13,14 @@ This plugin is no longer just a scaffold.
 Current implementation focuses on:
 - reviewing the current Markdown note with an OpenAI-compatible API
 - manually processing a single watched folder in batch
+- optionally auto-watching a single watched folder for create/modify events
+- optionally polling the watched folder for missed changes
 - writing a separate AI review note
 - storing minimal review state back into the source note frontmatter
 - skipping unchanged notes with a source hash
 - detecting URL-only notes and fetching metadata only
 
-It does not yet implement automatic background watching, queue workers, full article extraction, image analysis, or video analysis.
+Automatic watching and polling are now available, but both are default OFF. The plugin still does not implement persistent queue workers, full article extraction, image analysis, or video analysis.
 
 ## What works now
 
@@ -45,7 +47,26 @@ The plugin currently registers these commands:
 - spaces AI requests using `Requests per minute` and `Delay between requests`
 - retries transient AI request failures with backoff before giving up
 
-Important: watched-folder processing is manual only right now. There is no automatic file watcher yet.
+Important: manual watched-folder processing still exists and remains the most explicit way to run a bounded batch.
+
+### Automatic watching and polling
+
+Automatic watched-folder behavior is now available, but everything is conservative by default:
+- `Automatic watching` is default OFF
+- `Auto-review on create` is default OFF
+- `Auto-review on modify` is default OFF
+- `Polling fallback` is default OFF
+
+When enabled, the plugin:
+- watches the configured watched folder for Markdown note create/modify events
+- ignores files in the review output folder
+- ignores `*.ai-review.md`
+- debounces noisy modify bursts with `Watch debounce`
+- re-checks the source hash before enqueueing an automatic review
+- uses polling as a fallback rescan mechanism when enabled
+- keeps automatic jobs on the same serial queue and shared rate limit as manual jobs
+
+Polling is intended as a fallback, not as a replacement for explicit manual batch runs.
 
 ### Review output
 
@@ -100,6 +121,12 @@ The plugin currently stores these values in normal plugin settings (`data.json`)
 - Max notes per run
 - Requests per minute
 - Delay between requests
+- Automatic watching
+- Auto-review on create
+- Auto-review on modify
+- Watch debounce
+- Polling fallback
+- Polling interval
 - Fetch URL metadata
 - Read images
 - Read videos
@@ -124,6 +151,20 @@ Saved API keys are masked in the settings UI.
 - `Delay between requests`
   - adds an explicit delay in milliseconds between queued AI review attempts
   - the larger of this and the RPM-derived delay is used
+- `Automatic watching`
+  - default OFF
+  - enables watched-folder create/modify event handling
+- `Auto-review on create`
+  - controls whether new Markdown notes in the watched folder are auto-enqueued
+- `Auto-review on modify`
+  - controls whether changed Markdown notes in the watched folder are auto-enqueued
+- `Watch debounce`
+  - collapses noisy create/modify bursts before an automatic review is enqueued
+- `Polling fallback`
+  - default OFF
+  - periodically rescans the watched folder for changed notes that may have been missed by file events
+- `Polling interval`
+  - polling interval in milliseconds when polling fallback is enabled
 - `Fetch URL metadata`
   - enables metadata fetch for URL-only notes
   - full article extraction is not implemented yet
@@ -150,6 +191,12 @@ Saved API keys are masked in the settings UI.
 - Default max notes per run: `10`
 - Default requests per minute: `10`
 - Default delay between requests: `1000` ms
+- Default automatic watching: `false`
+- Default auto-review on create: `false`
+- Default auto-review on modify: `false`
+- Default watch debounce: `1500` ms
+- Default polling fallback: `false`
+- Default polling interval: `30000` ms
 - Default fetch URL metadata: `true`
 - Default read images: `false`
 - Default read videos: `false`
@@ -207,9 +254,7 @@ Failure logs are kept short and typically include only:
 ## Not implemented yet
 
 The following are intentionally not implemented yet:
-- automatic watched-folder monitoring
-- polling
-- queue workers
+- persistent queue workers
 - parallel processing
 - full HTML article extraction
 - Readability-style extraction

@@ -1,4 +1,4 @@
-export type ReviewJobSource = 'current-note' | 'watched-folder-manual';
+export type ReviewJobSource = 'current-note' | 'watched-folder-manual' | 'watched-folder-auto' | 'watched-folder-poll';
 
 export type ReviewJobStatus = 'pending' | 'running' | 'processed' | 'skipped' | 'failed' | 'cancelled';
 

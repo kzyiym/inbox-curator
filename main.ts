@@ -4,7 +4,7 @@ import { readAiReviewSourceHash } from './src/frontmatter';
 import { createReviewJob } from './src/queue/job';
 import { ReviewRateLimiter } from './src/queue/rateLimiter';
 import { ReviewQueue } from './src/queue/reviewQueue';
-import type { ReviewJob, ReviewJobResult } from './src/queue/queueTypes';
+import type { ReviewJob, ReviewJobResult, ReviewJobSource } from './src/queue/queueTypes';
 import { buildReviewSourceInfo, runReviewPipeline, type ReviewPipelineOptions } from './src/reviewPipeline';
 import { DEFAULT_SETTINGS, InboxCuratorSettings, InboxCuratorSettingTab } from './src/settings';
 
@@ -15,6 +15,8 @@ const REVIEW_COMPLETED_NOTICE_TEXT = 'Inbox Curator: Review completed';
 const REVIEW_FAILED_NOTICE_TEXT = 'Inbox Curator: Review failed';
 const MISSING_WATCHED_FOLDER_NOTICE_TEXT = 'Inbox Curator: Watched folder is not set';
 const PROCESSING_WATCHED_FOLDER_NOTICE_TEXT = 'Inbox Curator: Processing watched folder...';
+
+type AutomaticReviewReason = 'create' | 'modify' | 'poll';
 
 interface WatchedFolderProcessingSummary {
   processed: number;
@@ -28,8 +30,12 @@ interface QueuedReviewTask {
   resultPromise: Promise<ReviewJobResult>;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
+interface AutomaticEnqueueResult {
+  accepted: boolean;
+  skipped?: boolean;
+  duplicate?: boolean;
+  error?: string;
+  promise?: Promise<ReviewJobResult>;
 }
 
 export default class InboxCuratorPlugin extends Plugin {
@@ -38,6 +44,9 @@ export default class InboxCuratorPlugin extends Plugin {
   private reviewStatusBarEl!: HTMLElement;
   private reviewQueue!: ReviewQueue;
   private reviewRateLimiter = new ReviewRateLimiter();
+  private readonly automaticReviewTimers = new Map<string, number>();
+  private pollingIntervalId: number | null = null;
+  private pollingInProgress = false;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -49,11 +58,26 @@ export default class InboxCuratorPlugin extends Plugin {
         this.logQueuedReviewRetry(job, attempt, delayMs, result.error);
       },
     });
+
+    this.registerEvent(this.app.vault.on('create', (file) => {
+      if (file instanceof TFile) {
+        void this.handleWatchedFolderCreate(file);
+      }
+    }));
+    this.registerEvent(this.app.vault.on('modify', (file) => {
+      if (file instanceof TFile) {
+        void this.handleWatchedFolderModify(file);
+      }
+    }));
+
     this.addSettingTab(new InboxCuratorSettingTab(this.app, this));
     registerInboxCuratorCommands(this);
+    this.configurePolling();
   }
 
   onunload(): void {
+    this.clearAutomaticReviewTimers();
+    this.stopPolling();
     this.reviewQueue.stop();
     this.reviewRateLimiter.reset();
     this.finishProcessing();
@@ -74,10 +98,19 @@ export default class InboxCuratorPlugin extends Plugin {
       maxNotesPerRun: this.settings.maxNotesPerRun,
       requestsPerMinute: this.settings.requestsPerMinute,
       delayBetweenRequestsMs: this.settings.delayBetweenRequestsMs,
+      enableAutomaticWatching: this.settings.enableAutomaticWatching,
+      autoReviewOnCreate: this.settings.autoReviewOnCreate,
+      autoReviewOnModify: this.settings.autoReviewOnModify,
+      watchDebounceMs: this.settings.watchDebounceMs,
+      enablePolling: this.settings.enablePolling,
+      pollingIntervalMs: this.settings.pollingIntervalMs,
       fetchUrlMetadata: this.settings.fetchUrlMetadata,
       readImages: this.settings.readImages,
       readVideos: this.settings.readVideos,
     });
+
+    this.clearAutomaticReviewTimers();
+    this.configurePolling();
   }
 
   private setStatusIdle(): void {
@@ -142,10 +175,6 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   private async runQueuedReviewJob(job: ReviewJob): Promise<ReviewJobResult> {
-    if (job.delayBeforeStartMs > 0) {
-      await sleep(job.delayBeforeStartMs);
-    }
-
     const file = this.resolveMarkdownFile(job.notePath);
     if (!file) {
       return {
@@ -188,6 +217,31 @@ export default class InboxCuratorPlugin extends Plugin {
     return file.path === normalizedOutputFolder || file.path.startsWith(`${normalizedOutputFolder}/`);
   }
 
+  private isWatchedFolderReviewCandidate(file: TFile): boolean {
+    const watchedFolder = this.settings.watchedFolder.trim();
+    if (!watchedFolder) {
+      return false;
+    }
+
+    if (file.extension !== 'md') {
+      return false;
+    }
+
+    if (!this.isInWatchedFolder(file, watchedFolder)) {
+      return false;
+    }
+
+    if (this.isInReviewOutputFolder(file)) {
+      return false;
+    }
+
+    if (file.path.endsWith('.ai-review.md')) {
+      return false;
+    }
+
+    return true;
+  }
+
   private async shouldSkipWatchedFile(file: TFile): Promise<boolean> {
     const content = await this.app.vault.read(file);
     const currentSource = buildReviewSourceInfo(file, this.settings.reviewOutputFolder, content);
@@ -196,12 +250,7 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   private getWatchedFolderMarkdownFiles(): TFile[] {
-    const watchedFolder = this.settings.watchedFolder.trim();
-    return this.app.vault
-      .getMarkdownFiles()
-      .filter((file) => this.isInWatchedFolder(file, watchedFolder))
-      .filter((file) => !this.isInReviewOutputFolder(file))
-      .filter((file) => !file.path.endsWith('.ai-review.md'));
+    return this.app.vault.getMarkdownFiles().filter((file) => this.isWatchedFolderReviewCandidate(file));
   }
 
   private getWatchedFolderRequestDelayMs(): number {
@@ -227,10 +276,184 @@ export default class InboxCuratorPlugin extends Plugin {
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
       notePath: job.notePath,
+      source: job.source,
       nextAttempt: attempt,
       delayMs,
       error: error ?? 'Unknown error',
     });
+  }
+
+  private logAutomaticReviewEnqueueFailure(file: TFile, reason: AutomaticReviewReason, error: string): void {
+    console.warn('Inbox Curator automatic review enqueue failed', {
+      provider: this.settings.provider,
+      endpointUrl: this.settings.endpointUrl,
+      model: this.settings.model,
+      notePath: file.path,
+      reason,
+      error,
+    });
+  }
+
+  private clearAutomaticReviewTimer(notePath: string): void {
+    const timeoutId = this.automaticReviewTimers.get(notePath);
+    if (timeoutId === undefined) {
+      return;
+    }
+
+    window.clearTimeout(timeoutId);
+    this.automaticReviewTimers.delete(notePath);
+  }
+
+  private clearAutomaticReviewTimers(): void {
+    for (const timeoutId of Array.from(this.automaticReviewTimers.values())) {
+      window.clearTimeout(timeoutId);
+    }
+
+    this.automaticReviewTimers.clear();
+  }
+
+  private stopPolling(): void {
+    if (this.pollingIntervalId !== null) {
+      window.clearInterval(this.pollingIntervalId);
+      this.pollingIntervalId = null;
+    }
+
+    this.pollingInProgress = false;
+  }
+
+  private configurePolling(): void {
+    this.stopPolling();
+
+    if (!this.settings.enablePolling) {
+      return;
+    }
+
+    const intervalMs = Math.max(5000, Math.round(this.settings.pollingIntervalMs));
+    this.pollingIntervalId = window.setInterval(() => {
+      void this.runPollingSweep();
+    }, intervalMs);
+  }
+
+  private async handleWatchedFolderCreate(file: TFile): Promise<void> {
+    if (!this.settings.enableAutomaticWatching || !this.settings.autoReviewOnCreate) {
+      return;
+    }
+
+    this.scheduleAutomaticReview(file, 'create');
+  }
+
+  private async handleWatchedFolderModify(file: TFile): Promise<void> {
+    if (!this.settings.enableAutomaticWatching || !this.settings.autoReviewOnModify) {
+      return;
+    }
+
+    this.scheduleAutomaticReview(file, 'modify');
+  }
+
+  private scheduleAutomaticReview(file: TFile, reason: AutomaticReviewReason): void {
+    if (!this.isWatchedFolderReviewCandidate(file)) {
+      return;
+    }
+
+    const debounceMs = Math.max(0, Math.round(this.settings.watchDebounceMs));
+    this.clearAutomaticReviewTimer(file.path);
+
+    const timeoutId = window.setTimeout(() => {
+      this.automaticReviewTimers.delete(file.path);
+      void this.enqueueAutomaticReview(file.path, reason);
+    }, debounceMs);
+
+    this.automaticReviewTimers.set(file.path, timeoutId);
+  }
+
+  private async enqueueAutomaticReview(notePath: string, reason: AutomaticReviewReason): Promise<void> {
+    const file = this.resolveMarkdownFile(notePath);
+    if (!file || !this.isWatchedFolderReviewCandidate(file)) {
+      return;
+    }
+
+    const result = await this.tryEnqueueAutomaticReview(file, reason === 'poll' ? 'watched-folder-poll' : 'watched-folder-auto');
+    if (!result.accepted) {
+      if (!result.skipped && !result.duplicate && result.error) {
+        this.logAutomaticReviewEnqueueFailure(file, reason, result.error);
+      }
+      return;
+    }
+
+    if (result.promise) {
+      this.attachBackgroundReviewResultLogging(file, result.promise);
+    }
+  }
+
+  private async tryEnqueueAutomaticReview(file: TFile, source: Extract<ReviewJobSource, 'watched-folder-auto' | 'watched-folder-poll'>): Promise<AutomaticEnqueueResult> {
+    try {
+      if (await this.shouldSkipWatchedFile(file)) {
+        return { accepted: false, skipped: true };
+      }
+
+      const queued = this.reviewQueue.enqueue(createReviewJob(source, file.path));
+      if (!queued.accepted) {
+        return {
+          accepted: false,
+          duplicate: queued.duplicate,
+          error: queued.duplicate ? 'Duplicate queued review job' : 'Queue is stopping',
+        };
+      }
+
+      return {
+        accepted: true,
+        promise: queued.promise,
+      };
+    } catch (error) {
+      return {
+        accepted: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  private attachBackgroundReviewResultLogging(file: TFile, resultPromise: Promise<ReviewJobResult>): void {
+    void resultPromise.then((result) => {
+      if (result.status === 'processed' || result.status === 'skipped' || result.status === 'cancelled') {
+        return;
+      }
+
+      this.logQueuedReviewFailure(file, result.error);
+    });
+  }
+
+  private async runPollingSweep(): Promise<void> {
+    if (!this.settings.enablePolling || this.pollingInProgress) {
+      return;
+    }
+
+    this.pollingInProgress = true;
+    try {
+      const files = this.getWatchedFolderMarkdownFiles();
+      const maxNotesPerSweep = Math.max(1, Math.round(this.settings.maxNotesPerRun));
+      let acceptedCount = 0;
+
+      for (const file of files) {
+        if (acceptedCount >= maxNotesPerSweep) {
+          break;
+        }
+
+        const result = await this.tryEnqueueAutomaticReview(file, 'watched-folder-poll');
+        if (!result.accepted) {
+          if (!result.skipped && !result.duplicate && result.error) {
+            this.logAutomaticReviewEnqueueFailure(file, 'poll', result.error);
+          }
+          continue;
+        }
+
+        acceptedCount += 1;
+        if (result.promise) {
+          this.attachBackgroundReviewResultLogging(file, result.promise);
+        }
+      }
+    } finally {
+      this.pollingInProgress = false;
+    }
   }
 
   getActiveMarkdownFile(): TFile | null {
