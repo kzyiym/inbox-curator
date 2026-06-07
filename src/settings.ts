@@ -2,14 +2,22 @@ import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import type InboxCuratorPlugin from '../main';
 import { deleteApiKey, getApiKeySecretId, hasApiKey, saveApiKey } from './secrets';
 
+export type InboxCuratorProvider = 'openai-compatible';
+
 export interface InboxCuratorSettings {
   watchedFolder: string;
   reviewOutputFolder: string;
+  provider: InboxCuratorProvider;
+  endpointUrl: string;
+  model: string;
 }
 
 export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   watchedFolder: 'Inbox',
   reviewOutputFolder: 'AI Reviews',
+  provider: 'openai-compatible',
+  endpointUrl: 'https://api.openai.com/v1',
+  model: 'gpt-4o-mini',
 };
 
 export class InboxCuratorSettingTab extends PluginSettingTab {
@@ -25,6 +33,9 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
     containerEl.empty();
 
     containerEl.createEl('h2', { text: 'Inbox Curator' });
+    containerEl.createEl('p', {
+      text: 'Provider, endpoint URL, and model are stored in normal plugin settings (data.json). API key is stored separately in SecretStorage.',
+    });
 
     new Setting(containerEl)
       .setName('Watched folder')
@@ -48,6 +59,45 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.reviewOutputFolder)
           .onChange(async (value) => {
             this.plugin.settings.reviewOutputFolder = value.trim() || DEFAULT_SETTINGS.reviewOutputFolder;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('Provider')
+      .setDesc('Stored in data.json. Real provider branching is not implemented yet.')
+      .addDropdown((dropdown) =>
+        dropdown
+          .addOption('openai-compatible', 'openai-compatible')
+          .setValue(this.plugin.settings.provider)
+          .onChange(async (value) => {
+            this.plugin.settings.provider = value as InboxCuratorProvider;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('Endpoint URL')
+      .setDesc('Stored in data.json. API key is not stored here.')
+      .addText((text) =>
+        text
+          .setPlaceholder(DEFAULT_SETTINGS.endpointUrl)
+          .setValue(this.plugin.settings.endpointUrl)
+          .onChange(async (value) => {
+            this.plugin.settings.endpointUrl = value.trim() || DEFAULT_SETTINGS.endpointUrl;
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName('Model')
+      .setDesc('Stored in data.json. Enter the model name manually for now.')
+      .addText((text) =>
+        text
+          .setPlaceholder(DEFAULT_SETTINGS.model)
+          .setValue(this.plugin.settings.model)
+          .onChange(async (value) => {
+            this.plugin.settings.model = value.trim() || DEFAULT_SETTINGS.model;
             await this.plugin.saveSettings();
           }),
       );

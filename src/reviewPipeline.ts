@@ -11,12 +11,16 @@ import type {
   ReviewResult,
   ReviewSourceInfo,
 } from './types';
+import type { InboxCuratorProvider } from './settings';
 
 const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n?/;
 const SOURCE_URL_KEYS = ['source_url', 'sourceUrl', 'url'] as const;
 
 export interface ReviewPipelineOptions {
   outputFolder: string;
+  provider: InboxCuratorProvider;
+  endpointUrl: string;
+  model: string;
 }
 
 export interface ReviewModelInputPayload {
@@ -25,6 +29,9 @@ export interface ReviewModelInputPayload {
   sourceUrl?: string;
   contentType: ReviewContentType;
   inputProfile: ReviewInputProfile;
+  provider: InboxCuratorProvider;
+  endpointUrl: string;
+  model: string;
   noteContent: string;
   noteCharacterCount: number;
   notePreview: string;
@@ -118,6 +125,7 @@ export function buildReviewModelInputPayload(
   file: TFile,
   noteContent: string,
   source: ReviewSourceInfo,
+  options: ReviewPipelineOptions,
 ): ReviewModelInputPayload {
   return {
     noteTitle: file.basename,
@@ -125,13 +133,16 @@ export function buildReviewModelInputPayload(
     ...(source.sourceUrl ? { sourceUrl: source.sourceUrl } : {}),
     contentType: 'plain_note',
     inputProfile: 'plain_note',
+    provider: options.provider,
+    endpointUrl: options.endpointUrl.trim() || 'https://api.openai.com/v1',
+    model: options.model.trim() || 'gpt-4o-mini',
     noteContent,
     noteCharacterCount: noteContent.length,
     notePreview: buildNotePreview(noteContent),
   };
 }
 
-function buildDummyMappingContext(source: ReviewSourceInfo): {
+function buildDummyMappingContext(source: ReviewSourceInfo, modelInput: ReviewModelInputPayload): {
   source: ReviewSourceInfo;
   contentType: ReviewContentType;
   inputProfile: ReviewInputProfile;
@@ -142,12 +153,12 @@ function buildDummyMappingContext(source: ReviewSourceInfo): {
 } {
   return {
     source,
-    contentType: 'plain_note',
-    inputProfile: 'plain_note',
+    contentType: modelInput.contentType,
+    inputProfile: modelInput.inputProfile,
     fetchStatus: 'not_applicable',
     domainProfile: 'none',
-    provider: 'dummy',
-    model: 'dummy',
+    provider: modelInput.provider,
+    model: modelInput.model,
   };
 }
 
@@ -155,9 +166,9 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
   const outputFolder = options.outputFolder.trim() || 'AI Reviews';
   const noteContent = await app.vault.read(file);
   const source = buildReviewSourceInfo(file, outputFolder, noteContent);
-  const modelInput = buildReviewModelInputPayload(file, noteContent, source);
+  const modelInput = buildReviewModelInputPayload(file, noteContent, source, options);
   const rawReview = buildDummyReviewRawResponse(modelInput);
-  const mapping = mapToReviewResult(rawReview, buildDummyMappingContext(source));
+  const mapping = mapToReviewResult(rawReview, buildDummyMappingContext(source, modelInput));
 
   if (mapping.ok === false) {
     return { ok: false, error: mapping.error };

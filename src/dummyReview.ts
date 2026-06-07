@@ -5,8 +5,8 @@ export interface DummyReviewRawResponse {
   inputProfile: 'plain_note';
   fetchStatus: 'not_applicable';
   domainProfile: 'none';
-  provider: 'dummy';
-  model: 'dummy';
+  provider: string;
+  model: string;
   verdict: {
     readingValueLabel: 'medium';
     savingValueLabel: 'medium';
@@ -44,8 +44,8 @@ export function buildDummyReviewRawResponse(input: ReviewModelInputPayload): Dum
     inputProfile: 'plain_note',
     fetchStatus: 'not_applicable',
     domainProfile: 'none',
-    provider: 'dummy',
-    model: 'dummy',
+    provider: input.provider,
+    model: input.model,
     verdict: {
       readingValueLabel: 'medium',
       savingValueLabel: 'medium',
@@ -65,7 +65,7 @@ export function buildDummyReviewRawResponse(input: ReviewModelInputPayload): Dum
     ],
     detailedSummary: `Dummy review generated for ${input.noteTitle}. Preview basis: ${input.notePreview || 'No preview available.'}`,
     credibilityReview: 'No AI credibility analysis has been run yet.',
-    practicalityReview: `Prepared an AI input payload with ${input.noteCharacterCount} characters without logging the full note body.`,
+    practicalityReview: `Prepared an AI input payload for ${input.provider} at ${input.endpointUrl} with ${input.noteCharacterCount} characters without logging the full note body.`,
     strengths: [
       'Review note writing is routed through the shared review pipeline.',
       'Frontmatter updates are still based on the normalized ReviewResult object.',

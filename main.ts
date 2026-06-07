@@ -21,6 +21,9 @@ export default class InboxCuratorPlugin extends Plugin {
     await this.saveData({
       watchedFolder: this.settings.watchedFolder,
       reviewOutputFolder: this.settings.reviewOutputFolder,
+      provider: this.settings.provider,
+      endpointUrl: this.settings.endpointUrl,
+      model: this.settings.model,
     });
   }
 
@@ -49,6 +52,9 @@ export default class InboxCuratorPlugin extends Plugin {
     try {
       const result = await runReviewPipeline(this.app, file, {
         outputFolder: this.settings.reviewOutputFolder,
+        provider: this.settings.provider,
+        endpointUrl: this.settings.endpointUrl,
+        model: this.settings.model,
       });
 
       if (result.ok === false) {
