@@ -8,6 +8,7 @@ import type {
   ReviewResult,
   ReviewSourceInfo,
   ReviewValueLabel,
+  StructuredSummary,
 } from './types';
 import { validateReviewResult } from './reviewResultValidator';
 
@@ -92,6 +93,39 @@ function normalizeStringArray(value: unknown): string[] {
   return [];
 }
 
+function normalizeStringMatrix(value: unknown): string[][] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((row): row is unknown[] => Array.isArray(row))
+    .map((row) => row.filter((cell): cell is string => typeof cell === 'string').map((cell) => cell.trim()).filter(Boolean))
+    .filter((row) => row.length > 0);
+}
+
+function normalizeStructuredSummary(value: unknown): StructuredSummary | undefined {
+  const summary = asRecord(value);
+  const centralClaim = pickOptionalString(summary.centralClaim);
+  const keyPoints = normalizeStringArray(summary.keyPoints);
+  const evidenceMentioned = normalizeStringArray(summary.evidenceMentioned);
+  const comparisonTableRecord = asRecord(summary.comparisonTable);
+  const headers = normalizeStringArray(comparisonTableRecord.headers);
+  const rows = normalizeStringMatrix(comparisonTableRecord.rows).filter((row) => row.length === headers.length);
+
+  const comparisonTable = headers.length > 0 && rows.length > 0 ? { headers, rows } : undefined;
+  if (!centralClaim && keyPoints.length === 0 && evidenceMentioned.length === 0 && !comparisonTable) {
+    return undefined;
+  }
+
+  return {
+    centralClaim: centralClaim ?? '',
+    keyPoints,
+    ...(comparisonTable ? { comparisonTable } : {}),
+    evidenceMentioned,
+  };
+}
+
 export interface ReviewResultMappingError {
   ok: false;
   error: string;
@@ -163,6 +197,7 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
     decisionReason: pickOptionalString(raw.decisionReason),
     retentionReasons: normalizeStringArray(raw.retentionReasons),
     evidenceBasis: normalizeStringArray(raw.evidenceBasis),
+    structuredSummary: normalizeStructuredSummary(raw.structuredSummary),
     strengths: normalizeStringArray(raw.strengths),
     risksOrGaps: normalizeStringArray(raw.risksOrGaps),
     verificationNeeded: normalizeStringArray(raw.verificationNeeded),

@@ -1,5 +1,5 @@
 import { App, TFile, normalizePath } from 'obsidian';
-import type { ReviewResult } from './types';
+import type { ReviewResult, StructuredSummaryComparisonTable } from './types';
 
 export interface ReviewNoteWriteResult {
   outputPath: string;
@@ -134,14 +134,61 @@ function buildOrganizationItems(result: ReviewResult): string[] {
   ];
 }
 
+function escapeTableCell(value: string): string {
+  return value.replace(/\|/g, '\\|').replace(/\n/g, ' ').trim();
+}
+
+function buildComparisonTable(table: StructuredSummaryComparisonTable | undefined): string {
+  if (!table || table.headers.length === 0 || table.rows.length === 0) {
+    return '';
+  }
+
+  const headerLine = `| ${table.headers.map(escapeTableCell).join(' | ')} |`;
+  const separatorLine = `| ${table.headers.map(() => '---').join(' | ')} |`;
+  const rowLines = table.rows.map((row) => `| ${row.map(escapeTableCell).join(' | ')} |`);
+  return [headerLine, separatorLine, ...rowLines].join('\n');
+}
+
+function buildStructuredSummarySection(result: ReviewResult): string {
+  const structuredSummary = result.structuredSummary;
+  if (!structuredSummary) {
+    return '';
+  }
+
+  const sections: string[] = [];
+  if (compactWhitespace(structuredSummary.centralClaim)) {
+    sections.push('Central Claim', '', structuredSummary.centralClaim.trim());
+  }
+
+  if (structuredSummary.keyPoints.length > 0) {
+    sections.push('Key Points', '', bulletLines(structuredSummary.keyPoints));
+  }
+
+  const comparisonTable = buildComparisonTable(structuredSummary.comparisonTable);
+  if (comparisonTable) {
+    sections.push('Comparison Table', '', comparisonTable);
+  }
+
+  if (structuredSummary.evidenceMentioned.length > 0) {
+    sections.push('Evidence Mentioned', '', bulletLines(structuredSummary.evidenceMentioned));
+  }
+
+  if (sections.length === 0) {
+    return '';
+  }
+
+  return `## Structured Summary\n\n${sections.join('\n\n')}\n\n`;
+}
+
 function buildReviewContent(result: ReviewResult): string {
   const decisionReason = buildDecisionReason(result);
   const quickSummaryItems = buildQuickSummaryItems(result);
+  const structuredSummarySection = buildStructuredSummarySection(result);
   const retentionValueItems = buildRetentionValueItems(result);
   const evidenceBasisItems = buildEvidenceBasisItems(result);
   const organizationItems = buildOrganizationItems(result);
 
-  return `---\nsource: "[[${result.source.noteTitle}]]"\nsource_path: "${result.source.notePath}"\ncontent_type: "${result.contentType}"\ninput_profile: "${result.inputProfile}"\nfetch_status: "${result.fetchStatus}"\ndomain_profile: "${result.domainProfile}"\ngenerated_at: "${result.source.generatedAt}"\nprovider: "${result.provider}"\nmodel: "${result.model}"\nsource_hash: "${result.source.sourceHash}"\nrecommended_action: "${result.verdict.recommendedAction}"\npriority: "${result.verdict.priority}"\nneeds_verification: ${String(result.flags.needsVerification)}\n---\n\n# AI Review: ${result.source.noteTitle}\n\nSource: [[${result.source.noteTitle}]]\n\n## Decision\n\n- Recommended Action: ${toTitleCase(result.verdict.recommendedAction)}\n- Priority: ${toTitleCase(result.verdict.priority)}\n- Needs Verification: ${result.flags.needsVerification ? 'Yes' : 'No'}\n- Reading Value: ${toTitleCase(result.verdict.readingValueLabel)}\n- Saving Value: ${toTitleCase(result.verdict.savingValueLabel)}\n- Reliability: ${toTitleCase(result.verdict.reliabilityLabel)}\n\n## Why this decision\n\n${decisionReason}\n\n## Quick Summary\n\n${bulletLines(quickSummaryItems)}\n\n## Retention Value\n\n${bulletLines(retentionValueItems)}\n\n## Evidence Basis\n\n${bulletLines(evidenceBasisItems)}\n\n## Risks / Gaps\n\n${bulletLines(result.risksOrGaps)}\n\n## Verification Needed\n\n${bulletLines(result.verificationNeeded)}\n\n## Next Actions\n\n${bulletLines(result.nextActions)}\n\n## Organization\n\n${bulletLines(organizationItems)}\n`;
+  return `---\nsource: "[[${result.source.noteTitle}]]"\nsource_path: "${result.source.notePath}"\ncontent_type: "${result.contentType}"\ninput_profile: "${result.inputProfile}"\nfetch_status: "${result.fetchStatus}"\ndomain_profile: "${result.domainProfile}"\ngenerated_at: "${result.source.generatedAt}"\nprovider: "${result.provider}"\nmodel: "${result.model}"\nsource_hash: "${result.source.sourceHash}"\nrecommended_action: "${result.verdict.recommendedAction}"\npriority: "${result.verdict.priority}"\nneeds_verification: ${String(result.flags.needsVerification)}\n---\n\n# AI Review: ${result.source.noteTitle}\n\nSource: [[${result.source.noteTitle}]]\n\n## Decision\n\n- Recommended Action: ${toTitleCase(result.verdict.recommendedAction)}\n- Priority: ${toTitleCase(result.verdict.priority)}\n- Needs Verification: ${result.flags.needsVerification ? 'Yes' : 'No'}\n- Reading Value: ${toTitleCase(result.verdict.readingValueLabel)}\n- Saving Value: ${toTitleCase(result.verdict.savingValueLabel)}\n- Reliability: ${toTitleCase(result.verdict.reliabilityLabel)}\n\n## Why this decision\n\n${decisionReason}\n\n## Quick Summary\n\n${bulletLines(quickSummaryItems)}\n\n${structuredSummarySection}## Retention Value\n\n${bulletLines(retentionValueItems)}\n\n## Evidence Basis\n\n${bulletLines(evidenceBasisItems)}\n\n## Risks / Gaps\n\n${bulletLines(result.risksOrGaps)}\n\n## Verification Needed\n\n${bulletLines(result.verificationNeeded)}\n\n## Next Actions\n\n${bulletLines(result.nextActions)}\n\n## Organization\n\n${bulletLines(organizationItems)}\n`;
 }
 
 export async function writeReviewNote(app: App, sourceFile: TFile, result: ReviewResult): Promise<ReviewNoteWriteResult> {

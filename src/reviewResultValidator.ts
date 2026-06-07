@@ -211,6 +211,44 @@ export function validateReviewResult(value: unknown): ReviewResultValidationResu
     return { ok: false, error: 'ReviewResult.evidenceBasis must be a string array when present.' };
   }
 
+  if (value.structuredSummary !== undefined) {
+    if (!isRecord(value.structuredSummary)) {
+      return { ok: false, error: 'ReviewResult.structuredSummary must be an object when present.' };
+    }
+
+    if (typeof value.structuredSummary.centralClaim !== 'string') {
+      return { ok: false, error: 'ReviewResult.structuredSummary.centralClaim must be a string.' };
+    }
+
+    if (!isStringArray(value.structuredSummary.keyPoints)) {
+      return { ok: false, error: 'ReviewResult.structuredSummary.keyPoints must be a string array.' };
+    }
+
+    if (!isStringArray(value.structuredSummary.evidenceMentioned)) {
+      return { ok: false, error: 'ReviewResult.structuredSummary.evidenceMentioned must be a string array.' };
+    }
+
+    if (value.structuredSummary.comparisonTable !== undefined) {
+      if (!isRecord(value.structuredSummary.comparisonTable)) {
+        return { ok: false, error: 'ReviewResult.structuredSummary.comparisonTable must be an object when present.' };
+      }
+
+      if (!isStringArray(value.structuredSummary.comparisonTable.headers)) {
+        return { ok: false, error: 'ReviewResult.structuredSummary.comparisonTable.headers must be a string array.' };
+      }
+
+      if (!Array.isArray(value.structuredSummary.comparisonTable.rows)) {
+        return { ok: false, error: 'ReviewResult.structuredSummary.comparisonTable.rows must be a string matrix.' };
+      }
+
+      for (const row of value.structuredSummary.comparisonTable.rows) {
+        if (!isStringArray(row)) {
+          return { ok: false, error: 'ReviewResult.structuredSummary.comparisonTable.rows must be a string matrix.' };
+        }
+      }
+    }
+  }
+
   if (!isStringArray(value.strengths)) {
     return { ok: false, error: 'ReviewResult.strengths must be a string array.' };
   }

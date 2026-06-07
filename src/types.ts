@@ -56,6 +56,18 @@ export interface ReviewFlags {
   deleteCandidate: boolean;
 }
 
+export interface StructuredSummaryComparisonTable {
+  headers: string[];
+  rows: string[][];
+}
+
+export interface StructuredSummary {
+  centralClaim: string;
+  keyPoints: string[];
+  comparisonTable?: StructuredSummaryComparisonTable;
+  evidenceMentioned: string[];
+}
+
 export interface ReviewResult {
   source: ReviewSourceInfo;
   contentType: ReviewContentType;
@@ -73,6 +85,7 @@ export interface ReviewResult {
   decisionReason?: string;
   retentionReasons?: string[];
   evidenceBasis?: string[];
+  structuredSummary?: StructuredSummary;
   strengths: string[];
   risksOrGaps: string[];
   verificationNeeded: string[];
