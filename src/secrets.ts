@@ -18,6 +18,13 @@ export function getApiKeySecretId(): string {
   return API_KEY_SECRET_ID;
 }
 
+export async function getApiKey(app: unknown): Promise<string | null> {
+  const storage = getSecretStorage(app);
+  const value = await storage.getSecret(API_KEY_SECRET_ID);
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
 export async function saveApiKey(app: unknown, apiKey: string): Promise<void> {
   const storage = getSecretStorage(app);
   await storage.setSecret(API_KEY_SECRET_ID, apiKey);
@@ -29,7 +36,6 @@ export async function deleteApiKey(app: unknown): Promise<void> {
 }
 
 export async function hasApiKey(app: unknown): Promise<boolean> {
-  const storage = getSecretStorage(app);
-  const value = await storage.getSecret(API_KEY_SECRET_ID);
-  return Boolean(value && value.trim().length > 0);
+  const value = await getApiKey(app);
+  return Boolean(value);
 }
