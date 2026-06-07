@@ -162,12 +162,16 @@ function buildDummyMappingContext(source: ReviewSourceInfo, modelInput: ReviewMo
   };
 }
 
+async function getReviewRawResponse(modelInput: ReviewModelInputPayload): Promise<ReturnType<typeof buildDummyReviewRawResponse>> {
+  return buildDummyReviewRawResponse(modelInput);
+}
+
 export async function runReviewPipeline(app: App, file: TFile, options: ReviewPipelineOptions): Promise<ReviewPipelineResult> {
   const outputFolder = options.outputFolder.trim() || 'AI Reviews';
   const noteContent = await app.vault.read(file);
   const source = buildReviewSourceInfo(file, outputFolder, noteContent);
   const modelInput = buildReviewModelInputPayload(file, noteContent, source, options);
-  const rawReview = buildDummyReviewRawResponse(modelInput);
+  const rawReview = await getReviewRawResponse(modelInput);
   const mapping = mapToReviewResult(rawReview, buildDummyMappingContext(source, modelInput));
 
   if (mapping.ok === false) {
