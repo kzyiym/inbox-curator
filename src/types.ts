@@ -15,6 +15,7 @@ export type ReviewInputProfile =
 export type ReviewReliabilityLabel = 'high' | 'medium' | 'low' | 'needs_verification' | 'not_reviewed';
 export type ReviewValueLabel = 'high' | 'medium' | 'low';
 export type ReviewPriority = 'high' | 'medium' | 'low';
+export type ReviewFetchStatus = 'not_applicable' | 'success' | 'failed';
 export type RecommendedAction =
   | 'read_later'
   | 'keep_as_reference'
@@ -59,7 +60,7 @@ export interface ReviewResult {
   source: ReviewSourceInfo;
   contentType: ReviewContentType;
   inputProfile: ReviewInputProfile;
-  fetchStatus: 'not_applicable' | 'success' | 'failed';
+  fetchStatus: ReviewFetchStatus;
   domainProfile: string;
   provider: string;
   model: string;
