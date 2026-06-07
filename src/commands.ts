@@ -5,7 +5,7 @@ export function registerInboxCuratorCommands(plugin: InboxCuratorPlugin): void {
     id: 'review-current-note',
     name: 'Review current note',
     callback: async () => {
-      await plugin.createDummyReviewForActiveFile();
+      await plugin.reviewActiveFile();
     },
   });
 
@@ -13,7 +13,7 @@ export function registerInboxCuratorCommands(plugin: InboxCuratorPlugin): void {
     id: 'process-current-note',
     name: 'Process current note',
     callback: async () => {
-      await plugin.createDummyReviewForActiveFile();
+      await plugin.reviewActiveFile();
     },
   });
 }
