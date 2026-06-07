@@ -1,0 +1,10 @@
+{
+  "id": "kzyiym-inbox-curator",
+  "name": "Inbox Curator",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "AI-powered review and triage for your Obsidian inbox.",
+  "author": "kzyiym",
+  "authorUrl": "https://github.com/kzyiym",
+  "isDesktopOnly": false
+}

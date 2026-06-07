@@ -1,0 +1,20 @@
+{
+  "name": "inbox-curator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Inbox Curator Obsidian community plugin",
+  "main": "main.js",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "dev": "node esbuild.config.mjs --watch",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^24.3.0",
+    "esbuild": "^0.25.9",
+    "js-yaml": "^4.1.0",
+    "obsidian": "latest",
+    "typescript": "^5.9.2"
+  }
+}
