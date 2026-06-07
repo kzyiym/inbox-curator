@@ -25,9 +25,9 @@ Current AI-related settings are preparation only:
 - Provider: `openai-compatible`
 - Default endpoint URL: `https://api.openai.com/v1`
 - Default model: `gpt-4o-mini`
-- No connection test yet
+- Review commands show a short status bar message while AI review is running
+- Review current note prevents duplicate execution while a review is already in progress
 - No model list fetch yet
-- No real API call yet
 
 ## Development
 
