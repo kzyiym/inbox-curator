@@ -105,6 +105,8 @@ export default class InboxCuratorPlugin extends Plugin {
       enablePolling: this.settings.enablePolling,
       pollingIntervalMs: this.settings.pollingIntervalMs,
       fetchUrlMetadata: this.settings.fetchUrlMetadata,
+      extractUrlArticleText: this.settings.extractUrlArticleText,
+      maxExtractedCharacters: this.settings.maxExtractedCharacters,
       readImages: this.settings.readImages,
       readVideos: this.settings.readVideos,
     });
@@ -162,6 +164,8 @@ export default class InboxCuratorPlugin extends Plugin {
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
       fetchUrlMetadata: this.settings.fetchUrlMetadata,
+      extractUrlArticleText: this.settings.extractUrlArticleText,
+      maxExtractedCharacters: this.settings.maxExtractedCharacters,
     };
   }
 

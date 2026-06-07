@@ -18,9 +18,10 @@ Current implementation focuses on:
 - writing a separate AI review note
 - storing minimal review state back into the source note frontmatter
 - skipping unchanged notes with a source hash
-- detecting URL-only notes and fetching metadata only
+- detecting URL-only notes and fetching URL context
+- extracting readable text from some static HTML article pages
 
-Automatic watching and polling are now available, but both are default OFF. The plugin still does not implement persistent queue workers, full article extraction, image analysis, or video analysis.
+Automatic watching and polling are now available, but both are default OFF. The plugin still does not implement persistent queue workers, JavaScript page rendering, PDF extraction, image analysis, or video analysis.
 
 ## What works now
 
@@ -128,6 +129,8 @@ The plugin currently stores these values in normal plugin settings (`data.json`)
 - Polling fallback
 - Polling interval
 - Fetch URL metadata
+- Extract URL article text
+- Max extracted characters
 - Read images
 - Read videos
 - Provider
@@ -167,7 +170,12 @@ Saved API keys are masked in the settings UI.
   - polling interval in milliseconds when polling fallback is enabled
 - `Fetch URL metadata`
   - enables metadata fetch for URL-only notes
-  - full article extraction is not implemented yet
+  - can be used with or without article text extraction
+- `Extract URL article text`
+  - tries to fetch static HTML and extract readable article text for URL-only notes
+  - JavaScript rendering and PDF extraction are still not supported
+- `Max extracted characters`
+  - caps the extracted article text included in the AI review prompt
 - `Read images`
   - saved for future use only
   - image analysis is not implemented yet
@@ -198,6 +206,8 @@ Saved API keys are masked in the settings UI.
 - Default polling fallback: `false`
 - Default polling interval: `30000` ms
 - Default fetch URL metadata: `true`
+- Default extract URL article text: `true`
+- Default max extracted characters: `12000`
 - Default read images: `false`
 - Default read videos: `false`
 
@@ -211,11 +221,13 @@ A note is treated as URL-only when the body is effectively:
 - or URL plus very small heading-only structure
 
 For URL-only notes:
-- `contentType` becomes `url_only`
-- `inputProfile` becomes `url_only`
+- `contentType` stays `url_only` when only the URL shell or metadata are available
+- `contentType` becomes `fetched_url` when static HTML was fetched and usable article text was extracted
+- `inputProfile` stays `url_only` for metadata-only review
+- `inputProfile` becomes `web_article` when extracted article text is available
 - the first detected URL is used
-- the plugin can fetch metadata only
-- it does not fetch or extract the full article body yet
+- the plugin can fetch metadata and, when enabled, try static article text extraction
+- JavaScript-rendered pages and PDFs are still not handled
 
 When metadata fetch is enabled, the plugin may collect:
 - `<title>`
@@ -230,6 +242,14 @@ When metadata fetch is enabled, the plugin may collect:
 - `link[rel="canonical"]`
 
 Metadata fetch failure does not stop the review. The review continues with limited context.
+
+When URL article extraction is enabled, the plugin also tries to:
+- fetch static HTML
+- remove obvious non-content elements
+- pick a high-text content container
+- send a capped excerpt of extracted article text to the AI review prompt
+
+This is intentionally basic extraction. It does not execute page JavaScript, open a browser, or parse PDFs.
 
 ## Safety and logging
 
@@ -256,8 +276,7 @@ Failure logs are kept short and typically include only:
 The following are intentionally not implemented yet:
 - persistent queue workers
 - parallel processing
-- full HTML article extraction
-- Readability-style extraction
+- robust Readability-quality extraction
 - JavaScript page rendering
 - screenshot-based browsing
 - PDF extraction

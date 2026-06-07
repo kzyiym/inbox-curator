@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath, requestUrl } from 'obsidian';
+import { App, TFile, normalizePath } from 'obsidian';
 import * as yaml from 'js-yaml';
 import { getApiKey } from './secrets';
 import { upsertReviewFrontmatter } from './frontmatter';
@@ -12,6 +12,7 @@ import type {
   ReviewResult,
   ReviewSourceInfo,
 } from './types';
+import { fetchUrlContext, type UrlMetadata } from './urlExtraction';
 import type { InboxCuratorProvider } from './settings';
 
 const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n?/;
@@ -24,19 +25,8 @@ export interface ReviewPipelineOptions {
   endpointUrl: string;
   model: string;
   fetchUrlMetadata: boolean;
-}
-
-export interface UrlMetadata {
-  title?: string;
-  description?: string;
-  ogTitle?: string;
-  ogDescription?: string;
-  ogSiteName?: string;
-  ogType?: string;
-  ogUrl?: string;
-  twitterTitle?: string;
-  twitterDescription?: string;
-  canonicalUrl?: string;
+  extractUrlArticleText: boolean;
+  maxExtractedCharacters: number;
 }
 
 export interface ReviewModelInputPayload {
@@ -53,6 +43,7 @@ export interface ReviewModelInputPayload {
   notePreview: string;
   fetchStatus: ReviewFetchStatus;
   urlMetadata?: UrlMetadata;
+  extractedTitle?: string;
 }
 
 export interface ReviewPipelineSuccess {
@@ -98,9 +89,12 @@ interface UrlOnlyDetectionResult {
   firstUrl?: string;
 }
 
-interface UrlMetadataFetchResult {
+interface UrlContextResult {
   fetchStatus: ReviewFetchStatus;
   metadata?: UrlMetadata;
+  extractedText?: string;
+  extractedTitle?: string;
+  extractionUsed: boolean;
 }
 
 function parseDocument(content: string): ParsedDocument {
@@ -234,74 +228,6 @@ function looksJapanese(text: string): boolean {
   return Boolean(matches && matches.length >= 8);
 }
 
-function decodeHtmlEntities(value: string): string {
-  return value
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&nbsp;/gi, ' ')
-    .trim();
-}
-
-function extractTitleTag(html: string): string | undefined {
-  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  return match?.[1] ? decodeHtmlEntities(match[1].replace(/\s+/g, ' ')) : undefined;
-}
-
-function parseAttributes(tag: string): Record<string, string> {
-  const attributes: Record<string, string> = {};
-  for (const match of Array.from(tag.matchAll(/([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g))) {
-    const [, key, doubleQuoted, singleQuoted, unquoted] = match;
-    const rawValue = doubleQuoted ?? singleQuoted ?? unquoted ?? '';
-    attributes[key.toLowerCase()] = decodeHtmlEntities(rawValue);
-  }
-
-  return attributes;
-}
-
-function extractMetaContent(html: string, attributeName: 'name' | 'property', attributeValue: string): string | undefined {
-  for (const match of Array.from(html.matchAll(/<meta\b[^>]*>/gi))) {
-    const tag = match[0];
-    const attributes = parseAttributes(tag);
-    if (attributes[attributeName] === attributeValue) {
-      return attributes.content;
-    }
-  }
-
-  return undefined;
-}
-
-function extractCanonicalUrl(html: string): string | undefined {
-  for (const match of Array.from(html.matchAll(/<link\b[^>]*>/gi))) {
-    const tag = match[0];
-    const attributes = parseAttributes(tag);
-    if (attributes.rel?.toLowerCase() === 'canonical') {
-      return attributes.href;
-    }
-  }
-
-  return undefined;
-}
-
-function buildUrlMetadata(html: string): UrlMetadata {
-  const metadata: UrlMetadata = {
-    title: extractTitleTag(html),
-    description: extractMetaContent(html, 'name', 'description'),
-    ogTitle: extractMetaContent(html, 'property', 'og:title'),
-    ogDescription: extractMetaContent(html, 'property', 'og:description'),
-    ogSiteName: extractMetaContent(html, 'property', 'og:site_name'),
-    ogType: extractMetaContent(html, 'property', 'og:type'),
-    ogUrl: extractMetaContent(html, 'property', 'og:url'),
-    twitterTitle: extractMetaContent(html, 'name', 'twitter:title'),
-    twitterDescription: extractMetaContent(html, 'name', 'twitter:description'),
-    canonicalUrl: extractCanonicalUrl(html),
-  };
-
-  return Object.fromEntries(Object.entries(metadata).filter(([, value]) => typeof value === 'string' && value.trim() !== '')) as UrlMetadata;
-}
-
 function buildSafeSnippet(value: string | undefined, maxLength = 160): string | undefined {
   if (!value) {
     return undefined;
@@ -315,52 +241,26 @@ function buildSafeSnippet(value: string | undefined, maxLength = 160): string | 
   return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}…`;
 }
 
-async function fetchUrlMetadata(url: string, notePath: string): Promise<UrlMetadataFetchResult> {
-  try {
-    const response = await requestUrl({
-      url,
-      method: 'GET',
-      throw: false,
-      headers: {
-        'User-Agent': 'Inbox Curator',
-        Accept: 'text/html,application/xhtml+xml',
-      },
-    });
-
-    if (response.status < 200 || response.status >= 300) {
-      console.warn('Inbox Curator URL metadata fetch failed', {
-        notePath,
-        status: response.status,
-        error: `HTTP ${response.status}`,
-        responseSnippet: buildSafeSnippet(response.text),
-      });
-      return { fetchStatus: 'failed' };
-    }
-
-    const metadata = buildUrlMetadata(response.text);
-    return {
-      fetchStatus: 'success',
-      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
-    };
-  } catch (error) {
-    console.warn('Inbox Curator URL metadata fetch crashed', {
-      notePath,
-      error: error instanceof Error ? buildSafeSnippet(error.message) : 'Unknown error',
-    });
-    return { fetchStatus: 'failed' };
-  }
-}
-
-function buildUrlOnlyPromptContent(sourceUrl: string, body: string, fetchStatus: ReviewFetchStatus, metadata?: UrlMetadata): string {
+function buildUrlOnlyPromptContent(
+  sourceUrl: string,
+  body: string,
+  fetchStatus: ReviewFetchStatus,
+  metadata?: UrlMetadata,
+  extractedText?: string,
+  extractedTitle?: string,
+): string {
   const lines = [
     'URL-only note detected.',
-    'The note body does not contain the full article text.',
+    extractedText ? 'Static HTML was fetched and article-like text was extracted.' : 'The note body does not contain the full article text.',
     `Extracted URL: ${sourceUrl}`,
-    `Metadata fetch status: ${fetchStatus}`,
-    '',
-    'Original note body:',
-    body.trim() || '(empty)',
+    `Fetch status: ${fetchStatus}`,
   ];
+
+  if (extractedTitle) {
+    lines.push(`Extracted page title: ${extractedTitle}`);
+  }
+
+  lines.push('', 'Original note body:', body.trim() || '(empty)');
 
   if (metadata && Object.keys(metadata).length > 0) {
     lines.push('', 'Fetched URL metadata:');
@@ -369,6 +269,12 @@ function buildUrlOnlyPromptContent(sourceUrl: string, body: string, fetchStatus:
     }
   } else {
     lines.push('', 'Fetched URL metadata: unavailable');
+  }
+
+  if (extractedText) {
+    lines.push('', 'Extracted article text:', extractedText);
+  } else {
+    lines.push('', 'Extracted article text: unavailable');
   }
 
   return lines.join('\n');
@@ -382,23 +288,54 @@ export async function buildReviewModelInputPayload(
 ): Promise<ReviewModelInputPayload> {
   const { body } = parseDocument(noteContent);
   const urlOnly = detectUrlOnlyBody(body);
-  const contentType: ReviewContentType = urlOnly.isUrlOnly ? 'url_only' : 'plain_note';
-  const inputProfile: ReviewInputProfile = urlOnly.isUrlOnly ? 'url_only' : 'plain_note';
   const sourceUrl = source.sourceUrl ?? urlOnly.firstUrl;
 
+  let contentType: ReviewContentType = urlOnly.isUrlOnly ? 'url_only' : 'plain_note';
+  let inputProfile: ReviewInputProfile = urlOnly.isUrlOnly ? 'url_only' : 'plain_note';
   let fetchStatus: ReviewFetchStatus = 'not_applicable';
   let urlMetadata: UrlMetadata | undefined;
+  let extractedTitle: string | undefined;
   let promptContent = noteContent;
   let previewSource = noteContent;
 
   if (urlOnly.isUrlOnly && sourceUrl) {
-    if (options.fetchUrlMetadata) {
-      const metadataResult = await fetchUrlMetadata(sourceUrl, file.path);
-      fetchStatus = metadataResult.fetchStatus;
-      urlMetadata = metadataResult.metadata;
+    let urlContext: UrlContextResult = {
+      fetchStatus: 'not_applicable',
+      extractionUsed: false,
+    };
+
+    if (options.fetchUrlMetadata || options.extractUrlArticleText) {
+      const fetchedContext = await fetchUrlContext(sourceUrl, file.path, {
+        fetchMetadata: options.fetchUrlMetadata,
+        extractArticle: options.extractUrlArticleText,
+        maxExtractedCharacters: options.maxExtractedCharacters,
+      });
+      urlContext = {
+        fetchStatus: fetchedContext.fetchStatus,
+        metadata: fetchedContext.metadata,
+        extractedText: fetchedContext.extractedText,
+        extractedTitle: fetchedContext.extractedTitle,
+        extractionUsed: fetchedContext.extractionUsed,
+      };
     }
 
-    promptContent = buildUrlOnlyPromptContent(sourceUrl, body, fetchStatus, urlMetadata);
+    fetchStatus = urlContext.fetchStatus;
+    urlMetadata = urlContext.metadata;
+    extractedTitle = urlContext.extractedTitle;
+
+    if (urlContext.extractionUsed && urlContext.extractedText) {
+      contentType = 'fetched_url';
+      inputProfile = 'web_article';
+    }
+
+    promptContent = buildUrlOnlyPromptContent(
+      sourceUrl,
+      body,
+      fetchStatus,
+      urlMetadata,
+      urlContext.extractedText,
+      extractedTitle,
+    );
     previewSource = promptContent;
   }
 
@@ -416,6 +353,7 @@ export async function buildReviewModelInputPayload(
     notePreview: buildNotePreview(previewSource),
     fetchStatus,
     ...(urlMetadata ? { urlMetadata } : {}),
+    ...(extractedTitle ? { extractedTitle } : {}),
   };
 }
 

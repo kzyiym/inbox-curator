@@ -21,6 +21,8 @@ export interface InboxCuratorSettings {
   enablePolling: boolean;
   pollingIntervalMs: number;
   fetchUrlMetadata: boolean;
+  extractUrlArticleText: boolean;
+  maxExtractedCharacters: number;
   readImages: boolean;
   readVideos: boolean;
 }
@@ -41,6 +43,8 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   enablePolling: false,
   pollingIntervalMs: 30000,
   fetchUrlMetadata: true,
+  extractUrlArticleText: true,
+  maxExtractedCharacters: 12000,
   readImages: false,
   readVideos: false,
 };
@@ -242,13 +246,38 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Fetch URL metadata')
-      .setDesc('URL-only notes can fetch title, description, and Open Graph metadata. Full article extraction is not implemented yet.')
+      .setDesc('URL-only notes can fetch title, description, and Open Graph metadata. This can be used with or without article text extraction.')
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.fetchUrlMetadata).onChange(async (value) => {
           this.plugin.settings.fetchUrlMetadata = value;
           await this.plugin.saveSettings();
         }),
       );
+
+    new Setting(containerEl)
+      .setName('Extract URL article text')
+      .setDesc('Fetch static HTML for URL-only notes and try to extract readable article text. JavaScript rendering and PDF extraction are still not supported.')
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.extractUrlArticleText).onChange(async (value) => {
+          this.plugin.settings.extractUrlArticleText = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName('Max extracted characters')
+      .setDesc('Upper bound for extracted article text included in the AI review prompt for URL-only notes.')
+      .addText((text) => {
+        text.inputEl.type = 'number';
+        text.inputEl.min = '1000';
+        text.inputEl.max = '50000';
+        text.setPlaceholder(String(DEFAULT_SETTINGS.maxExtractedCharacters));
+        text.setValue(String(this.plugin.settings.maxExtractedCharacters));
+        text.onChange(async (value) => {
+          this.plugin.settings.maxExtractedCharacters = clampInteger(Number(value), 1000, 50000, DEFAULT_SETTINGS.maxExtractedCharacters);
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(containerEl)
       .setName('Read images')
