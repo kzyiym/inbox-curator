@@ -330,6 +330,12 @@ Build:
 pnpm build
 ```
 
+Run tests:
+
+```bash
+pnpm test
+```
+
 Watch mode:
 
 ```bash

@@ -55,9 +55,14 @@ export async function upsertReviewFrontmatter(app: App, file: TFile, result: Rev
   if (result.attachmentSummary) {
     frontmatter.ai_review_attachment_count = result.attachmentSummary.totalCount;
     frontmatter.ai_review_unresolved_attachment_count = result.attachmentSummary.unresolvedCount;
+  } else {
+    delete frontmatter.ai_review_attachment_count;
+    delete frontmatter.ai_review_unresolved_attachment_count;
   }
   if (result.source.sourceUrl) {
     frontmatter.ai_review_source_url = result.source.sourceUrl;
+  } else {
+    delete frontmatter.ai_review_source_url;
   }
 
   const nextContent = stringifyDocument(frontmatter, body);

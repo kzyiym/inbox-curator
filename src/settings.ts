@@ -281,7 +281,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Read images')
-      .setDesc('Reserved for future image understanding. Image analysis is not implemented yet.')
+      .setDesc('Currently affects prompting only. The plugin may tell the AI that image attachments exist, but image bytes are not actually sent or analyzed yet.')
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.readImages).onChange(async (value) => {
           this.plugin.settings.readImages = value;
@@ -291,7 +291,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Read videos')
-      .setDesc('Reserved for future video understanding. Video analysis is not implemented yet.')
+      .setDesc('Currently affects prompting only. The plugin may tell the AI that video attachments exist, but video bytes or transcripts are not actually sent or analyzed yet.')
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.readVideos).onChange(async (value) => {
           this.plugin.settings.readVideos = value;

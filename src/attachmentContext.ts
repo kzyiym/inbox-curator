@@ -119,8 +119,8 @@ export function extractAttachmentContext(app: App, sourceFile: TFile, content: s
   attachments: ReviewAttachment[];
   attachmentSummary?: ReviewAttachmentSummary;
 } {
-  const seen = new Set<string>();
   const attachments: ReviewAttachment[] = [];
+  const byPath = new Map<string, ReviewAttachment>();
 
   for (const candidate of collectCandidates(content)) {
     const resolved = app.metadataCache.getFirstLinkpathDest(candidate.rawTarget, sourceFile.path);
@@ -130,20 +130,24 @@ export function extractAttachmentContext(app: App, sourceFile: TFile, content: s
 
     const path = resolved instanceof TFile ? resolved.path : candidate.rawTarget;
     const extension = (resolved instanceof TFile ? resolved.extension : getExtension(candidate.rawTarget) ?? '').toLowerCase();
-    const dedupeKey = `${path}::${candidate.embedded ? 'embed' : 'link'}`;
-    if (seen.has(dedupeKey)) {
+    const existing = byPath.get(path);
+    if (existing) {
+      existing.embedded = existing.embedded || candidate.embedded;
+      existing.exists = existing.exists || resolved instanceof TFile;
       continue;
     }
-    seen.add(dedupeKey);
 
-    attachments.push({
+    const attachment: ReviewAttachment = {
       path,
       displayName: candidate.displayName || (resolved instanceof TFile ? resolved.basename : candidate.rawTarget),
       extension,
       kind: classifyKind(extension || undefined),
       embedded: candidate.embedded,
       exists: resolved instanceof TFile,
-    });
+    };
+
+    byPath.set(path, attachment);
+    attachments.push(attachment);
   }
 
   return {
