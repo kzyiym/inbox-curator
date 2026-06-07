@@ -1,14 +1,6 @@
 import { App, TFile } from 'obsidian';
-import yaml from 'js-yaml';
-
-export interface ReviewFrontmatterFields {
-  outputPath: string;
-  contentType: string;
-  recommendedAction: string;
-  priority: string;
-  needsVerification: boolean;
-  sourceHash: string;
-}
+import * as yaml from 'js-yaml';
+import type { ReviewResult } from './types';
 
 const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n?/;
 
@@ -35,25 +27,28 @@ function stringifyDocument(frontmatter: Record<string, unknown>, body: string): 
   return `---\n${frontmatterYaml}\n---\n${body}`;
 }
 
-export async function upsertReviewFrontmatter(app: App, file: TFile, fields: ReviewFrontmatterFields): Promise<void> {
+export async function upsertReviewFrontmatter(app: App, file: TFile, result: ReviewResult): Promise<void> {
   const content = await app.vault.read(file);
   const { frontmatter, body } = parseDocument(content);
 
   frontmatter.ai_review_status = 'done';
-  frontmatter.ai_review_processed_at = new Date().toISOString();
-  frontmatter.ai_review_source_hash = fields.sourceHash;
-  frontmatter.ai_review_output_path = fields.outputPath;
-  frontmatter.ai_review_content_type = fields.contentType;
-  frontmatter.ai_review_input_profile = 'plain_note';
-  frontmatter.ai_review_reading_value = 50;
-  frontmatter.ai_review_saving_value = 50;
-  frontmatter.ai_review_reliability = 0;
-  frontmatter.ai_review_practicality = 50;
-  frontmatter.ai_review_priority = fields.priority;
-  frontmatter.ai_review_recommended_action = fields.recommendedAction;
-  frontmatter.ai_review_needs_verification = fields.needsVerification;
-  frontmatter.ai_review_delete_candidate = false;
+  frontmatter.ai_review_processed_at = result.source.generatedAt;
+  frontmatter.ai_review_source_hash = result.source.sourceHash;
+  frontmatter.ai_review_output_path = result.source.outputPath;
+  frontmatter.ai_review_content_type = result.contentType;
+  frontmatter.ai_review_input_profile = result.inputProfile;
+  frontmatter.ai_review_reading_value = result.scores.readingValue;
+  frontmatter.ai_review_saving_value = result.scores.savingValue;
+  frontmatter.ai_review_reliability = result.scores.reliability;
+  frontmatter.ai_review_practicality = result.scores.practicality;
+  frontmatter.ai_review_priority = result.verdict.priority;
+  frontmatter.ai_review_recommended_action = result.verdict.recommendedAction;
+  frontmatter.ai_review_needs_verification = result.flags.needsVerification;
+  frontmatter.ai_review_delete_candidate = result.flags.deleteCandidate;
   frontmatter.ai_review_version = '0.1.0';
+  if (result.source.sourceUrl) {
+    frontmatter.ai_review_source_url = result.source.sourceUrl;
+  }
 
   const nextContent = stringifyDocument(frontmatter, body);
   await app.vault.modify(file, nextContent);

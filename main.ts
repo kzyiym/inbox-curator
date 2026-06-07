@@ -1,7 +1,8 @@
 import { MarkdownView, Notice, Plugin, TFile } from 'obsidian';
 import { registerInboxCuratorCommands } from './src/commands';
+import { buildDummyReviewResult } from './src/dummyReview';
 import { upsertReviewFrontmatter } from './src/frontmatter';
-import { ensureReviewNoteForFile } from './src/reviewWriter';
+import { writeReviewNote } from './src/reviewWriter';
 import { DEFAULT_SETTINGS, InboxCuratorSettings, InboxCuratorSettingTab } from './src/settings';
 
 export default class InboxCuratorPlugin extends Plugin {
@@ -38,17 +39,10 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   async createDummyReviewForFile(file: TFile): Promise<void> {
-    const result = await ensureReviewNoteForFile(this.app, file, this.settings.reviewOutputFolder);
+    const reviewResult = buildDummyReviewResult(file, this.settings.reviewOutputFolder);
+    const writeResult = await writeReviewNote(this.app, file, reviewResult);
+    await upsertReviewFrontmatter(this.app, file, reviewResult);
 
-    await upsertReviewFrontmatter(this.app, file, {
-      outputPath: result.outputPath,
-      contentType: 'plain_note',
-      recommendedAction: 'keep_as_reference',
-      priority: 'medium',
-      needsVerification: false,
-      sourceHash: `dummy:${file.stat.mtime}:${file.stat.size}`,
-    });
-
-    new Notice(`Review note ${result.created ? 'created' : 'updated'}: ${result.outputPath}`);
+    new Notice(`Review note ${writeResult.created ? 'created' : 'updated'}: ${writeResult.outputPath}`);
   }
 }

@@ -7,3 +7,29 @@ Current status: initial scaffold.
 Plugin ID: `kzyiym-inbox-curator`
 Display name: `Inbox Curator`
 Repository: https://github.com/kzyiym/inbox-curator
+
+## Development
+
+Install dependencies:
+
+```bash
+pnpm install
+```
+
+Type-check:
+
+```bash
+pnpm check
+```
+
+Build:
+
+```bash
+pnpm build
+```
+
+Watch mode:
+
+```bash
+pnpm dev
+```
