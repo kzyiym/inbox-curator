@@ -56,6 +56,11 @@ export default class InboxCuratorPlugin extends Plugin {
     this.reviewStatusBarEl.style.display = '';
   }
 
+  private async flushStatusText(text: string): Promise<void> {
+    this.setStatusText(text);
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  }
+
   private buildShortReviewError(message: string): string {
     const normalized = message.replace(/\s+/g, ' ').trim();
     if (!normalized) {
@@ -67,14 +72,13 @@ export default class InboxCuratorPlugin extends Plugin {
     return `${REVIEW_FAILED_NOTICE_TEXT}: ${clipped}`;
   }
 
-  private tryBeginProcessing(statusText: string, noticeText: string): boolean {
+  private tryBeginProcessing(noticeText: string): boolean {
     if (this.processingInProgress) {
       new Notice(PROCESSING_IN_PROGRESS_NOTICE_TEXT);
       return false;
     }
 
     this.processingInProgress = true;
-    this.setStatusText(statusText);
     new Notice(noticeText);
     return true;
   }
@@ -137,9 +141,11 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   async reviewFile(file: TFile): Promise<void> {
-    if (!this.tryBeginProcessing(REVIEWING_STATUS_TEXT, REVIEWING_NOTICE_TEXT)) {
+    if (!this.tryBeginProcessing(REVIEWING_NOTICE_TEXT)) {
       return;
     }
+
+    await this.flushStatusText(REVIEWING_STATUS_TEXT);
 
     try {
       const result = await runReviewPipeline(this.app, file, {
@@ -170,12 +176,13 @@ export default class InboxCuratorPlugin extends Plugin {
       return;
     }
 
-    if (!this.tryBeginProcessing('Inbox Curator: Processing 0/0...', PROCESSING_WATCHED_FOLDER_NOTICE_TEXT)) {
+    if (!this.tryBeginProcessing(PROCESSING_WATCHED_FOLDER_NOTICE_TEXT)) {
       return;
     }
 
     try {
       const files = this.getWatchedFolderMarkdownFiles();
+      await this.flushStatusText(`Inbox Curator: Processing 0/${files.length}...`);
       const summary: WatchedFolderProcessingSummary = {
         processed: 0,
         skipped: 0,
@@ -184,7 +191,7 @@ export default class InboxCuratorPlugin extends Plugin {
 
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
-        this.setStatusText(`Inbox Curator: Processing ${index + 1}/${files.length}...`);
+        await this.flushStatusText(`Inbox Curator: Processing ${index + 1}/${files.length}...`);
 
         try {
           if (await this.shouldSkipWatchedFile(file)) {
