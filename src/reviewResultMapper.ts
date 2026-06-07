@@ -167,6 +167,9 @@ export interface ReviewResultMappingContext {
   model?: string;
   attachments?: ReviewAttachment[];
   attachmentSummary?: ReviewAttachmentSummary;
+  extractionConfidence?: number;
+  extractionWarnings?: string[];
+  extractionMethod?: string;
 }
 
 export function mapToReviewResult(raw: unknown, context: ReviewResultMappingContext): ReviewResultMappingResult {
@@ -232,6 +235,9 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
       needsVerification: pickBoolean(flags.needsVerification, false),
       deleteCandidate: pickBoolean(flags.deleteCandidate, false),
     },
+    ...(typeof context.extractionConfidence === 'number' ? { extractionConfidence: context.extractionConfidence } : {}),
+    ...(Array.isArray(context.extractionWarnings) ? { extractionWarnings: context.extractionWarnings } : {}),
+    ...(typeof context.extractionMethod === 'string' ? { extractionMethod: context.extractionMethod } : {}),
   };
 
   const validation = validateReviewResult(candidate);

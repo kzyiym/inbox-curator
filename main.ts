@@ -8,6 +8,7 @@ import { ReviewQueue } from './src/queue/reviewQueue';
 import type { ReviewJob, ReviewJobResult, ReviewJobSource } from './src/queue/queueTypes';
 import { buildReviewSourceInfo, runReviewPipeline, type ReviewPipelineOptions } from './src/reviewPipeline';
 import { DEFAULT_SETTINGS, InboxCuratorSettings, InboxCuratorSettingTab } from './src/settings';
+import { executeProposedAction } from './src/actionLayer';
 const REVIEWING_NOTICE_TEXT = 'Inbox Curator: Reviewing current note...';
 const PROCESSING_IN_PROGRESS_NOTICE_TEXT = 'Inbox Curator: Review already in progress';
 const REVIEW_COMPLETED_NOTICE_TEXT = 'Inbox Curator: Review completed';
@@ -108,6 +109,7 @@ export default class InboxCuratorPlugin extends Plugin {
       maxExtractedCharacters: this.settings.maxExtractedCharacters,
       readImages: this.settings.readImages,
       readVideos: this.settings.readVideos,
+      autoExecuteProposedActions: this.settings.autoExecuteProposedActions,
     });
 
     this.reviewQueue?.setMaxConcurrentJobs(this.settings.maxConcurrentReviews);
@@ -186,6 +188,32 @@ export default class InboxCuratorPlugin extends Plugin {
           error: result.error,
           retryable: result.retryable,
         };
+      }
+
+      // Phase 5c: Auto-execute (Archive only)
+      if (
+        this.settings.autoExecuteProposedActions &&
+        (job.source === 'watched-folder-manual' || job.source === 'watched-folder-auto' || job.source === 'watched-folder-poll')
+      ) {
+        const action = result.reviewResult.verdict.recommendedAction;
+        if (action === 'archive') {
+          console.log(`Inbox Curator: Auto-executing "archive" action for note: ${file.path}`);
+          const actionResult = await executeProposedAction(this.app, file, {
+            outputFolder: this.settings.reviewOutputFolder,
+            skipConfirmation: true,
+          });
+          if (!actionResult.success) {
+            console.warn(`Inbox Curator: Auto-execute failed for ${file.path}: ${actionResult.error}`);
+            new Notice(`Inbox Curator: Auto-execute failed: ${actionResult.error}. Pausing queue.`);
+            this.reviewQueue.pause();
+            return {
+              status: 'failed',
+              error: `Auto-execute archive failed: ${actionResult.error}`,
+              retryable: false,
+            };
+          }
+          console.log(`Inbox Curator: Note successfully archived: ${file.path} to ${result.reviewResult.suggestedFolder ?? 'unknown'}`);
+        }
       }
 
       return { status: 'processed' };
@@ -586,6 +614,28 @@ export default class InboxCuratorPlugin extends Plugin {
       );
     } finally {
       this.finishProcessing();
+    }
+  }
+
+  async executeProposedActionForActiveFile(): Promise<void> {
+    const file = this.getActiveMarkdownFile();
+    if (!file) {
+      new Notice('Open a Markdown note first.');
+      return;
+    }
+
+    const result = await executeProposedAction(this.app, file, {
+      outputFolder: this.settings.reviewOutputFolder,
+    });
+
+    if (result.success) {
+      if (result.actionTaken === 'archive') {
+        new Notice(`Inbox Curator: Note successfully archived.`);
+      }
+    } else {
+      if (result.error && !result.error.includes('User cancelled')) {
+        new Notice(`Inbox Curator Action Failed: ${result.error}`);
+      }
     }
   }
 }

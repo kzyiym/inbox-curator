@@ -1,9 +1,24 @@
 import { requestUrl } from 'obsidian';
 import { isMaskedApiKeyValue } from './secrets';
 
+export interface OpenAiCompatibleTextPart {
+  type: 'text';
+  text: string;
+}
+
+export interface OpenAiCompatibleImagePart {
+  type: 'image_url';
+  image_url: {
+    url: string;
+  };
+}
+
+export type OpenAiCompatibleContentPart = OpenAiCompatibleTextPart | OpenAiCompatibleImagePart;
+export type OpenAiCompatibleMessageContent = string | OpenAiCompatibleContentPart[];
+
 export interface OpenAiCompatibleMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: OpenAiCompatibleMessageContent;
 }
 
 export interface OpenAiCompatibleChatRequest {

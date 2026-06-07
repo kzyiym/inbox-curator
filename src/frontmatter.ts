@@ -64,6 +64,16 @@ export async function upsertReviewFrontmatter(app: App, file: TFile, result: Rev
   } else {
     delete frontmatter.ai_review_source_url;
   }
+  if (typeof result.extractionConfidence === 'number') {
+    frontmatter.ai_review_extraction_confidence = result.extractionConfidence;
+  } else {
+    delete frontmatter.ai_review_extraction_confidence;
+  }
+  if (Array.isArray(result.extractionWarnings) && result.extractionWarnings.length > 0) {
+    frontmatter.ai_review_extraction_warnings = result.extractionWarnings;
+  } else {
+    delete frontmatter.ai_review_extraction_warnings;
+  }
 
   const nextContent = stringifyDocument(frontmatter, body);
   await app.vault.modify(file, nextContent);

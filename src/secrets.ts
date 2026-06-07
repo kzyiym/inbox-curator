@@ -17,17 +17,37 @@ function getSecretStorage(app: unknown): SecretStorageLike {
   return storage;
 }
 
-export function getApiKeySecretId(): string {
-  return API_KEY_SECRET_ID;
+export function getApiKeySecretId(provider: string): string {
+  if (provider === 'gemini-native') {
+    return 'inbox-curator-api-key-gemini';
+  }
+  if (provider === 'anthropic-native') {
+    return 'inbox-curator-api-key-anthropic';
+  }
+  return 'inbox-curator-api-key-openai';
 }
 
 export function isMaskedApiKeyValue(value: string): boolean {
   return MASKED_API_KEY_VALUES.includes(value.trim() as (typeof MASKED_API_KEY_VALUES)[number]);
 }
 
-export async function getApiKey(app: unknown): Promise<string | null> {
+export async function getApiKey(app: unknown, provider: string): Promise<string | null> {
   const storage = getSecretStorage(app);
-  const value = await storage.getSecret(API_KEY_SECRET_ID);
+  const secretId = getApiKeySecretId(provider);
+  let value = await storage.getSecret(secretId);
+
+  // Fallback for OpenAI legacy key
+  if (provider === 'openai-compatible') {
+    const trimmed = value?.trim();
+    if (!trimmed || isMaskedApiKeyValue(trimmed)) {
+      const legacyValue = await storage.getSecret(API_KEY_SECRET_ID);
+      const normalizedLegacy = legacyValue?.trim();
+      if (normalizedLegacy && !isMaskedApiKeyValue(normalizedLegacy)) {
+        return normalizedLegacy;
+      }
+    }
+  }
+
   const normalized = value?.trim();
   if (!normalized || isMaskedApiKeyValue(normalized)) {
     return null;
@@ -35,22 +55,24 @@ export async function getApiKey(app: unknown): Promise<string | null> {
   return normalized;
 }
 
-export async function saveApiKey(app: unknown, apiKey: string): Promise<void> {
+export async function saveApiKey(app: unknown, provider: string, apiKey: string): Promise<void> {
   const normalized = apiKey.trim();
   if (!normalized || isMaskedApiKeyValue(normalized)) {
     throw new Error('Refusing to save an empty or masked API key value.');
   }
 
   const storage = getSecretStorage(app);
-  await storage.setSecret(API_KEY_SECRET_ID, normalized);
+  const secretId = getApiKeySecretId(provider);
+  await storage.setSecret(secretId, normalized);
 }
 
-export async function deleteApiKey(app: unknown): Promise<void> {
+export async function deleteApiKey(app: unknown, provider: string): Promise<void> {
   const storage = getSecretStorage(app);
-  await storage.deleteSecret(API_KEY_SECRET_ID);
+  const secretId = getApiKeySecretId(provider);
+  await storage.deleteSecret(secretId);
 }
 
-export async function hasApiKey(app: unknown): Promise<boolean> {
-  const value = await getApiKey(app);
+export async function hasApiKey(app: unknown, provider: string): Promise<boolean> {
+  const value = await getApiKey(app, provider);
   return Boolean(value);
 }

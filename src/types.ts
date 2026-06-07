@@ -127,4 +127,7 @@ export interface ReviewResult {
   suggestedTags: string[];
   suggestedFolder?: string;
   flags: ReviewFlags;
+  extractionConfidence?: number;
+  extractionWarnings?: string[];
+  extractionMethod?: string;
 }

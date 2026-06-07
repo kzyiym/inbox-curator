@@ -2,6 +2,19 @@ import { vi } from 'vitest';
 
 export class App {}
 
+export class Modal {
+  app: App;
+  contentEl: HTMLElement;
+  constructor(app: App) {
+    this.app = app;
+    this.contentEl = document.createElement('div');
+  }
+  open() {}
+  close() {}
+  onOpen() {}
+  onClose() {}
+}
+
 export class TFile {
   path = '';
   basename = '';
@@ -15,6 +28,26 @@ export class Notice {
     return this;
   }
   hide() {}
+}
+
+export class Plugin {
+  app: App;
+  manifest: any;
+  constructor(app: App, manifest: any) {
+    this.app = app;
+    this.manifest = manifest;
+  }
+  onload() {}
+  onunload() {}
+  registerEvent() {}
+  addSettingTab() {}
+  addCommand() {}
+  loadData() { return Promise.resolve({}); }
+  saveData() { return Promise.resolve(); }
+}
+
+export class MarkdownView {
+  file: TFile | null = null;
 }
 
 export class PluginSettingTab {}

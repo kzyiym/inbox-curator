@@ -1,6 +1,7 @@
 import { App, TFile, normalizePath } from 'obsidian';
 import * as yaml from 'js-yaml';
 import { getApiKey } from './secrets';
+import { maskBase64 } from './providerClient';
 import { upsertReviewFrontmatter } from './frontmatter';
 import { mapToReviewResult } from './reviewResultMapper';
 import { writeReviewNote, type ReviewNoteWriteResult } from './reviewWriter';
@@ -51,6 +52,9 @@ export interface ReviewModelInputPayload {
   readVideos: boolean;
   attachments?: import('./types').ReviewAttachment[];
   attachmentSummary?: import('./types').ReviewAttachmentSummary;
+  extractionConfidence?: number;
+  extractionWarnings?: string[];
+  extractionMethod?: string;
 }
 
 export interface ReviewPipelineSuccess {
@@ -102,6 +106,9 @@ interface UrlContextResult {
   extractedText?: string;
   extractedTitle?: string;
   extractionUsed: boolean;
+  extractionConfidence?: number;
+  extractionWarnings?: string[];
+  extractionMethod?: string;
 }
 
 function parseDocument(content: string): ParsedDocument {
@@ -305,8 +312,10 @@ export async function buildReviewModelInputPayload(
   let promptContent = noteContent;
   let previewSource = noteContent;
 
+  let urlContext: UrlContextResult | undefined;
+
   if (urlOnly.isUrlOnly && sourceUrl) {
-    let urlContext: UrlContextResult = {
+    const defaultUrlContext: UrlContextResult = {
       fetchStatus: 'not_applicable',
       extractionUsed: false,
     };
@@ -323,7 +332,12 @@ export async function buildReviewModelInputPayload(
         extractedText: fetchedContext.extractedText,
         extractedTitle: fetchedContext.extractedTitle,
         extractionUsed: fetchedContext.extractionUsed,
+        extractionConfidence: fetchedContext.extractionConfidence,
+        extractionWarnings: fetchedContext.extractionWarnings,
+        extractionMethod: fetchedContext.extractionMethod,
       };
+    } else {
+      urlContext = defaultUrlContext;
     }
 
     fetchStatus = urlContext.fetchStatus;
@@ -365,6 +379,9 @@ export async function buildReviewModelInputPayload(
     ...(extractedTitle ? { extractedTitle } : {}),
     ...(attachmentContext.attachments.length > 0 ? { attachments: attachmentContext.attachments } : {}),
     ...(attachmentContext.attachmentSummary ? { attachmentSummary: attachmentContext.attachmentSummary } : {}),
+    ...(urlContext && typeof urlContext.extractionConfidence === 'number' ? { extractionConfidence: urlContext.extractionConfidence } : {}),
+    ...(urlContext && Array.isArray(urlContext.extractionWarnings) ? { extractionWarnings: urlContext.extractionWarnings } : {}),
+    ...(urlContext && typeof urlContext.extractionMethod === 'string' ? { extractionMethod: urlContext.extractionMethod } : {}),
   };
 }
 
@@ -420,6 +437,9 @@ function buildMappingContext(source: ReviewSourceInfo, modelInput: ReviewModelIn
   model: string;
   attachments?: import('./types').ReviewAttachment[];
   attachmentSummary?: import('./types').ReviewAttachmentSummary;
+  extractionConfidence?: number;
+  extractionWarnings?: string[];
+  extractionMethod?: string;
 } {
   return {
     source,
@@ -431,6 +451,9 @@ function buildMappingContext(source: ReviewSourceInfo, modelInput: ReviewModelIn
     model: modelInput.model,
     ...(modelInput.attachments ? { attachments: modelInput.attachments } : {}),
     ...(modelInput.attachmentSummary ? { attachmentSummary: modelInput.attachmentSummary } : {}),
+    ...(typeof modelInput.extractionConfidence === 'number' ? { extractionConfidence: modelInput.extractionConfidence } : {}),
+    ...(Array.isArray(modelInput.extractionWarnings) ? { extractionWarnings: modelInput.extractionWarnings } : {}),
+    ...(typeof modelInput.extractionMethod === 'string' ? { extractionMethod: modelInput.extractionMethod } : {}),
   };
 }
 
@@ -568,8 +591,71 @@ function tryParseJsonObject(text: string): ReviewRawResponse | null {
   return null;
 }
 
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+function getMimeType(extension: string): string {
+  const ext = extension.toLowerCase().replace(/^\./, '');
+  if (ext === 'png') return 'image/png';
+  if (ext === 'jpg' || ext === 'jpeg') return 'image/jpeg';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'gif') return 'image/gif';
+  return 'application/octet-stream';
+}
+
+export async function loadAndConvertImages(
+  app: App,
+  attachments: import('./types').ReviewAttachment[],
+): Promise<{ url: string }[]> {
+  const images = attachments.filter(
+    (a) =>
+      a.kind === 'image' &&
+      a.exists &&
+      ['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(a.extension.toLowerCase().replace(/^\./, '')),
+  );
+
+  const MAX_IMAGES = 3;
+  const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+  const loaded: { url: string }[] = [];
+
+  for (const img of images) {
+    if (loaded.length >= MAX_IMAGES) {
+      break;
+    }
+
+    const file = app.vault.getAbstractFileByPath(img.path);
+    if (!(file instanceof TFile)) {
+      continue;
+    }
+
+    if (file.stat.size > MAX_SIZE_BYTES) {
+      continue;
+    }
+
+    try {
+      const buffer = await app.vault.readBinary(file);
+      const base64 = arrayBufferToBase64(buffer);
+      const mime = getMimeType(img.extension);
+      loaded.push({
+        url: `data:${mime};base64,${base64}`,
+      });
+    } catch (err) {
+      console.warn('Failed to load image attachment binary', { path: img.path, error: err });
+    }
+  }
+
+  return loaded;
+}
+
 async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayload): Promise<ReviewRawResponse> {
-  const apiKey = await getApiKey(app);
+  const apiKey = await getApiKey(app, modelInput.provider);
   if (!apiKey) {
     throw new ReviewPipelineError('API key is not saved in SecretStorage.', {
       retryable: false,
@@ -578,21 +664,38 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
   }
 
   const prompt = buildReviewPrompt(modelInput);
+
+  let userContent: import('./providerClient').ProviderChatMessageContent = prompt.user;
+  if (modelInput.readImages && Array.isArray(modelInput.attachments)) {
+    const images = await loadAndConvertImages(app, modelInput.attachments);
+    if (images.length > 0) {
+      userContent = [
+        { type: 'text', text: prompt.user },
+        ...images.map((img) => ({
+          type: 'image_url' as const,
+          image_url: { url: img.url },
+        })),
+      ];
+    }
+  }
+
+  const promptMessages: import('./providerClient').ProviderChatMessage[] = [
+    { role: 'system', content: prompt.system },
+    { role: 'user', content: userContent },
+  ];
+
   const response = await postProviderChat({
     provider: modelInput.provider,
     endpointUrl: modelInput.endpointUrl,
     model: modelInput.model,
     apiKey,
-    messages: [
-      { role: 'system', content: prompt.system },
-      { role: 'user', content: prompt.user },
-    ],
+    messages: promptMessages,
     temperature: 0,
   });
 
   if (response.ok === false) {
     const retryHint = classifyProviderFailure(modelInput.provider, response);
-    console.warn('Inbox Curator review request failed', {
+    console.warn('Inbox Curator review request failed', maskBase64({
       provider: modelInput.provider,
       endpointUrl: modelInput.endpointUrl,
       model: modelInput.model,
@@ -600,7 +703,7 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
       error: response.error,
       retryable: retryHint.retryable,
       responseSnippet: buildSafeSnippet(response.responseBody),
-    });
+    }));
     throw new ReviewPipelineError(
       response.status ? `AI review request failed (${response.status}).` : `AI review request failed: ${response.error}`,
       {

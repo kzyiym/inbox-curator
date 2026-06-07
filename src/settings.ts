@@ -3,7 +3,7 @@ import type InboxCuratorPlugin from '../main';
 import { testConnection } from './connectionTest';
 import { deleteApiKey, getApiKey, getApiKeySecretId, hasApiKey, isMaskedApiKeyValue, SAVED_API_KEY_MASK, saveApiKey } from './secrets';
 
-export type InboxCuratorProvider = 'openai-compatible';
+export type InboxCuratorProvider = 'openai-compatible' | 'gemini-native' | 'anthropic-native';
 
 export interface InboxCuratorSettings {
   watchedFolder: string;
@@ -26,6 +26,7 @@ export interface InboxCuratorSettings {
   maxExtractedCharacters: number;
   readImages: boolean;
   readVideos: boolean;
+  autoExecuteProposedActions: boolean;
 }
 
 export const DEFAULT_SETTINGS: InboxCuratorSettings = {
@@ -49,6 +50,7 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   maxExtractedCharacters: 12000,
   readImages: false,
   readVideos: false,
+  autoExecuteProposedActions: false,
 };
 
 function clampInteger(value: number, min: number, max: number, fallback: number): number {
@@ -231,6 +233,16 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         }),
       );
 
+    new Setting(containerEl)
+      .setName('Auto-execute proposed actions')
+      .setDesc('Automatically execute proposed actions (e.g. archive) after review is completed. Only "archive" action is executed automatically.')
+      .addToggle((toggle) =>
+        toggle.setValue(settings.autoExecuteProposedActions).onChange(async (value) => {
+          settings.autoExecuteProposedActions = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
     if (visibility.showAutomaticWatchingDetails) {
       new Setting(containerEl)
         .setName('Auto-review on create')
@@ -366,14 +378,17 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Provider')
-      .setDesc('Stored in data.json. Provider abstraction exists, but only openai-compatible is implemented right now.')
+      .setDesc('Stored in data.json. Provider abstraction exists.')
       .addDropdown((dropdown) =>
         dropdown
           .addOption('openai-compatible', 'openai-compatible')
+          .addOption('gemini-native', 'gemini-native')
+          .addOption('anthropic-native', 'anthropic-native')
           .setValue(settings.provider)
           .onChange(async (value) => {
             settings.provider = value as InboxCuratorProvider;
             await this.plugin.saveSettings();
+            this.display();
           }),
       );
 
@@ -403,9 +418,20 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           }),
       );
 
+    const defaultEndpoints: Record<InboxCuratorProvider, string> = {
+      'openai-compatible': 'https://api.openai.com/v1',
+      'gemini-native': 'https://generativelanguage.googleapis.com',
+      'anthropic-native': 'https://api.anthropic.com',
+    };
+    const defaultModels: Record<InboxCuratorProvider, string> = {
+      'openai-compatible': 'gpt-4o-mini',
+      'gemini-native': 'gemini-1.5-flash',
+      'anthropic-native': 'claude-3-5-sonnet-latest',
+    };
+
     const apiKeySetting = new Setting(containerEl)
       .setName('API key')
-      .setDesc(`Stored in SecretStorage under ${getApiKeySecretId()}. Not saved to data.json.`);
+      .setDesc(`Stored in SecretStorage under ${getApiKeySecretId(settings.provider)}. Not saved to data.json.`);
 
     let draftValue = '';
     let hasEditedApiKey = false;
@@ -414,7 +440,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       text.inputEl.type = 'text';
       text.setPlaceholder('Paste API key');
 
-      void hasApiKey(this.app).then((saved) => {
+      void hasApiKey(this.app, settings.provider).then((saved) => {
         text.setValue(saved ? SAVED_API_KEY_MASK : '');
       });
 
@@ -426,7 +452,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
       text.inputEl.addEventListener('blur', () => {
         if (!hasEditedApiKey) {
-          void hasApiKey(this.app).then((saved) => {
+          void hasApiKey(this.app, settings.provider).then((saved) => {
             if (saved && text.inputEl.value.trim() === '') {
               text.setValue(SAVED_API_KEY_MASK);
             }
@@ -454,7 +480,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         }
 
         try {
-          await saveApiKey(this.app, draftValue);
+          await saveApiKey(this.app, settings.provider, draftValue);
           draftValue = '';
           hasEditedApiKey = false;
           this.display();
@@ -470,7 +496,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     apiKeySetting.addButton((button) =>
       button.setButtonText('Delete API key').setWarning().onClick(async () => {
-        await deleteApiKey(this.app);
+        await deleteApiKey(this.app, settings.provider);
         draftValue = '';
         hasEditedApiKey = false;
         this.display();
@@ -480,10 +506,10 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Test connection')
-      .setDesc('Send a minimal OpenAI-compatible chat completion request using the saved API key.')
+      .setDesc('Send a minimal completion request using the saved API key.')
       .addButton((button) =>
         button.setButtonText('Test connection').onClick(async () => {
-          const apiKeyCandidate = hasEditedApiKey && draftValue ? draftValue : await getApiKey(this.app);
+          const apiKeyCandidate = hasEditedApiKey && draftValue ? draftValue : await getApiKey(this.app, settings.provider);
           if (!apiKeyCandidate || isMaskedApiKeyValue(apiKeyCandidate)) {
             new Notice('Connection test failed: missing API key');
             console.warn('Inbox Curator connection test aborted', {
@@ -497,8 +523,8 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
           const result = await testConnection({
             provider: settings.provider,
-            endpointUrl: settings.endpointUrl,
-            model: settings.model,
+            endpointUrl: settings.endpointUrl.trim() || defaultEndpoints[settings.provider],
+            model: settings.model.trim() || defaultModels[settings.provider],
             apiKey: apiKeyCandidate,
           });
 
@@ -523,7 +549,8 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
   }
 
   private async renderApiKeyStatus(containerEl: HTMLElement): Promise<void> {
-    const saved = await hasApiKey(this.app);
+    const settings = this.plugin.settings;
+    const saved = await hasApiKey(this.app, settings.provider);
     containerEl.createEl('p', {
       text: saved ? 'API key status: saved in SecretStorage' : 'API key status: not saved',
     });

@@ -16,4 +16,12 @@ export function registerInboxCuratorCommands(plugin: InboxCuratorPlugin): void {
       await plugin.processWatchedFolder();
     },
   });
+
+  plugin.addCommand({
+    id: 'execute-proposed-action',
+    name: 'Execute proposed action for current note',
+    callback: async () => {
+      await plugin.executeProposedActionForActiveFile();
+    },
+  });
 }

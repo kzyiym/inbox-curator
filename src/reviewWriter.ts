@@ -115,15 +115,30 @@ function buildRetentionValueItems(result: ReviewResult): string[] {
 }
 
 function buildEvidenceBasisItems(result: ReviewResult): string[] {
+  const items: string[] = [];
+
   if (Array.isArray(result.evidenceBasis) && result.evidenceBasis.length > 0) {
-    return result.evidenceBasis;
+    items.push(...result.evidenceBasis);
+  } else {
+    items.push('Not explicitly classified yet');
+    const credibilityLead = firstSentence(result.credibilityReview);
+    if (credibilityLead) {
+      items.push(`Credibility notes: ${credibilityLead}`);
+    }
   }
 
-  const items = ['Not explicitly classified yet'];
-  const credibilityLead = firstSentence(result.credibilityReview);
-  if (credibilityLead) {
-    items.push(`Credibility notes: ${credibilityLead}`);
+  if (typeof result.extractionConfidence === 'number') {
+    const confidencePct = Math.round(result.extractionConfidence * 100);
+    const methodStr = result.extractionMethod ? ` via ${result.extractionMethod}` : '';
+    items.push(`Source content extraction confidence: ${confidencePct}%${methodStr}`);
   }
+
+  if (Array.isArray(result.extractionWarnings) && result.extractionWarnings.length > 0) {
+    for (const warning of result.extractionWarnings) {
+      items.push(`Extraction warning: ${warning}`);
+    }
+  }
+
   return items;
 }
 
@@ -240,7 +255,18 @@ function buildReviewContent(result: ReviewResult): string {
   const attachmentSection = buildAttachmentSection(result);
   const actionItemsSection = buildActionItemsSection(result);
 
-  return `---\nsource: "[[${result.source.noteTitle}]]"\nsource_path: "${result.source.notePath}"\ncontent_type: "${result.contentType}"\ninput_profile: "${result.inputProfile}"\nfetch_status: "${result.fetchStatus}"\ndomain_profile: "${result.domainProfile}"\ngenerated_at: "${result.source.generatedAt}"\nprovider: "${result.provider}"\nmodel: "${result.model}"\nsource_hash: "${result.source.sourceHash}"\nrecommended_action: "${result.verdict.recommendedAction}"\npriority: "${result.verdict.priority}"\nneeds_verification: ${String(result.flags.needsVerification)}\n---\n\n# AI Review: ${result.source.noteTitle}\n\nSource: [[${result.source.noteTitle}]]\n\n## Decision\n\n- Recommended Action: ${toTitleCase(result.verdict.recommendedAction)}\n- Priority: ${toTitleCase(result.verdict.priority)}\n- Needs Verification: ${result.flags.needsVerification ? 'Yes' : 'No'}\n- Reading Value: ${toTitleCase(result.verdict.readingValueLabel)}\n- Saving Value: ${toTitleCase(result.verdict.savingValueLabel)}\n- Reliability: ${toTitleCase(result.verdict.reliabilityLabel)}\n\n## Why this decision\n\n${decisionReason}\n\n## Quick Summary\n\n${bulletLines(quickSummaryItems)}\n\n${structuredSummarySection}${attachmentSection}## Retention Value\n\n${bulletLines(retentionValueItems)}\n\n## Evidence Basis\n\n${bulletLines(evidenceBasisItems)}\n\n## Risks / Gaps\n\n${bulletLines(result.risksOrGaps)}\n\n## Verification Needed\n\n${bulletLines(result.verificationNeeded)}\n\n## Next Actions\n\n${bulletLines(result.nextActions)}\n\n${actionItemsSection}## Organization\n\n${bulletLines(organizationItems)}\n`;
+  let extractionYaml = '';
+  if (typeof result.extractionConfidence === 'number') {
+    extractionYaml += `extraction_confidence: ${result.extractionConfidence}\n`;
+  }
+  if (result.extractionMethod) {
+    extractionYaml += `extraction_method: "${result.extractionMethod}"\n`;
+  }
+  if (Array.isArray(result.extractionWarnings) && result.extractionWarnings.length > 0) {
+    extractionYaml += `extraction_warnings:\n${result.extractionWarnings.map((w) => `  - "${w}"`).join('\n')}\n`;
+  }
+
+  return `---\nsource: "[[${result.source.noteTitle}]]"\nsource_path: "${result.source.notePath}"\ncontent_type: "${result.contentType}"\ninput_profile: "${result.inputProfile}"\nfetch_status: "${result.fetchStatus}"\ndomain_profile: "${result.domainProfile}"\ngenerated_at: "${result.source.generatedAt}"\nprovider: "${result.provider}"\nmodel: "${result.model}"\nsource_hash: "${result.source.sourceHash}"\nrecommended_action: "${result.verdict.recommendedAction}"\npriority: "${result.verdict.priority}"\nneeds_verification: ${String(result.flags.needsVerification)}\n${extractionYaml}---\n\n# AI Review: ${result.source.noteTitle}\n\nSource: [[${result.source.noteTitle}]]\n\n## Decision\n\n- Recommended Action: ${toTitleCase(result.verdict.recommendedAction)}\n- Priority: ${toTitleCase(result.verdict.priority)}\n- Needs Verification: ${result.flags.needsVerification ? 'Yes' : 'No'}\n- Reading Value: ${toTitleCase(result.verdict.readingValueLabel)}\n- Saving Value: ${toTitleCase(result.verdict.savingValueLabel)}\n- Reliability: ${toTitleCase(result.verdict.reliabilityLabel)}\n\n## Why this decision\n\n${decisionReason}\n\n## Quick Summary\n\n${bulletLines(quickSummaryItems)}\n\n${structuredSummarySection}${attachmentSection}## Retention Value\n\n${bulletLines(retentionValueItems)}\n\n## Evidence Basis\n\n${bulletLines(evidenceBasisItems)}\n\n## Risks / Gaps\n\n${bulletLines(result.risksOrGaps)}\n\n## Verification Needed\n\n${bulletLines(result.verificationNeeded)}\n\n## Next Actions\n\n${bulletLines(result.nextActions)}\n\n${actionItemsSection}## Organization\n\n${bulletLines(organizationItems)}\n`;
 }
 
 export async function writeReviewNote(app: App, sourceFile: TFile, result: ReviewResult): Promise<ReviewNoteWriteResult> {

@@ -5,7 +5,7 @@ vi.mock('../src/urlExtraction', () => ({
   fetchUrlContext: vi.fn(),
 }));
 
-import { buildReviewModelInputPayload, buildReviewSourceInfo } from '../src/reviewPipeline';
+import { buildReviewModelInputPayload, buildReviewSourceInfo, loadAndConvertImages } from '../src/reviewPipeline';
 import { fetchUrlContext } from '../src/urlExtraction';
 
 function createTFile(path: string) {
@@ -120,5 +120,59 @@ describe('buildReviewModelInputPayload URL-only behavior', () => {
 
     expect(result.contentType).toBe('url_only');
     expect(result.inputProfile).toBe('url_only');
+  });
+});
+
+describe('loadAndConvertImages multimodal limits', () => {
+  function createMockAppForImages(files: Map<string, any>) {
+    return {
+      vault: {
+        getAbstractFileByPath: (path: string) => files.get(path) || null,
+        readBinary: async (file: any) => file.buffer,
+      },
+    };
+  }
+
+  it('limits image count to 3, skips >5MB files, and ignores non-images', async () => {
+    const attachments = [
+      { path: 'img1.png', kind: 'image', exists: true, extension: 'png', displayName: '1', embedded: true },
+      { path: 'img2.jpg', kind: 'image', exists: true, extension: 'jpg', displayName: '2', embedded: true },
+      { path: 'img3.webp', kind: 'image', exists: true, extension: 'webp', displayName: '3', embedded: true },
+      { path: 'img4.gif', kind: 'image', exists: true, extension: 'gif', displayName: '4', embedded: true }, // Should be skipped due to count > 3
+      { path: 'huge.png', kind: 'image', exists: true, extension: 'png', displayName: 'Huge', embedded: true }, // Should be skipped due to size > 5MB
+      { path: 'doc.pdf', kind: 'pdf', exists: true, extension: 'pdf', displayName: 'Doc', embedded: true }, // Non-image kind
+    ] as any[];
+
+    const files = new Map<string, any>();
+    files.set('img1.png', Object.assign(Object.create(TFile.prototype), { path: 'img1.png', extension: 'png', stat: { size: 100 * 1024 }, buffer: new ArrayBuffer(8) }));
+    files.set('img2.jpg', Object.assign(Object.create(TFile.prototype), { path: 'img2.jpg', extension: 'jpg', stat: { size: 200 * 1024 }, buffer: new ArrayBuffer(8) }));
+    files.set('img3.webp', Object.assign(Object.create(TFile.prototype), { path: 'img3.webp', extension: 'webp', stat: { size: 300 * 1024 }, buffer: new ArrayBuffer(8) }));
+    files.set('img4.gif', Object.assign(Object.create(TFile.prototype), { path: 'img4.gif', extension: 'gif', stat: { size: 400 * 1024 }, buffer: new ArrayBuffer(8) }));
+    files.set('huge.png', Object.assign(Object.create(TFile.prototype), { path: 'huge.png', extension: 'png', stat: { size: 6 * 1024 * 1024 }, buffer: new ArrayBuffer(8) })); // 6MB > 5MB
+
+    const mockApp = createMockAppForImages(files);
+
+    // Test with all images in attachments (img1, img2, img3, img4, huge)
+    // Ordered: img1, img2, img3 (these three should be accepted)
+    // huge.png is placed in list before img3 to test size skip
+    const testAttachments = [
+      attachments[0], // img1.png (OK)
+      attachments[4], // huge.png (Skip size)
+      attachments[1], // img2.jpg (OK)
+      attachments[5], // doc.pdf (Skip non-image kind)
+      attachments[2], // img3.webp (OK)
+      attachments[3], // img4.gif (Skip due to max 3 count limit of loaded)
+    ];
+
+    const result = await loadAndConvertImages(mockApp as any, testAttachments);
+
+    expect(result).toHaveLength(3); // Capped at 3 successfully loaded
+    expect(result[0].url).toContain('data:image/png;base64,');
+    expect(result[1].url).toContain('data:image/jpeg;base64,');
+    expect(result[2].url).toContain('data:image/webp;base64,');
+
+    // Ensure huge.png, doc.pdf, and img4.gif (which would exceed 3 successfully loaded images) are not in the result
+    const urls = result.map((r: any) => r.url);
+    expect(urls).not.toContain('image/gif'); // img4.gif is excluded as it is the 4th image
   });
 });
