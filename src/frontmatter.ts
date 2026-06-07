@@ -27,6 +27,12 @@ function stringifyDocument(frontmatter: Record<string, unknown>, body: string): 
   return `---\n${frontmatterYaml}\n---\n${body}`;
 }
 
+export function readAiReviewSourceHash(content: string): string | undefined {
+  const { frontmatter } = parseDocument(content);
+  const value = frontmatter.ai_review_source_hash;
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
 export async function upsertReviewFrontmatter(app: App, file: TFile, result: ReviewResult): Promise<void> {
   const content = await app.vault.read(file);
   const { frontmatter, body } = parseDocument(content);

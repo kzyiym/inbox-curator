@@ -10,10 +10,10 @@ export function registerInboxCuratorCommands(plugin: InboxCuratorPlugin): void {
   });
 
   plugin.addCommand({
-    id: 'process-current-note',
-    name: 'Process current note',
+    id: 'process-watched-folder',
+    name: 'Process watched folder',
     callback: async () => {
-      await plugin.reviewActiveFile();
+      await plugin.processWatchedFolder();
     },
   });
 }

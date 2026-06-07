@@ -90,18 +90,46 @@ function hashString(value: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
+function buildHashSourceContent(noteContent: string): string {
+  const match = noteContent.match(FRONTMATTER_REGEX);
+  if (!match) {
+    return noteContent;
+  }
+
+  const parsed = yaml.load(match[1]);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return noteContent;
+  }
+
+  const frontmatter = { ...(parsed as Record<string, unknown>) };
+  for (const key of Object.keys(frontmatter)) {
+    if (key.startsWith('ai_review_')) {
+      delete frontmatter[key];
+    }
+  }
+
+  const cleanedFrontmatter = yaml.dump(frontmatter, {
+    lineWidth: -1,
+    noRefs: true,
+    quotingType: '"',
+  }).trimEnd();
+  const body = noteContent.slice(match[0].length);
+
+  return cleanedFrontmatter ? `---\n${cleanedFrontmatter}\n---\n${body}` : body;
+}
+
 function buildSourceHash(file: TFile, noteContent: string): string {
   return hashString(
     JSON.stringify({
       notePath: file.path,
       mtime: file.stat.mtime,
       size: file.stat.size,
-      noteContent,
+      noteContent: buildHashSourceContent(noteContent),
     }),
   );
 }
 
-function buildReviewSourceInfo(file: TFile, outputFolder: string, noteContent: string): ReviewSourceInfo {
+export function buildReviewSourceInfo(file: TFile, outputFolder: string, noteContent: string): ReviewSourceInfo {
   const frontmatter = parseFrontmatter(noteContent);
   const sourceUrl = extractSourceUrl(frontmatter);
 
