@@ -1,0 +1,56 @@
+name: 🔒 Security / Privacy Concern
+description: Report a security vulnerability or privacy concern
+labels: ["security"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **CRITICAL: Do NOT include API keys, note contents, vault paths, local file paths, private URLs, credentials, or any sensitive data in this report.**
+
+        For sensitive security vulnerabilities, please use [GitHub Security Advisories](https://github.com/kzyiym/inbox-curator/security/advisories/new) if available, or follow the instructions in [SECURITY.md](https://github.com/kzyiym/inbox-curator/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: concern
+    attributes:
+      label: Concern Description
+      description: Describe the security or privacy concern.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: area
+    attributes:
+      label: Area of Concern
+      options:
+        - label: Note content handling
+        - label: API key storage
+        - label: External API calls
+        - label: URL fetching
+        - label: Log files
+        - label: Auto-sort / file movement
+        - label: FAQ page / analytics
+        - label: Other
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin Version
+      placeholder: e.g. 1.0.0
+
+  - type: input
+    id: obsidian-version
+    attributes:
+      label: Obsidian Version
+      placeholder: e.g. 1.5.8
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: If applicable, how can the concern be reproduced?
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: Any other context that might help.

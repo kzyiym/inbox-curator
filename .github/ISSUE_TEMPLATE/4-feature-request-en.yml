@@ -1,0 +1,56 @@
+name: 💡 Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for your feature idea! Please describe it clearly.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Background
+      description: What problem are you trying to solve? What limitation are you experiencing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: Describe the feature or behavior you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What workarounds or alternative solutions have you considered?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-workflow
+    attributes:
+      label: Expected Workflow
+      description: How would you use this feature step by step?
+
+  - type: checkboxes
+    id: impact
+    attributes:
+      label: Impact Assessment
+      description: Would this feature affect any of the following?
+      options:
+        - label: External API calls
+        - label: Privacy behavior
+        - label: Auto-sort behavior
+        - label: File movement
+        - label: Provider compatibility
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: References, mockups, screenshots, or anything else helpful.

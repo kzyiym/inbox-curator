@@ -1,0 +1,107 @@
+name: 🐛 Bug Report
+description: Report a bug or issue with the plugin
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug! Please fill in the information below to help us diagnose the issue.
+
+        ⚠️ **Do NOT include API keys, note contents, vault paths, local file paths, private URLs, or provider account details in this report.**
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin Version
+      placeholder: e.g. 1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: obsidian-version
+    attributes:
+      label: Obsidian Version
+      placeholder: e.g. 1.5.8
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: AI Provider
+      options:
+        - OpenAI / OpenAI-compatible
+        - Google Gemini
+        - Anthropic Claude
+    validations:
+      required: true
+
+  - type: dropdown
+    id: review-mode
+    attributes:
+      label: Review Mode
+      options:
+        - Advanced (structured JSON)
+        - Auto-sort (plain-text)
+        - Review only (no actions)
+
+  - type: checkboxes
+    id: features-enabled
+    attributes:
+      label: Features Enabled
+      options:
+        - label: Auto-sort enabled
+        - label: Image review enabled
+        - label: PDF extraction enabled
+        - label: URL extraction enabled
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: Briefly describe the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Ordered steps to reproduce the bug.
+      placeholder: |
+        1. Go to Settings...
+        2. Enable...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Screenshots
+      description: |
+        Check the "Error Logs" button in the settings tab, or open Obsidian's developer tools (Ctrl+Shift+I / Cmd+Opt+I) and copy console output.
+        Redact any sensitive information.

@@ -12,6 +12,41 @@ Whether your inbox is filled with saved web articles, raw AI chat logs, rough qu
 
 ---
 
+## Privacy Summary
+
+Inbox Curator runs locally inside your Obsidian vault.
+
+When AI review is enabled, selected note content and enabled attachment context (images, PDF text) are sent directly from your device to your configured AI provider (OpenAI, Gemini, or Anthropic). The developer does not receive, proxy, store, or monitor your notes, API keys, or usage data.
+
+The plugin core contains no telemetry. Optional external pages (FAQ, Ko-fi, analytics) are separate from the plugin core and are disclosed in [External Service Disclosures](#external-service-disclosures) below.
+
+API keys are stored using Obsidian's `SecretStorage` when available, falling back to in-memory session-only storage.
+
+## Safety Summary
+
+Inbox Curator is designed to be reversible and conservative.
+
+- Notes are **never deleted automatically**.
+- Delete candidates are suggestions only.
+- Auto-sort can be disabled entirely.
+- Review only mode disables all action execution.
+- Recent auto-sort runs can be undone.
+- Tasks require higher confidence (High) than Archive or Read Later (Medium or High).
+- Test with a small folder before enabling bulk processing or auto-sort.
+
+For details, see [Auto-sort Safety](#auto-sort-safety) below.
+
+## Known Limitations
+
+- AI-generated reviews may be incomplete or inaccurate.
+- URL extraction may fail on paywalled, script-heavy, or blocked pages.
+- PDF text extraction is experimental (first 5 pages, up to 10,000 characters).
+- Image review requires a multimodal-capable model and is limited to 3 images (1 MB each).
+- External AI API usage may incur provider costs.
+- Large notes or attachments may be truncated or skipped to stay within context and payload limits.
+
+---
+
 ## Features
 
 - **AI Note Review**: Sends note content to a configurable AI provider and receives structured JSON verdicts with scores, summaries, credibility assessments, tags, and action recommendations.
@@ -352,7 +387,7 @@ We provide a comprehensive, interactive, and multi-language (English/Japanese) F
 
 👉 **[Open FAQ Document](https://inbox-curator.antidot.jp/)** (Supports real-time search, category filtering, theme toggle, and accordion toggles)
 
-*Note: The FAQ document is a supplementary helper document and does not constitute official product support. It is verified for Obsidian v1.0.0+ and Plugin v0.1.0+.*
+*Note: The FAQ document is a supplementary helper document and does not constitute official product support. It is verified for Obsidian v1.0.0+ and Plugin v1.0.0+.*
 
 ---
 

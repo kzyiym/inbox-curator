@@ -1,14 +1,17 @@
 blank_issues_enabled: false
 contact_links:
-  - name: README (ドキュメント)
+  - name: 📖 README / Documentation
     url: https://github.com/kzyiym/inbox-curator/blob/main/README.md
-    about: プラグインの機能、セットアップ方法、プライバシーポリシー、よくある質問についてはこちらをご覧ください。
-  - name: GitHub Discussions (ディスカッション)
+    about: View plugin features, setup instructions, privacy policy, and FAQ.
+  - name: 🔒 Report a Security Vulnerability
+    url: https://github.com/kzyiym/inbox-curator/blob/main/SECURITY.md
+    about: Read SECURITY.md before reporting sensitive issues. Do not post API keys or note contents.
+  - name: 💬 GitHub Discussions
     url: https://github.com/kzyiym/inbox-curator/discussions
-    about: 質問、アイデアの共有、他のユーザーとの交流はこちらで行ってください。
-  - name: 問い合わせ・フィードバックフォーム (GitHubアカウントをお持ちでない方向け)
+    about: Ask questions, share ideas, and interact with other users.
+  - name: 📝 Feedback & Support Form (No GitHub account required)
     url: https://tally.so/r/lbzMMW
-    about: GitHubアカウントをお持ちでない場合や、ツールの操作に不慣れな場合は、こちらから直接不具合報告や機能リクエストをお送りください。
-  - name: Ko-fi (開発支援)
+    about: Submit bug reports or feature requests directly (no account needed).
+  - name: ☕ Ko-fi (Support Development)
     url: https://ko-fi.com/Q1B120YT32
-    about: 開発者を支援し、このプロジェクトの継続をサポートすることができます。
+    about: Support the developer and help sustain this project.

@@ -18,4 +18,8 @@ coverage/
 
 *.md
 !README.md
+!SECURITY.md
+!CHANGELOG.md
+!LICENSE-AUDIT.md
 docs/
+site/
