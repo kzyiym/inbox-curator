@@ -1,1 +1,296 @@
-/* Inbox Curator styles */
+/* Inbox Curator Custom Settings Styles */
+
+.inbox-curator-settings-card {
+    background-color: var(--background-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.inbox-curator-settings-card .setting-item {
+    border-top: 1px solid var(--background-modifier-border);
+    padding: 12px 12px;
+}
+
+.inbox-curator-settings-card .setting-item:first-of-type {
+    border-top: none;
+    padding-top: 0;
+}
+
+.inbox-curator-settings-card .setting-item:last-of-type {
+    padding-bottom: 0;
+}
+
+/* エラーログカード: 名前なし Setting の左空エリアを非表示 */
+.inbox-curator-error-log-setting .setting-item-info {
+    display: none;
+}
+
+.inbox-curator-settings-card .inbox-curator-section-header {
+    margin-top: 0 !important;
+    margin-left: 0 !important;
+    margin-inline-start: 0 !important;
+    padding-left: 0 !important;
+    padding-inline-start: 0 !important;
+    margin-bottom: 6px !important;
+    color: var(--text-accent);
+    font-size: 1.2em;
+    font-weight: 600;
+}
+
+.inbox-curator-settings-card .inbox-curator-section-desc {
+    font-size: 0.9em;
+    color: var(--text-muted);
+    margin-top: 0 !important;
+    margin-left: 0 !important;
+    margin-inline-start: 0 !important;
+    padding-left: 0 !important;
+    padding-inline-start: 0 !important;
+    margin-bottom: 16px !important;
+    line-height: 1.4;
+}
+
+.inbox-curator-sub-section-header {
+    font-size: 0.9em;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin: 16px 0 4px !important;
+    padding: 0 !important;
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding-bottom: 4px !important;
+    cursor: pointer;
+    user-select: none;
+}
+
+.inbox-curator-sub-section-header::-webkit-details-marker {
+    color: var(--text-muted);
+    margin-right: 4px;
+}
+
+.inbox-curator-settings-card details {
+    margin-top: 8px;
+}
+
+.inbox-curator-settings-card details .setting-item:first-of-type {
+    padding-top: 12px;
+}
+
+.inbox-curator-callout {
+    background-color: var(--background-secondary-alt);
+    border-left: 4px solid var(--text-warning);
+    border-radius: 4px;
+    padding: 12px 16px;
+    margin: 14px 0;
+    font-size: 0.9em;
+    line-height: 1.45;
+}
+
+.inbox-curator-callout-info {
+    border-left-color: var(--text-accent);
+}
+
+.inbox-curator-callout p {
+    margin: 0;
+}
+
+.inbox-curator-callout p + p {
+    margin-top: 6px;
+}
+
+input[list]::-webkit-calendar-picker-indicator {
+    display: none !important;
+}
+
+.inbox-curator-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 0.8em;
+    font-weight: 600;
+    border-radius: 12px;
+    margin-left: 8px;
+    vertical-align: middle;
+}
+
+.inbox-curator-badge.status-saved {
+    background-color: rgba(var(--mono-rgb-100), 0.08);
+    color: var(--text-success);
+    border: 1px solid var(--text-success);
+}
+
+.inbox-curator-badge.status-missing {
+    background-color: rgba(var(--mono-rgb-100), 0.05);
+    color: var(--text-muted);
+    border: 1px solid var(--border-color);
+}
+
+.inbox-curator-meta-info {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+    background-color: var(--background-secondary-alt);
+    padding: 10px 14px;
+    border-radius: 6px;
+    border: 1px dashed var(--border-color);
+}
+
+.inbox-curator-meta-info p {
+    margin: 4px 0;
+}
+
+/* Folder status indicator */
+.inbox-curator-folder-status {
+    display: inline-block;
+    font-size: 0.85em;
+    font-weight: 600;
+    margin-left: 4px;
+    vertical-align: middle;
+    min-width: 1em;
+}
+
+.inbox-curator-folder-status-ok {
+    color: var(--text-success);
+}
+
+.inbox-curator-folder-status-missing {
+    color: var(--text-error);
+}
+
+.inbox-curator-folder-status-created {
+    color: var(--text-warning);
+}
+
+/* Custom Review Prompt */
+.inbox-curator-custom-prompt-setting {
+    margin-top: 1rem;
+    padding-top: 0.75rem;
+}
+
+.inbox-curator-custom-prompt-title {
+    margin: 0 0 0.25rem !important;
+    padding: 0 !important;
+    text-indent: 0 !important;
+}
+
+.inbox-curator-custom-prompt-textarea {
+    width: 100%;
+    min-height: 80px;
+    margin-top: 0.75rem;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+.inbox-curator-custom-prompt-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+.inbox-curator-custom-prompt-details {
+    flex-grow: 1;
+}
+
+.inbox-curator-custom-prompt-summary {
+    cursor: pointer;
+    color: var(--text-accent);
+    outline: none;
+}
+
+.inbox-curator-custom-prompt-summary:hover {
+    text-decoration: underline;
+}
+
+.inbox-curator-custom-prompt-examples {
+    line-height: 1.5;
+    margin-top: 0.5rem;
+    padding-left: 0.5rem;
+}
+
+.inbox-curator-custom-prompt-examples-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.inbox-curator-custom-prompt-counter {
+    flex-shrink: 0;
+    white-space: nowrap;
+    color: var(--text-muted);
+    align-self: flex-start;
+}
+
+@media (max-width: 700px) {
+    .inbox-curator-custom-prompt-footer {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+.inbox-curator-safety-note {
+  margin: 8px 0;
+  padding: 8px 12px;
+  font-size: var(--font-small);
+  color: var(--text-muted);
+  background: var(--background-modifier-form-field);
+  border-radius: var(--radius-s);
+  line-height: 1.4;
+}
+
+.inbox-curator-custom-prompt-counter {
+        align-self: flex-end;
+    }
+}
+
+/* Plugin info section (subtle, at the bottom of settings) */
+.inbox-curator-plugin-info {
+    margin-top: 32px;
+    padding: 8px 4px;
+    font-size: var(--font-small);
+    color: var(--text-muted);
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.inbox-curator-plugin-info h4 {
+    margin: 0 0 6px 0;
+    font-size: var(--font-ui-small);
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.inbox-curator-plugin-info-row {
+    margin: 1px 0;
+    line-height: 1.5;
+}
+
+.inbox-curator-plugin-info-update {
+    margin: 8px 0;
+    padding: 6px 10px;
+    background: var(--background-secondary-alt);
+    border-radius: var(--radius-s);
+    font-size: var(--font-smaller);
+    line-height: 1.4;
+}
+
+.inbox-curator-plugin-info-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.inbox-curator-plugin-info-btn {
+    font-size: var(--font-smaller);
+    padding: 2px 8px;
+    cursor: pointer;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+    background: transparent;
+    color: var(--text-muted);
+}
+
+.inbox-curator-plugin-info-btn:hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+}

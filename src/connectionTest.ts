@@ -1,3 +1,4 @@
+import { detectOpenAiTokenLimitParam, type DetectedOpenAiCompatibleTokenLimitParam, type OpenAiCompatibleTokenLimitParam } from './openAiCompatible';
 import { buildProviderChatUrl, postProviderChat } from './providerClient';
 import type { InboxCuratorProvider } from './settings';
 
@@ -6,6 +7,8 @@ export interface ConnectionTestOptions {
   endpointUrl: string;
   model: string;
   apiKey: string;
+  timeoutMs?: number;
+  openAiTokenLimitParam?: OpenAiCompatibleTokenLimitParam;
 }
 
 export interface ConnectionTestSuccess {
@@ -16,8 +19,9 @@ export interface ConnectionTestSuccess {
   requestBody: {
     model: string;
     messages: Array<{ role: 'system' | 'user'; content: string }>;
-    temperature: number;
+    temperature?: number;
   };
+  detectedTokenLimitParam?: DetectedOpenAiCompatibleTokenLimitParam;
 }
 
 export interface ConnectionTestFailure {
@@ -29,7 +33,7 @@ export interface ConnectionTestFailure {
   requestBody: {
     model: string;
     messages: Array<{ role: 'system' | 'user'; content: string }>;
-    temperature: number;
+    temperature?: number;
   };
 }
 
@@ -43,7 +47,6 @@ export async function testConnection(options: ConnectionTestOptions): Promise<Co
       { role: 'system' as const, content: 'You are a connection test responder.' },
       { role: 'user' as const, content: 'Reply with OK.' },
     ],
-    temperature: 0,
   };
 
   const response = await postProviderChat({
@@ -52,7 +55,7 @@ export async function testConnection(options: ConnectionTestOptions): Promise<Co
     model: options.model,
     apiKey: options.apiKey,
     messages: requestBody.messages,
-    temperature: requestBody.temperature,
+    timeoutMs: options.timeoutMs,
   });
 
   if (response.ok === false) {
@@ -66,11 +69,23 @@ export async function testConnection(options: ConnectionTestOptions): Promise<Co
     };
   }
 
+  // Capability detection for OpenAI-compatible when set to auto
+  let detectedTokenLimitParam: DetectedOpenAiCompatibleTokenLimitParam | undefined;
+  if (options.provider === 'openai-compatible' && (options.openAiTokenLimitParam === 'auto' || options.openAiTokenLimitParam === undefined)) {
+    detectedTokenLimitParam = await detectOpenAiTokenLimitParam(
+      options.endpointUrl,
+      options.model,
+      options.apiKey,
+      options.timeoutMs,
+    );
+  }
+
   return {
     ok: true,
     message: response.content,
     status: response.status,
     finalUrl,
     requestBody,
+    detectedTokenLimitParam,
   };
 }

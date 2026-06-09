@@ -7,6 +7,8 @@ export interface AnthropicChatRequest {
   apiKey: string;
   messages: ProviderChatMessage[];
   temperature?: number;
+  timeoutMs?: number;
+  maxOutputTokens?: number;
 }
 
 export async function postAnthropicChat(request: AnthropicChatRequest): Promise<ProviderChatResult> {
@@ -55,7 +57,7 @@ export async function postAnthropicChat(request: AnthropicChatRequest): Promise<
         return { role: m.role, content };
       }
     }),
-    max_tokens: 4096,
+    max_tokens: request.maxOutputTokens ?? 4096,
     temperature: request.temperature ?? 0,
   };
 
@@ -74,7 +76,8 @@ export async function postAnthropicChat(request: AnthropicChatRequest): Promise<
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    });
+      timeout: request.timeoutMs,
+    } as any);
 
     if (response.status !== 200) {
       return {

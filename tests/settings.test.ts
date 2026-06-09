@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import InboxCuratorPlugin from '../main.ts';
 import { DEFAULT_SETTINGS, getSettingsUiVisibility } from '../src/settings';
 
 
@@ -31,5 +32,46 @@ describe('getSettingsUiVisibility', () => {
     expect(visibility.showAutomaticWatchingDetails).toBe(true);
     expect(visibility.showPollingDetails).toBe(true);
     expect(visibility.showArticleExtractionDetails).toBe(true);
+  });
+});
+
+describe('customReviewPrompt settings defaults', () => {
+  it('defaults to an empty string', () => {
+    expect(DEFAULT_SETTINGS.customReviewPrompt).toBe('');
+  });
+});
+
+describe('settings migration behavior', () => {
+  it('migrates legacy autoExecuteProposedActions=true correctly', async () => {
+    const mockApp: any = {};
+    const plugin = new InboxCuratorPlugin(mockApp, {});
+
+    // Mock loadData to return a legacy config where autoExecuteProposedActions is true
+    plugin.loadData = vi.fn().mockResolvedValue({
+      autoExecuteProposedActions: true,
+    });
+
+    await plugin.loadSettings();
+
+    expect(plugin.settings.autoExecuteArchive).toBe(true);
+    expect(plugin.settings.autoExecuteReadLater).toBe(false);
+    expect(plugin.settings.autoExecuteTask).toBe(false);
+    expect(plugin.settings.autoExecuteDeleteCandidate).toBe(false);
+  });
+
+  it('keeps all auto-execute settings false if legacy setting is false', async () => {
+    const mockApp: any = {};
+    const plugin = new InboxCuratorPlugin(mockApp, {});
+
+    plugin.loadData = vi.fn().mockResolvedValue({
+      autoExecuteProposedActions: false,
+    });
+
+    await plugin.loadSettings();
+
+    expect(plugin.settings.autoExecuteArchive).toBe(false);
+    expect(plugin.settings.autoExecuteReadLater).toBe(false);
+    expect(plugin.settings.autoExecuteTask).toBe(false);
+    expect(plugin.settings.autoExecuteDeleteCandidate).toBe(false);
   });
 });

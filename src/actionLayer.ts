@@ -1,6 +1,7 @@
-import { App, TFile, normalizePath, Notice } from 'obsidian';
+import { App, TFolder, TFile, normalizePath, Notice } from 'obsidian';
 import * as yaml from 'js-yaml';
 import { ActionConfirmationModal } from './actionConfirmationModal';
+import { ensureFolder, resolveSafeSuggestedPath } from './utils/folder';
 
 const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n?/;
 
@@ -17,29 +18,27 @@ function parseDocument(content: string): Record<string, unknown> {
   }
 }
 
-async function ensureFolder(app: App, folderPath: string): Promise<void> {
-  const normalized = normalizePath(folderPath);
-  if (!normalized || normalized === '.') {
-    return;
-  }
-
-  const parts = normalized.split('/');
-  let current = '';
-
-  for (const part of parts) {
-    current = current ? `${current}/${part}` : part;
-    const existing = app.vault.getAbstractFileByPath(current);
-    if (!existing) {
-      await app.vault.createFolder(current);
-    }
-  }
+export interface AutoExecuteActionResult {
+  success: boolean;
+  status: 'success' | 'skipped' | 'failed';
+  error?: string;
+  actionTaken?: string;
+  action?: string;
+  destinationPath?: string;
 }
 
 export async function executeProposedAction(
   app: App,
   file: TFile,
-  options: { outputFolder: string; skipConfirmation?: boolean },
-): Promise<{ success: boolean; error?: string; actionTaken?: string }> {
+  options: {
+    outputFolder: string;
+    readLaterFolder?: string;
+    taskFolder?: string;
+    deleteCandidateFolder?: string;
+    skipConfirmation?: boolean;
+    suggestedFolderBasePath?: string;
+  },
+): Promise<AutoExecuteActionResult> {
   // 1. Safety check: do not touch review output files
   const normalizedOutput = normalizePath(options.outputFolder.trim() || 'AI Reviews');
   if (
@@ -47,7 +46,11 @@ export async function executeProposedAction(
     file.path === normalizedOutput ||
     file.path.endsWith('.ai-review.md')
   ) {
-    return { success: false, error: 'Cannot perform action on a review note.' };
+    return {
+      success: false,
+      status: 'failed',
+      error: 'Cannot perform action on a review note.',
+    };
   }
 
   const content = await app.vault.read(file);
@@ -55,36 +58,163 @@ export async function executeProposedAction(
 
   const action = frontmatter.ai_review_recommended_action;
   if (typeof action !== 'string' || action.trim() === '') {
-    return { success: false, error: 'No recommended action found in frontmatter.' };
+    return {
+      success: false,
+      status: 'failed',
+      error: 'No recommended action found in frontmatter.',
+    };
   }
 
   const normalizedAction = action.trim().toLowerCase();
 
   if (normalizedAction === 'archive') {
+    let destPath: string | undefined;
+
+    // Priority 1: AI-suggested folder
     const suggestedFolder = frontmatter.ai_review_suggested_folder;
-    if (typeof suggestedFolder !== 'string' || suggestedFolder.trim() === '') {
-      return { success: false, error: 'Suggested folder is missing in frontmatter.' };
+    if (typeof suggestedFolder === 'string' && suggestedFolder.trim() !== '') {
+      const normalizedFolder = resolveSafeSuggestedPath(suggestedFolder, options.suggestedFolderBasePath);
+      if (normalizedFolder) {
+        const folderRef = app.vault.getAbstractFileByPath(normalizedFolder);
+        if (folderRef instanceof TFolder) {
+          const candidate = normalizePath(`${normalizedFolder}/${file.name}`);
+          const existingDest = app.vault.getAbstractFileByPath(candidate);
+          if (!existingDest) {
+            destPath = candidate;
+          }
+        }
+      }
     }
 
-    const normalizedFolder = normalizePath(suggestedFolder.trim());
-    const destPath = normalizePath(`${normalizedFolder}/${file.name}`);
+    // Priority 2: suggestedFolderBasePath as default archive folder
+    if (!destPath && options.suggestedFolderBasePath && options.suggestedFolderBasePath.trim() !== '') {
+      const baseFolder = normalizePath(options.suggestedFolderBasePath.trim());
+      const candidate = normalizePath(`${baseFolder}/${file.name}`);
+      const existingDest = app.vault.getAbstractFileByPath(candidate);
+      if (!existingDest) {
+        destPath = candidate;
+      }
+    }
+
+    if (destPath) {
+      const destFolder = destPath.substring(0, destPath.lastIndexOf('/'));
+      await ensureFolder(app, destFolder);
+      await app.fileManager.renameFile(file, destPath);
+      return {
+        success: true,
+        status: 'success',
+        actionTaken: 'archive',
+        destinationPath: destPath,
+      };
+    }
+
+    // No viable destination: succeed as no-op (archive is processed, file stays in place)
+    return {
+      success: true,
+      status: 'success',
+      actionTaken: 'none',
+      action: 'archive',
+    };
+  }
+
+  if (normalizedAction === 'read_later') {
+    if (!options.readLaterFolder || options.readLaterFolder.trim() === '') {
+      return {
+        success: false,
+        status: 'failed',
+        error: 'Read later folder is not configured.',
+      };
+    }
+    const destFolder = normalizePath(options.readLaterFolder.trim());
+    const destPath = normalizePath(`${destFolder}/${file.name}`);
 
     // Collision check
     const existingDest = app.vault.getAbstractFileByPath(destPath);
     if (existingDest) {
-      return { success: false, error: 'Destination file already exists.' };
+      return {
+        success: false,
+        status: 'skipped',
+        error: 'Destination file already exists.',
+        destinationPath: destPath,
+      };
     }
 
-    await ensureFolder(app, normalizedFolder);
+    await ensureFolder(app, destFolder);
     await app.fileManager.renameFile(file, destPath);
 
-    return { success: true, actionTaken: 'archive' };
+    return {
+      success: true,
+      status: 'success',
+      actionTaken: 'read_later',
+      destinationPath: destPath,
+    };
+  }
+
+  if (normalizedAction === 'task') {
+    if (!options.taskFolder || options.taskFolder.trim() === '') {
+      return {
+        success: false,
+        status: 'failed',
+        error: 'Task folder is not configured.',
+      };
+    }
+    const destFolder = normalizePath(options.taskFolder.trim());
+    const destPath = normalizePath(`${destFolder}/${file.name}`);
+
+    // Collision check
+    const existingDest = app.vault.getAbstractFileByPath(destPath);
+    if (existingDest) {
+      return {
+        success: false,
+        status: 'skipped',
+        error: 'Destination file already exists.',
+        destinationPath: destPath,
+      };
+    }
+
+    await ensureFolder(app, destFolder);
+    await app.fileManager.renameFile(file, destPath);
+
+    return {
+      success: true,
+      status: 'success',
+      actionTaken: 'task',
+      destinationPath: destPath,
+    };
   }
 
   if (normalizedAction === 'delete_candidate') {
     if (options.skipConfirmation) {
-      await app.vault.trash(file, true);
-      return { success: true, actionTaken: 'delete_candidate' };
+      if (!options.deleteCandidateFolder || options.deleteCandidateFolder.trim() === '') {
+        return {
+          success: false,
+          status: 'failed',
+          error: 'Delete candidate folder is not configured.',
+        };
+      }
+      const destFolder = normalizePath(options.deleteCandidateFolder.trim());
+      const destPath = normalizePath(`${destFolder}/${file.name}`);
+
+      // Collision check
+      const existingDest = app.vault.getAbstractFileByPath(destPath);
+      if (existingDest) {
+        return {
+          success: false,
+          status: 'skipped',
+          error: 'Destination file already exists.',
+          destinationPath: destPath,
+        };
+      }
+
+      await ensureFolder(app, destFolder);
+      await app.fileManager.renameFile(file, destPath);
+
+      return {
+        success: true,
+        status: 'success',
+        actionTaken: 'delete_candidate',
+        destinationPath: destPath,
+      };
     }
 
     return new Promise((resolve) => {
@@ -96,10 +226,18 @@ export async function executeProposedAction(
           try {
             await app.vault.trash(file, true);
             resolved = true;
-            resolve({ success: true, actionTaken: 'delete_candidate' });
+            resolve({
+              success: true,
+              status: 'success',
+              actionTaken: 'delete_candidate',
+            });
           } catch (err) {
             resolved = true;
-            resolve({ success: false, error: err instanceof Error ? err.message : 'Failed to move to trash' });
+            resolve({
+              success: false,
+              status: 'failed',
+              error: err instanceof Error ? err.message : 'Failed to move to trash',
+            });
           }
         },
       );
@@ -108,7 +246,11 @@ export async function executeProposedAction(
       modal.onClose = () => {
         originalOnClose();
         if (!resolved) {
-          resolve({ success: false, error: 'User cancelled deletion confirmation.' });
+          resolve({
+            success: false,
+            status: 'failed',
+            error: 'User cancelled deletion confirmation.',
+          });
         }
       };
 
@@ -116,5 +258,23 @@ export async function executeProposedAction(
     });
   }
 
-  return { success: false, error: `Recommended action "${action}" is not supported or requires no automated steps.` };
+  const validNoopActions = [
+    'keep_as_reference',
+    'read_later',
+  ];
+
+  if (validNoopActions.includes(normalizedAction)) {
+    return {
+      success: true,
+      status: 'success',
+      actionTaken: 'none',
+      action: normalizedAction,
+    };
+  }
+
+  return {
+    success: false,
+    status: 'failed',
+    error: `Recommended action "${action}" is not supported or requires no automated steps.`,
+  };
 }

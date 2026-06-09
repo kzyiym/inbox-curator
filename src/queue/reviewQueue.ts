@@ -6,7 +6,11 @@ import type {
   ReviewJobProcessor,
   ReviewJobResult,
   ReviewQueueEnqueueResult,
+  ReviewQueueLogCallback,
+  ReviewQueueLogEntry,
   ReviewQueueSnapshot,
+  ReviewQueueStatus,
+  ReviewQueueStatusListener,
 } from './queueTypes';
 
 interface InternalQueueEntry {
@@ -19,6 +23,8 @@ interface ReviewQueueOptions {
   retryPolicy?: ReviewRetryPolicy;
   rateLimiter?: ReviewRateLimiter;
   onRetry?: (job: ReviewJob, attempt: number, delayMs: number, result: ReviewJobResult) => void;
+  onStatus?: ReviewQueueStatusListener;
+  onLog?: ReviewQueueLogCallback;
   maxConcurrentJobs?: number;
 }
 
@@ -34,6 +40,7 @@ export class ReviewQueue {
   private readonly pendingEntries: InternalQueueEntry[] = [];
   private readonly pendingByPath = new Map<string, InternalQueueEntry>();
   private readonly runningByPath = new Map<string, ReviewJob>();
+  private readonly queuedOrRunningPaths = new Set<string>();
   private processedCount = 0;
   private skippedCount = 0;
   private failedCount = 0;
@@ -45,7 +52,9 @@ export class ReviewQueue {
   private readonly cancelledRunningIds = new Set<string>();
   private readonly retryPolicy: ReviewRetryPolicy;
   private readonly rateLimiter: ReviewRateLimiter;
-  private readonly onRetry?: (job: ReviewJob, attempt: number, delayMs: number, result: ReviewJobResult) => void;
+  private readonly onRetry?: (reviewJob: ReviewJob, attempt: number, delayMs: number, result: ReviewJobResult) => void;
+  private readonly onStatus?: ReviewQueueStatusListener;
+  private readonly onLog?: ReviewQueueLogCallback;
   private maxConcurrentJobs: number;
 
   constructor(
@@ -55,21 +64,21 @@ export class ReviewQueue {
     this.retryPolicy = options.retryPolicy ?? createDefaultReviewRetryPolicy();
     this.rateLimiter = options.rateLimiter ?? new ReviewRateLimiter();
     this.onRetry = options.onRetry;
+    this.onStatus = options.onStatus;
+    this.onLog = options.onLog;
     this.maxConcurrentJobs = clampMaxConcurrentJobs(options.maxConcurrentJobs);
   }
 
   enqueue(job: ReviewJob): ReviewQueueEnqueueResult {
-    const existingPending = this.pendingByPath.get(job.notePath);
-    if (existingPending) {
-      return { accepted: false, duplicate: true, promise: existingPending.promise };
-    }
-
-    const runningJob = this.runningByPath.get(job.notePath);
-    if (runningJob) {
+    if (this.queuedOrRunningPaths.has(job.notePath)) {
+      this.logEvent('INFO', 'enqueue_skipped', job, { skippedReason: 'already_queued_or_running' });
+      this.assertQueueInvariants('enqueue');
       return { accepted: false, duplicate: true, promise: Promise.resolve({ status: 'cancelled' }) };
     }
 
     if (this.stopping) {
+      this.logEvent('INFO', 'enqueue_skipped', job, { skippedReason: 'queue_stopping' });
+      this.assertQueueInvariants('enqueue');
       return { accepted: false, duplicate: false, promise: Promise.resolve({ status: 'cancelled' }) };
     }
 
@@ -79,8 +88,12 @@ export class ReviewQueue {
     });
 
     const entry: InternalQueueEntry = { job, promise, resolve };
+    this.queuedOrRunningPaths.add(job.notePath);
     this.pendingEntries.push(entry);
     this.pendingByPath.set(job.notePath, entry);
+    this.logEvent('INFO', 'enqueue_accepted', job);
+    this.notifyStatus();
+    this.assertQueueInvariants('enqueue');
     void this.drainQueue();
 
     return { accepted: true, duplicate: false, promise };
@@ -88,6 +101,7 @@ export class ReviewQueue {
 
   setMaxConcurrentJobs(value: number): void {
     this.maxConcurrentJobs = clampMaxConcurrentJobs(value);
+    this.assertQueueInvariants('setMaxConcurrentJobs');
     void this.drainQueue();
   }
 
@@ -115,6 +129,7 @@ export class ReviewQueue {
     }
 
     this.stopping = true;
+    this.logEvent('INFO', 'stop_requested');
     while (this.pendingEntries.length > 0) {
       const entry = this.pendingEntries.shift();
       if (!entry) {
@@ -122,6 +137,7 @@ export class ReviewQueue {
       }
 
       this.pendingByPath.delete(entry.job.notePath);
+      this.queuedOrRunningPaths.delete(entry.job.notePath);
       this.cancelledCount += 1;
       const result: ReviewJobResult = { status: 'cancelled' };
       this.recordHistory(entry.job, result);
@@ -129,10 +145,12 @@ export class ReviewQueue {
     }
 
     this.rateLimiter.reset();
+    this.assertQueueInvariants('stop');
   }
 
   pause(): void {
     this.paused = true;
+    this.assertQueueInvariants('pause');
   }
 
   resume(): void {
@@ -140,6 +158,7 @@ export class ReviewQueue {
       return;
     }
     this.paused = false;
+    this.assertQueueInvariants('resume');
     void this.drainQueue();
   }
 
@@ -149,11 +168,13 @@ export class ReviewQueue {
       const entry = this.pendingEntries[pendingIndex];
       this.pendingEntries.splice(pendingIndex, 1);
       this.pendingByPath.delete(entry.job.notePath);
+      this.queuedOrRunningPaths.delete(entry.job.notePath);
       this.cancelledCount += 1;
 
       const result: ReviewJobResult = { status: 'cancelled' };
       this.recordHistory(entry.job, result);
       entry.resolve(result);
+      this.assertQueueInvariants('cancelJob');
       return true;
     }
 
@@ -175,11 +196,13 @@ export class ReviewQueue {
       }
 
       this.pendingByPath.delete(entry.job.notePath);
+      this.queuedOrRunningPaths.delete(entry.job.notePath);
       this.cancelledCount += 1;
       const result: ReviewJobResult = { status: 'cancelled' };
       this.recordHistory(entry.job, result);
       entry.resolve(result);
     }
+    this.assertQueueInvariants('cancelPendingJobs');
   }
 
   private recordHistory(job: ReviewJob, result: ReviewJobResult): void {
@@ -200,7 +223,16 @@ export class ReviewQueue {
   }
 
   private async drainQueue(): Promise<void> {
-    if (this.draining || this.stopping || this.paused) {
+    if (this.draining) {
+      return;
+    }
+
+    if (this.stopping) {
+      this.logEvent('INFO', 'drain_skipped_stopping');
+      return;
+    }
+
+    if (this.paused) {
       return;
     }
 
@@ -214,31 +246,179 @@ export class ReviewQueue {
 
         this.pendingByPath.delete(entry.job.notePath);
         this.runningByPath.set(entry.job.notePath, entry.job);
+        entry.job.startedAt = Date.now();
+        this.logEvent('INFO', 'dispatch_started', entry.job);
         void this.runEntry(entry);
       }
     } finally {
       this.draining = false;
     }
+    this.assertQueueInvariants('drainQueue');
+  }
+
+  private notifyStatus(currentPath?: string): void {
+    this.onStatus?.({
+      pending: this.pendingEntries.length,
+      running: this.runningByPath.size,
+      completed: this.processedCount,
+      failed: this.failedCount,
+      maxConcurrentJobs: this.maxConcurrentJobs,
+      currentPath,
+    });
   }
 
   private async runEntry(entry: InternalQueueEntry): Promise<void> {
-    let result = await this.executeJob(entry.job);
+    this.notifyStatus(entry.job.notePath);
+    entry.job.startedAt = Date.now();
+    try {
+      const result = await this.executeJob(entry.job);
+      entry.job.finishedAt = Date.now();
 
-    this.runningByPath.delete(entry.job.notePath);
+      if (this.stopping) {
+        this.logEvent('INFO', 'job_finalized', entry.job, { durationMs: this.jobDurationMs(entry.job) });
+        entry.resolve({ status: 'cancelled' });
+        this.cleanupRunEntry(entry);
+        return;
+      }
 
-    if (this.cancelledRunningIds.has(entry.job.id)) {
-      this.cancelledRunningIds.delete(entry.job.id);
-      result = {
-        status: 'cancelled',
-        attempts: result.attempts,
-        error: result.error ?? 'Job was cancelled during execution',
+      let finalResult = result;
+      if (this.cancelledRunningIds.has(entry.job.id)) {
+        this.cancelledRunningIds.delete(entry.job.id);
+        finalResult = {
+          status: 'cancelled',
+          attempts: result.attempts,
+          error: result.error ?? 'Job was cancelled during execution',
+        } satisfies ReviewJobResult;
+      }
+
+      this.recordResult(finalResult);
+      this.recordHistory(entry.job, finalResult);
+
+      if (finalResult.status === 'processed') {
+        this.logEvent('INFO', 'job_succeeded', entry.job, { durationMs: this.jobDurationMs(entry.job) });
+      } else if (finalResult.status === 'failed') {
+        this.logEvent('WARN', 'job_failed', entry.job, {
+          errorMessage: finalResult.error,
+          durationMs: this.jobDurationMs(entry.job),
+        });
+      }
+
+      entry.resolve(finalResult);
+    } catch (error) {
+      entry.job.finishedAt = Date.now();
+      const result: ReviewJobResult = {
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown error in runEntry',
       };
+      this.failedCount += 1;
+      this.recordHistory(entry.job, result);
+      this.logEvent('ERROR', 'job_failed', entry.job, {
+        errorMessage: result.error,
+        durationMs: this.jobDurationMs(entry.job),
+      });
+      entry.resolve(result);
+    } finally {
+      this.cleanupRunEntry(entry);
+    }
+  }
+
+  private cleanupRunEntry(entry: InternalQueueEntry): void {
+    this.runningByPath.delete(entry.job.notePath);
+    this.queuedOrRunningPaths.delete(entry.job.notePath);
+    this.notifyStatus();
+    this.assertQueueInvariants('runEntry');
+    void this.drainQueue();
+  }
+
+  private jobDurationMs(job: ReviewJob): number | undefined {
+    if (job.startedAt && job.finishedAt) {
+      return job.finishedAt - job.startedAt;
+    }
+    return undefined;
+  }
+
+  private logEvent(
+    level: ReviewQueueLogEntry['level'],
+    event: string,
+    job?: ReviewJob,
+    extra?: { skippedReason?: string; durationMs?: number; errorMessage?: string },
+  ): void {
+    if (!this.onLog) {
+      return;
     }
 
-    this.recordResult(result);
-    this.recordHistory(entry.job, result);
-    entry.resolve(result);
-    void this.drainQueue();
+    this.onLog({
+      level,
+      event,
+      jobId: job?.id,
+      runId: job?.runId,
+      source: job?.source,
+      notePath: job?.notePath,
+      pendingCount: this.pendingEntries.length,
+      runningCount: this.runningByPath.size,
+      maxConcurrentJobs: this.maxConcurrentJobs,
+      queuedOrRunningCount: this.queuedOrRunningPaths.size,
+      skippedReason: extra?.skippedReason,
+      durationMs: extra?.durationMs,
+      errorMessage: extra?.errorMessage,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  private assertQueueInvariants(context: string): void {
+    const violations: string[] = [];
+
+    if (this.runningByPath.size > this.maxConcurrentJobs) {
+      violations.push(`runningByPath.size (${this.runningByPath.size}) > maxConcurrentJobs (${this.maxConcurrentJobs})`);
+    }
+
+    const runningPaths = new Set(this.runningByPath.keys());
+    const pendingPaths = new Set<string>();
+    for (const entry of this.pendingEntries) {
+      if (pendingPaths.has(entry.job.notePath)) {
+        violations.push(`duplicate pending path: ${entry.job.notePath}`);
+      }
+      pendingPaths.add(entry.job.notePath);
+
+      if (runningPaths.has(entry.job.notePath)) {
+        violations.push(`path in both running and pending: ${entry.job.notePath}`);
+      }
+    }
+
+    const expectedQueuedOrRunning = new Set<string>([
+      ...this.runningByPath.keys(),
+      ...this.pendingByPath.keys(),
+    ]);
+    for (const path of expectedQueuedOrRunning) {
+      if (!this.queuedOrRunningPaths.has(path)) {
+        violations.push(`queuedOrRunningPaths missing expected path: ${path}`);
+      }
+    }
+    for (const path of this.queuedOrRunningPaths) {
+      if (!expectedQueuedOrRunning.has(path)) {
+        violations.push(`queuedOrRunningPaths has unexpected path: ${path}`);
+      }
+    }
+
+    if (this.stopping && this.runningByPath.size === 0 && this.pendingEntries.length > 0) {
+      violations.push('stopping but pending entries exist while nothing is running');
+    }
+
+    for (const violation of violations) {
+      if (this.onLog) {
+        this.onLog({
+          level: 'ERROR',
+          event: 'queue_invariant_violation',
+          pendingCount: this.pendingEntries.length,
+          runningCount: this.runningByPath.size,
+          maxConcurrentJobs: this.maxConcurrentJobs,
+          queuedOrRunningCount: this.queuedOrRunningPaths.size,
+          timestamp: new Date().toISOString(),
+          errorMessage: `${context}: ${violation}`,
+        });
+      }
+      console.warn(`[ReviewQueue] invariant violation (${context}): ${violation}`);
+    }
   }
 
   private async executeJob(job: ReviewJob): Promise<ReviewJobResult> {
@@ -246,8 +426,16 @@ export class ReviewQueue {
     let pendingDelayMs = job.delayBeforeStartMs;
 
     while (true) {
+      if (this.stopping) {
+        return { status: 'cancelled' };
+      }
+
       attempt += 1;
       await this.rateLimiter.wait(pendingDelayMs);
+
+      if (this.stopping) {
+        return { status: 'cancelled' };
+      }
 
       let result: ReviewJobResult;
       try {
@@ -257,6 +445,10 @@ export class ReviewQueue {
           status: 'failed',
           error: error instanceof Error ? error.message : 'Unknown error',
         };
+      }
+
+      if (this.stopping) {
+        return { status: 'cancelled' };
       }
 
       const withAttempt = { ...result, attempts: attempt } satisfies ReviewJobResult;

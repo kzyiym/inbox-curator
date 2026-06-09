@@ -1,347 +1,371 @@
-# Inbox Curator
+# Inbox Curator — Auto-sort your Inbox
 
-Use Inbox Curator when your Obsidian inbox contains saved articles, AI chat logs, rough notes, or URL-only captures, and you want help deciding what is worth keeping, summarizing, organizing, or reviewing later.
+AI-powered note review and auto-sort plugin for Obsidian. Automatically reviews, summarizes, and organizes notes in your inbox folder using LLM APIs (OpenAI, Gemini, or Anthropic).
 
-Plugin ID: `kzyiym-inbox-curator`
-Display name: `Inbox Curator`
-Repository: https://github.com/kzyiym/inbox-curator
+Whether your inbox is filled with saved web articles, raw AI chat logs, rough quick notes, or simple URL links, Inbox Curator helps you process them in bulk — then auto-sorts them into Archive, Read Later, or Tasks.
 
-## Current status
+- **Plugin ID**: `kzyiym-inbox-curator`
+- **Version**: `1.0.0`
+- **Min Obsidian Version**: `1.5.0`
+- **Author**: [kzyiym](https://github.com/kzyiym)
+- **License**: MIT
 
-This plugin is no longer just a scaffold.
+---
 
-Current implementation focuses on:
-- reviewing the current Markdown note with an OpenAI-compatible API
-- manually processing a single watched folder in batch
-- optionally auto-watching a single watched folder for create/modify events
-- optionally polling the watched folder for missed changes
-- writing a separate AI review note
-- storing minimal review state back into the source note frontmatter
-- skipping unchanged notes with a source hash
-- detecting URL-only notes and fetching URL context
-- extracting readable text from some static HTML article pages
-- provider abstraction for AI chat transport
-- attachment-aware prompting with conservative media handling
+## Features
 
-Automatic watching and polling are now available, but both are default OFF. The plugin still does not implement persistent queue workers, JavaScript page rendering, PDF extraction, actual image analysis, or actual video analysis.
+- **AI Note Review**: Sends note content to a configurable AI provider and receives structured JSON verdicts with scores, summaries, credibility assessments, tags, and action recommendations.
+- **Batch Processing**: Processes multiple files sequentially with configurable limits and rate limiting to prevent API token exhaustion.
+- **URL Fetching & Article Extraction**: Detects URL-only notes, fetches HTML metadata (og:title, description), and extracts readable article text.
+- **Attachment Awareness**: Detects linked attachments (images, audio, PDF, etc.). Supports sending images to multimodal models (OpenAI, Gemini, Anthropic) for visual review (up to 3 images, max 1MB payload per image). Features optional temporary in-memory resizing/compression for larger source files (up to 10MB) to fit within this 1MB limit without modifying original Vault files.
+- **Experimental PDF Text Extraction**: Reads local PDF attachments (first 5 pages, up to 10,000 chars) using Obsidian's built-in PDF.js.
+- **Auto-sort Actions**: Optionally auto-move files based on AI recommendations (Archive, Read Later, Task, Delete Candidate). Delete candidates are suggested only — never moved or deleted automatically.
+- **Undo Auto-sort**: Recent auto-sort runs can be reverted with the "Undo last auto-sort run" command.
+- **Automatic Watching**: Watches the configured folder for file changes with configurable debouncing. Polling fallback for missed events.
+- **Deduplication**: Uses `ai_review_source_hash` in frontmatter to skip already-reviewed notes whose content hasn't changed.
+- **i18n Support**: English and Japanese UI. Output language is configurable (auto-detect, force Japanese, force English, or match note language).
+- **Custom Review Prompt**: Up to 3000 characters of additional instructions for the AI review.
+- **Secure API Key Storage**: Uses Obsidian's native `SecretStorage` API. Falls back to in-memory session-only storage.
 
-## What works now
+---
 
-### Commands
+## Requirements
 
-The plugin currently registers these commands:
-- `Review current note`
-- `Process watched folder`
+An account and API key from one of the following AI providers:
 
-`Review current note`
-- reviews the active Markdown note
-- shows a short Notice and status bar message while running
-- prevents duplicate execution while another review is in progress
+- **OpenAI** (or any OpenAI-compatible endpoint)
+- **Google Gemini** (Native Gemini API)
+- **Anthropic Claude** (Native Anthropic API)
 
-`Process watched folder`
-- scans one watched folder
-- processes Markdown files serially
-- excludes review notes in the review output folder
-- excludes `*.ai-review.md`
-- skips notes whose `ai_review_source_hash` still matches the current source hash
-- limits AI-reviewed candidates with `Max notes per run`
-- keeps skipped notes outside that cap
-- reports `processed / skipped / failed / remaining` when done
-- spaces AI requests using `Requests per minute` and `Delay between requests`
-- retries transient AI request failures with backoff before giving up
+> [!IMPORTANT]
+> This plugin calls external AI APIs, which may incur usage costs depending on your provider's pricing plan.
 
-Important: manual watched-folder processing still exists and remains the most explicit way to run a bounded batch.
+---
 
-### Automatic watching and polling
+## External Service Disclosures
 
-Automatic watched-folder behavior is now available, but everything is conservative by default:
-- `Automatic watching` is default OFF
-- `Auto-review on create` is default OFF
-- `Auto-review on modify` is default OFF
-- `Polling fallback` is default OFF
+In compliance with the Obsidian Community Plugin Guidelines, here is the full disclosure regarding network connection, data storage, and privacy for Inbox Curator:
 
-When enabled, the plugin:
-- watches the configured watched folder for Markdown note create/modify events
-- ignores files in the review output folder
-- ignores `*.ai-review.md`
-- debounces noisy modify bursts with `Watch debounce`
-- re-checks the source hash before enqueueing an automatic review
-- uses polling as a fallback rescan mechanism when enabled
-- keeps automatic jobs on the same shared queue and shared rate limit as manual jobs
-- supports bounded parallel watched-folder processing via `Max concurrent reviews`
+- **Network Connections & External Services**: 
+  - **AI Provider APIs**: Note contents, Base64-encoded image payloads, or experimental PDF texts are sent directly from your local device to your configured AI provider endpoint (OpenAI, Gemini, or Anthropic). No intermediary servers are involved.
+  - **URL Article Fetching**: If a note consists only of a URL, the plugin directly fetches the raw HTML from the target web server to parse og:metadata and article text locally on your device.
+  - **Ko-fi Widget (External Donation Service)**: Loaded strictly on the local FAQ page (`site/index.html`) via an iframe from `https://ko-fi.com` to display optional developer donation options. If blocked or declined, a safe HTTPS direct text link is provided as a fallback. The plugin's core functions are fully available without any donation.
+  - **Google Analytics 4 (GA4) (External Analytics - FAQ Page Only)**: The local help/FAQ page (`site/index.html`) utilizes Google Analytics (tracking ID `G-H0NMPE813V`) strictly for collecting anonymous traffic statistics (page views, language, and theme choices) to improve documentation clarity.
+    - **Opt-In Basis (Disabled by Default)**: Tracking is strictly opt-in and disabled by default. No scripts are loaded or data sent unless you explicitly consent via the toast banner shown on your first visit, or enable it using the toggle checkbox in the Privacy section. You can revoke permission at any time.
+    - **No Impact on Usage**: Declining or blocking Google Analytics has **zero impact** on the functionality of the FAQ page or the plugin itself; all features remain 100% available. No note contents, credentials, or runtime telemetry from the plugin are ever transmitted.
+- **Account Requirements**: You must possess a developer account and API key from OpenAI, Gemini, or Anthropic to configure reviews. The plugin itself requires no registration or subscription.
+- **Server-side Telemetry**: The plugin core is **100% telemetry-free**. The developer does not collect, monitor, store, or transmit any analytical data, usage statistics, note contents, or error logs outside of your vault. The optional FAQ page (`site/index.html`) is the only exception, which uses Google Analytics 4 for anonymous traffic statistics on an opt-in basis (disabled by default).
+- **Vault Access Limits**: The plugin interacts exclusively with files and directories located inside your Obsidian Vault (primarily within the configured *Watched Folder*). It utilizes Obsidian's standard `app.vault` API and does not access any data or files on your system outside of your vault.
+- **Data & Credentials Storage**:
+  - **API Keys**: Stored securely using Obsidian's native `SecretStorage` API. They are never written to `data.json` or synchronized across devices. If unavailable, keys are kept temporarily in-memory during the session.
+  - **Review Logs**: Review verdicts are written strictly as local Markdown files (`*.ai-review.md`) in your vault.
+- **Support & Developer Contact**: Maintained by **Kazuya Iyama** / **antidot** ([https://antidot.jp](https://antidot.jp)). Detailed troubleshooting and usage steps are maintained separately in our [FAQ & Help Document](#faq--help-document).
 
-Polling is intended as a fallback, not as a replacement for explicit manual batch runs.
+---
 
-### Review output
+## Image Optimization for AI Review
 
-Each review writes a separate note to the configured review output folder.
+When image reading is enabled, Inbox Curator can temporarily resize large image attachments in memory before sending them to the selected AI provider. This reduces skipped images while keeping the original Vault files unchanged. No external compression service is used.
+This feature only applies to JPEG, PNG, and WebP images, and does not apply to PDFs or videos.
 
-The review note currently includes:
-- `Decision`
-- `Why this decision`
-- `Quick Summary`
-- `Structured Summary`
-- `Attachments`
-- `Retention Value`
-- `Evidence Basis`
-- `Risks / Gaps`
-- `Verification Needed`
-- `Next Actions`
-- `Action Items`
-- `Organization`
+## Installation
 
-`Quick Summary`
-- stays short
-- uses at most 3 items
+### Via Obsidian Community Plugins (Recommended)
 
-`Structured Summary`
-- is meant for reuse, not a long narrative recap
-- can include:
-  - central claim
-  - key points
-  - comparison table when the article actually has a comparison structure
-  - evidence mentioned in the note
+1. Open Obsidian **Settings** > **Community plugins** > **Browse**.
+2. Search for `Inbox Curator`.
+3. Click **Install**, then **Enable**.
 
-### Source note frontmatter
+### Manual Installation
 
-After a successful review, the source note is updated with minimal `ai_review_*` frontmatter such as:
-- review status
-- processed timestamp
-- source hash
-- output path
-- content type
-- input profile
-- scores
-- priority
-- recommended action
-- verification flags
-- attachment counts when attachments were detected
-- source URL when available
+1. Download `main.js`, `manifest.json`, `styles.css` from the [latest release](https://github.com/kzyiym/inbox-curator/releases).
+2. Create `<vault>/.obsidian/plugins/kzyiym-inbox-curator/`.
+3. Copy the files into that folder.
+4. Enable the plugin in **Settings** > **Community plugins**.
 
-The plugin ignores its own `ai_review_*` frontmatter when calculating the source hash, so it does not force pointless re-review loops.
+---
 
-## Current settings
+## Ideal Workflow: Clip from Browser, Auto-Process in Obsidian
 
-The plugin currently stores these values in normal plugin settings (`data.json`):
-- Watched folder
-- Review output folder
-- Max notes per run
-- Requests per minute
-- Delay between requests
-- Automatic watching
-- Auto-review on create
-- Auto-review on modify
-- Watch debounce
-- Polling fallback
-- Polling interval
-- Fetch URL metadata
-- Extract URL article text
-- Max extracted characters
-- Read images
-- Read videos
-- Provider
-- Endpoint URL
-- Model
+This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/clipper)** — the official browser extension for clipping web pages directly into your vault.
 
-The API key is stored separately in Obsidian SecretStorage and is not written to `data.json`.
-Saved API keys are masked in the settings UI.
+1. **Clip**: Browse any article, documentation, or post. Click the Web Clipper extension in your browser, select your Inbox folder as the destination, and clip it into Obsidian.
+2. **Auto-Review**: With **Automatic Watching** and **Auto-review on Create** enabled in Inbox Curator settings, every clipped note is automatically queued for AI review the moment it lands in your Inbox — no manual intervention needed.
+3. **Auto-Organize**: Enable **Auto-execute Actions** (Archive, Read Later, Task, Delete Candidate), and the plugin moves each reviewed note to its appropriate folder. Your Inbox stays clean with zero effort.
 
-### Settings behavior
+> [!TIP]
+> This clip → auto-review → auto-organize pipeline is the intended workflow. Set it up once and let the plugin handle your daily reading intake.
 
-- `Watched folder`
-  - single watched folder for the current MVP
-- `Review output folder`
-  - separate AI review notes are written here
-- `Max notes per run`
-  - caps only AI-reviewed candidates in watched-folder runs
-  - skipped notes do not count toward the cap
-- `Max concurrent reviews`
-  - caps how many watched-folder reviews may run at the same time
-  - default `1` keeps the most conservative behavior
-- `Requests per minute`
-  - sets a minimum delay between queued AI review attempts
-- `Delay between requests`
-  - adds an explicit delay in milliseconds between queued AI review attempts
-  - the larger of this and the RPM-derived delay is used
-- `Automatic watching`
-  - default OFF
-  - enables watched-folder create/modify event handling
-- `Auto-review on create`
-  - controls whether new Markdown notes in the watched folder are auto-enqueued
-- `Auto-review on modify`
-  - controls whether changed Markdown notes in the watched folder are auto-enqueued
-- `Watch debounce`
-  - collapses noisy create/modify bursts before an automatic review is enqueued
-- `Polling fallback`
-  - default OFF
-  - periodically rescans the watched folder for changed notes that may have been missed by file events
-- `Polling interval`
-  - polling interval in milliseconds when polling fallback is enabled
-- `Fetch URL metadata`
-  - enables metadata fetch for URL-only notes
-  - can be used with or without article text extraction
-- `Extract URL article text`
-  - tries to fetch static HTML and extract readable article text for URL-only notes
-  - JavaScript rendering and PDF extraction are still not supported
-- `Max extracted characters`
-  - caps the extracted article text included in the AI review prompt
-- `Read images`
-  - currently affects prompting only
-  - the plugin may tell the AI that image attachments exist
-  - image bytes are not actually sent or analyzed yet
-- `Read videos`
-  - currently affects prompting only
-  - the plugin may tell the AI that video attachments exist
-  - video bytes or transcripts are not actually sent or analyzed yet
-- `Provider`
-  - provider abstraction exists
-  - only `openai-compatible` is implemented right now
-- `Endpoint URL`
-  - stored in `data.json`
-- `Model`
-  - entered manually for now
+---
 
-### Current defaults
+## Quick Start
 
-- Provider: `openai-compatible`
-- Default endpoint URL: `https://api.openai.com/v1`
-- Default model: `gpt-4o-mini`
-- Default watched folder: `Inbox`
-- Default review output folder: `AI Reviews`
-- Default max notes per run: `10`
-- Default requests per minute: `10`
-- Default delay between requests: `1000` ms
-- Default automatic watching: `false`
-- Default auto-review on create: `false`
-- Default auto-review on modify: `false`
-- Default watch debounce: `1500` ms
-- Default polling fallback: `false`
-- Default polling interval: `30000` ms
-- Default fetch URL metadata: `true`
-- Default extract URL article text: `true`
-- Default max extracted characters: `12000`
-- Default read images: `false`
-- Default read videos: `false`
+1. **Configure API Key**: Go to **Settings** > **Inbox Curator**, select your **Provider**, enter your API Key, and click **Test Connection**.
+2. **Set Up Folders**:
+   - **Watched Folder**: Where notes to curate live (e.g., `Inbox`).
+   - **Review Output Folder**: Where AI-generated reviews are saved (e.g., `AI Reviews`).
+3. **Run Review**:
+   - `Inbox Curator: Review current note` — review the active note.
+   - `Inbox Curator: Process watched folder` — batch-review all unprocessed notes.
 
-## Attachment-aware prompting
+> [!WARNING]
+> Test with 1–2 notes in a small folder before bulk operations or enabling auto-execution.
 
-The current implementation can inspect note links and embeds to build a conservative attachment inventory.
+---
 
-It currently:
-- detects linked or embedded non-Markdown attachments from wikilinks and markdown links
-- classifies likely attachment kinds such as image, video, audio, PDF, document, archive, or other
-- records attachment counts in the review result and source-note frontmatter
-- passes attachment inventory into the AI prompt
-- explicitly tells the AI not to pretend image/video/audio/PDF contents were actually read unless the note text itself provides that content
+## Commands
 
-This is intentionally not real attachment analysis.
-The plugin does not currently upload image bytes, render video, fetch transcripts, OCR PDFs, or inspect attachment contents directly.
+| Command ID | Display Name | Description |
+|---|---|---|
+| `review-current-note` | Review current note | AI-review the currently active note |
+| `process-watched-folder` | Process watched folder | Batch-review all unprocessed notes in the watched folder |
+| `execute-proposed-action` | Execute proposed action for current note | Execute the AI-recommended action on the active note |
+| `undo-last-auto-sort` | Undo last auto-sort run | Revert the most recent auto-sort run |
+| `cleanup-processing-markers` | Clean up processing markers | Remove stale 🤖 prefix markers from reviewed files |
+ 
+---
 
-## URL-only note handling
+## Settings
 
-The current implementation detects URL-only notes from the note body after frontmatter is removed.
+### Folders & Scope
+| Setting | Default | Description |
+|---|---|---|
+| Watched Folder | `Inbox` | Folder monitored for curation |
+| Review Output Folder | `AI Reviews` | Target folder for AI review notes |
+| Suggested Folder Base Path | *(empty)* | Parent path for AI-suggested archive paths |
+| Max Notes per Run | `10` | Limits batch run size (1–100) |
+| Max Concurrent Reviews | `1` | Concurrent review jobs (1–8, Advanced) |
 
-A note is treated as URL-only when the body is effectively:
-- one URL
-- or URL plus whitespace
-- or URL plus very small heading-only structure
+### Request Pacing (Advanced)
+| Setting | Default | Description |
+|---|---|---|
+| Requests per Minute | `10` | API rate limit (1–60) |
+| Delay Between Requests | `1000` ms | Pause between API calls (0–60000) |
+| Request Timeout | `60000` ms | API call timeout (1000–300000) |
 
-For URL-only notes:
-- `contentType` stays `url_only` when only the URL shell or metadata are available
-- `contentType` becomes `fetched_url` when static HTML was fetched and usable article text was extracted
-- `inputProfile` stays `url_only` for metadata-only review
-- `inputProfile` becomes `web_article` when extracted article text is available
-- the first detected URL is used
-- the plugin can fetch metadata and, when enabled, try static article text extraction
-- JavaScript-rendered pages and PDFs are still not handled
+### Automation
+| Setting | Default | Description |
+|---|---|---|
+| Automatic Watching | OFF | Watch folder for file changes |
+| Auto-review on Create | OFF | Review on file creation |
+| Auto-review on Modify | OFF | Review on file modification |
+| Watch Debounce | `1500` ms | Debounce interval for file events |
+| Polling Fallback | OFF | Periodic sweep fallback |
+| Polling Interval | `30000` ms | Polling frequency |
+| Show Processing Marker | OFF | Prefix `🤖 ` to filenames during processing |
 
-When metadata fetch is enabled, the plugin may collect:
-- `<title>`
-- `meta[name="description"]`
-- `meta[property="og:title"]`
-- `meta[property="og:description"]`
-- `meta[property="og:site_name"]`
-- `meta[property="og:type"]`
-- `meta[property="og:url"]`
-- `meta[name="twitter:title"]`
-- `meta[name="twitter:description"]`
-- `link[rel="canonical"]`
+### Auto-sort Actions
+| Setting | Default | Description |
+|---|---|---|
+| Archive | OFF | Runs when confidence is Medium or High |
+| Read Later | OFF | Runs when confidence is Medium or High |
+| Tasks | OFF | Runs only when confidence is High |
+| Delete Candidates | — | Suggested only. Never moved automatically. |
 
-Metadata fetch failure does not stop the review. The review continues with limited context.
+### Auto-sort Folders
+| Setting | Default | Description |
+|---|---|---|
+| Read Later Folder | `Read Later` | Destination for read_later actions |
+| Task Folder | `Tasks` | Destination for task actions |
+| Delete Candidate Folder | `Delete Candidates` | Quarantine folder for delete candidates |
 
-When URL article extraction is enabled, the plugin also tries to:
-- fetch static HTML
-- remove obvious non-content elements
-- pick a high-text content container
-- send a capped excerpt of extracted article text to the AI review prompt
+### Review Behavior
+| Setting | Default | Description |
+|---|---|---|
+| Review Mode | `Advanced` | Advanced (structured JSON) / Auto-sort (plain-text) / Review only (no actions) |
+| Custom Review Prompt | *(empty)* | Up to 3000 characters of additional AI instructions |
 
-This is intentionally basic extraction. It does not execute page JavaScript, open a browser, or parse PDFs.
+### Context Budget
+| Setting | Default | Description |
+|---|---|---|
+| Budget Preset | `standard` | small (8K) / standard (32K) / large (64K) / custom |
+| Custom Max Context Tokens | `32000` | For custom preset — total context window |
+| Custom Max Input Tokens | `20000` | For custom preset — max input content |
+| Custom Max Output Tokens | `4096` | For custom preset — max output tokens |
+| Custom Safety Margin | `3000` | For custom preset — reserved headroom |
 
-## Safety and logging
+### Logging
+| Setting | Default | Description |
+|---|---|---|
+| Log Level | `errors` | Off / Errors only / Operations (structured JSONL) |
 
-The plugin is intentionally conservative about logs and UI output.
+### URL Extraction
+| Setting | Default | Description |
+|---|---|---|
+| Fetch URL Metadata | ON | Fetch og:title, description, etc. |
+| Extract URL Article Text | ON | Extract readable article content |
+| Max Extracted Characters | `12000` | Truncation limit (Advanced) |
 
-It does not intentionally print:
-- API keys
-- Authorization headers
-- tokenized remote URLs
-- full note bodies
-- full AI responses
+### Attachments & Media
+| Setting | Default | Description |
+|---|---|---|
+| Read Images | OFF | Send images to multimodal AI |
+| Optimize Images Before Sending | OFF | Resize/recompress large images to fit 1MB limit |
+| Read Videos | OFF | Detect video attachments (Advanced) |
+| Extract PDF Text (experimental) | OFF | Extract PDF text via PDF.js |
 
-Failure logs are kept short and typically include only:
-- provider
-- endpoint URL
-- model
-- note path
-- HTTP status when available
-- short error text
-- short response snippet when useful
+### AI Provider
+| Setting | Description |
+|---|---|
+| Provider | OpenAI Compatible / Gemini Native / Anthropic Native |
+| Endpoint URL | Customizable for OpenAI-compatible or advanced mode |
+| Model | Model name for the selected provider |
+| Instructions & Output Language | Auto-detect / Japanese / English / Same as note |
+| API Key | Managed via SecretStorage (masked input, save/delete buttons) |
+| Test Connection | Validate API key, endpoint, and model availability |
 
-## Not implemented yet
+---
 
-The following are intentionally not implemented yet:
-- persistent queue workers
-- unbounded or persistent parallel processing
-- robust Readability-quality extraction
-- JavaScript page rendering
-- screenshot-based browsing
-- PDF extraction
-- actual image analysis
-- actual video analysis
-- attachment content analysis
-- automatic file moves
-- automatic deletion
-- model list fetch
-- provider-specific implementations beyond `openai-compatible`
+## Architecture Overview
+
+```
+Trigger (command / file event / polling)
+  → ReviewQueue (async, concurrent, deduplicated)
+    → ReviewPipeline (orchestrator):
+        1. Read note content & parse frontmatter
+        2. Detect URL-only notes → fetch HTML → extract article
+        3. Detect attachments (images, PDF, etc.)
+        4. Build AI prompt with full context
+        5. Call provider API (OpenAI / Gemini / Anthropic)
+        6. Parse & validate JSON response
+        7. Map to domain model (ReviewResult)
+        8. Write review output note (*.ai-review.md)
+        9. Upsert frontmatter (ai_review_* fields)
+        10. Auto-execute action (if configured)
+```
+
+The queue is **in-memory only** — persistence is handled via frontmatter hashes (`ai_review_source_hash`) on each note, avoiding restart-induced re-execution.
+
+### File Structure
+
+```
+main.ts                       # Plugin entry point (root, not src/)
+src/
+├── commands.ts                # Command registration
+├── settings.ts                # Settings tab UI
+├── types.ts                   # Domain model types
+├── secrets.ts                 # SecretStorage API key management
+├── reviewPipeline.ts          # Core review orchestration
+├── reviewResultMapper.ts      # AI response → ReviewResult
+├── reviewResultValidator.ts   # Schema validation
+├── reviewNormalizer.ts        # Simple-mode parsing & action normalization
+├── reviewWriter.ts            # Review note generation
+├── providerClient.ts          # Provider abstraction layer
+├── openAiCompatible.ts        # OpenAI-compatible API client
+├── gemini.ts                  # Google Gemini API client
+├── anthropic.ts               # Anthropic Claude API client
+├── urlExtraction.ts           # URL fetch & article extraction
+├── attachmentContext.ts       # Attachment detection
+├── actionLayer.ts             # Action execution
+├── actionConfirmationModal.ts # Confirmation modal for destructive actions
+├── undoAutoSort.ts            # Undo last auto-sort run
+├── frontmatter.ts             # Frontmatter read/write
+├── connectionTest.ts          # API connection tester
+├── processingNotice.ts        # Persistent notice display
+├── queue/
+│   ├── queueTypes.ts          # Queue data types
+│   ├── job.ts                 # Job creation
+│   ├── reviewQueue.ts         # Async job queue
+│   ├── rateLimiter.ts         # Rate limiting
+│   └── retry.ts               # Exponential backoff
+├── i18n/
+│   ├── index.ts               # Locale detection
+│   └── locales/
+│       ├── en.ts              # English translations
+│       └── ja.ts              # Japanese translations
+├── utils/
+│   ├── contentFilter.ts       # Context budget & content filtering
+│   ├── autoSortHistory.ts     # Auto-sort history persistence
+│   ├── promptInjection.ts     # Prompt injection signal detection
+│   ├── logFiles.ts            # Shared log file utilities
+│   ├── errorLog.ts            # Error logging & file writing
+│   ├── operationLog.ts        # Structured operation logging (JSONL)
+│   ├── folder.ts              # Folder creation & validation
+│   ├── pdf.ts                 # PDF text extraction
+│   └── imageOptimization.ts   # Image resize/recompress
+└── types/
+    └── obsidian-extra.d.ts    # Obsidian API type augmentations
+```
+
+---
 
 ## Development
 
-Install dependencies:
-
 ```bash
+# Install dependencies
 pnpm install
-```
 
-Type-check:
-
-```bash
+# Type-check
 pnpm check
-```
 
-Build:
-
-```bash
+# Build
 pnpm build
-```
 
-Run tests:
+# Watch mode
+pnpm dev
 
-```bash
+# Run tests
 pnpm test
 ```
 
-Watch mode:
+### Project Status
 
-```bash
-pnpm dev
-```
+All P0–P2 features are complete. See the [GitHub Issues](https://github.com/kzyiym/inbox-curator/issues) for planned work.
+
+---
+
+## Auto-sort Safety
+
+Inbox Curator is designed to automate your inbox, not just summarize it. It can automatically move notes to Archive, Read Later, or Tasks when the AI review is reliable enough.
+
+To keep automation reversible:
+
+- It **never deletes notes automatically**.
+- Delete candidates are **suggested only**.
+- Auto-sort actions are **recorded** in `.inbox-curator/auto-sort-history.json`.
+- **Recent auto-sort runs can be undone** with the `Inbox Curator: Undo last auto-sort run` command.
+- **Tasks require higher confidence** (High) than Archive or Read Later (Medium or High).
+- **Task auto-execution is blocked when prompt injection signals are detected** in the note content. Archive and Read Later may still auto-execute when their configured confidence and safety conditions are met, even if prompt injection signals are detected.
+- For stricter safety, use **Review only mode** (Settings → Review Behavior → Review mode → Review only), which disables all auto-sort actions entirely.
+
+## FAQ
+
+### Will Inbox Curator delete my notes automatically?
+
+No. Inbox Curator never deletes notes automatically. Delete candidates are suggested only.
+
+### Can I undo auto-sorting?
+
+Yes. Recent auto-sort runs can be undone with the command:
+
+`Inbox Curator: Undo last auto-sort run`
+
+### Why are Archive and Read Later executed with Medium confidence?
+
+Archive and Read Later are reversible, low-risk organization actions. Tasks require High confidence because they can influence user behavior.
+
+---
+
+## FAQ & Help Document
+
+We provide a comprehensive, interactive, and multi-language (English/Japanese) FAQ page to help you with common questions, troubleshoot issues, and understand plugin behaviors:
+
+👉 **[Open FAQ Document](https://inbox-curator.antidot.jp/)** (Supports real-time search, category filtering, theme toggle, and accordion toggles)
+
+*Note: The FAQ document is a supplementary helper document and does not constitute official product support. It is verified for Obsidian v1.0.0+ and Plugin v0.1.0+.*
+
+---
+
+## Feedback & Support
+
+If you encounter any issues, have feature requests, or want to share your thoughts:
+
+- **For GitHub users**: Please open an issue on [GitHub Issues](https://github.com/kzyiym/inbox-curator/issues) or start a discussion in [GitHub Discussions](https://github.com/kzyiym/inbox-curator/discussions).
+- **For non-GitHub users**: If you do not have a GitHub account or are unfamiliar with GitHub, you can submit your bugs or suggestions using our [Feedback & Support Form (Tally)](https://tally.so/r/lbzMMW) (No account required).
+- **Support the developer**: If you find this plugin useful, consider supporting development via [Ko-fi (External Donation Service)](https://ko-fi.com/kzyiym).
+
+---
+
+## License
+
+[MIT](LICENSE)

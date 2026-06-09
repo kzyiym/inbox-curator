@@ -1,4 +1,5 @@
 import { requestUrl } from 'obsidian';
+import { isAdOrIframeLine } from './utils/contentFilter';
 
 export interface UrlMetadata {
   title?: string;
@@ -17,6 +18,7 @@ export interface UrlExtractionOptions {
   fetchMetadata: boolean;
   extractArticle: boolean;
   maxExtractedCharacters: number;
+  timeoutMs?: number;
 }
 
 export interface UrlExtractionResult {
@@ -176,7 +178,11 @@ function scoreCandidate(element: Element, url?: string): number {
 }
 
 function normalizeExtractedText(text: string, maxCharacters: number): string | undefined {
-  const normalized = text
+  const lines = text.split('\n');
+  const filteredLines = lines.filter((line) => !isAdOrIframeLine(line));
+  const filteredText = filteredLines.join('\n');
+
+  const normalized = filteredText
     .replace(/\u00a0/g, ' ')
     .replace(/\s+\n/g, '\n')
     .replace(/\n\s+/g, '\n')
@@ -274,7 +280,42 @@ function extractReadableText(html: string, maxCharacters: number, url?: string):
   };
 }
 
+const BLOCKED_HOST_PATTERNS = [
+  /^localhost$/i,
+  /^127\.\d+\.\d+\.\d+$/,
+  /^0\.0\.0\.0$/,
+  /^::1$/,
+  /^169\.254\.\d+\.\d+$/,
+  /^10\.\d+\.\d+\.\d+$/,
+  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
+  /^192\.168\.\d+\.\d+$/,
+];
+
+function isValidFetchUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    const hostname = parsed.hostname.toLowerCase();
+    for (const pattern of BLOCKED_HOST_PATTERNS) {
+      if (pattern.test(hostname)) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchUrlContext(url: string, notePath: string, options: UrlExtractionOptions): Promise<UrlExtractionResult> {
+  if (!isValidFetchUrl(url)) {
+    return {
+      fetchStatus: 'failed',
+      extractionUsed: false,
+      extractionConfidence: 0,
+      extractionWarnings: ['URL scheme or target is not allowed for security reasons.'],
+      extractionMethod: 'blocked',
+    };
+  }
+
   const isPdfUrl = url.toLowerCase().split('?')[0].endsWith('.pdf');
   if (isPdfUrl) {
     return {
@@ -295,7 +336,8 @@ export async function fetchUrlContext(url: string, notePath: string, options: Ur
         'User-Agent': 'Inbox Curator',
         Accept: 'text/html,application/xhtml+xml,application/pdf',
       },
-    });
+      timeout: options.timeoutMs,
+    } as any);
 
     if (response.status < 200 || response.status >= 300) {
       console.warn('Inbox Curator URL fetch failed', {

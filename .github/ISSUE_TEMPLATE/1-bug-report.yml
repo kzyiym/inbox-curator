@@ -1,0 +1,62 @@
+name: 🐛 バグ報告
+description: プラグインの不具合やエラーを報告します
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        バグの報告ありがとうございます！プラグインの品質向上のため、以下の情報を可能な限り詳しくご記入ください。
+        報告の前に、最新バージョンへのアップデートで解決しないかご確認ください。
+  - type: input
+    id: plugin-version
+    attributes:
+      label: プラグインのバージョン
+      placeholder: 例: 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: obsidian-version
+    attributes:
+      label: Obsidian のバージョン
+      placeholder: 例: 1.5.8
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS / 動作環境
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - iOS
+        - Android
+        - その他
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: バグの説明
+      description: どのような問題が発生しているか、簡潔に説明してください。
+      placeholder: 例: watched フォルダ内のノートを変更した際に、AIレビューがトリガーされない、など。
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      description: バグを再現するための手順を順を追って記述してください。
+      placeholder: |
+        1. 設定画面で watched フォルダを「Inbox」に指定する
+        2. 「Inbox」フォルダ内に新しいノートを作成する
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: エラーログ / スクリーンショット
+      description: 設定画面の「Error Logs」ボタンから確認できるログや、開発者ツール（Ctrl+Shift+I）のコンソールログ、エラー画面のスクリーンショットを貼り付けてください。
+    validations:
+      required: false

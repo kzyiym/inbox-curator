@@ -24,7 +24,7 @@ importers:
         specifier: ^29.1.1
         version: 29.1.1
       obsidian:
-        specifier: latest
+        specifier: ^1.5.0
         version: 1.13.0(@codemirror/state@6.5.0)(@codemirror/view@6.38.6)
       typescript:
         specifier: ^5.9.2

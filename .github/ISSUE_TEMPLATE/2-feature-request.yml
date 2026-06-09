@@ -1,0 +1,40 @@
+name: 💡 機能リクエスト
+description: 新しい機能や改善のアイデアを提案します
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        新しいアイデアや機能の提案を歓迎します！
+        提案内容を具体的に理解できるよう、以下のフォームにご記入ください。
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解決したい課題 / 背景
+      description: 現在の仕様で困っていることや、どのような課題を解決したいかを記述してください。
+      placeholder: 例: PDF抽出機能で、特定のページだけを指定して抽出したいが、現状は最初の5ページで固定されているため不便である、など。
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: 提案する解決策
+      description: 実装してほしい機能や、想定される動作について記述してください。
+      placeholder: 例: 設定画面に「PDF抽出最大ページ数」という項目を追加し、ユーザーが任意のページ数を指定できるようにする。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 代替案
+      description: 提案する解決策以外に、どのような代替手段や回避策が考えられるかを記述してください。
+      placeholder: 例: 現時点では、手動でPDFの特定ページをコピー＆ペーストしてノートに貼り付けている。
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: その他
+      description: 参考資料、モックアップ、スクリーンショットなど、補足情報があれば記述してください。
+    validations:
+      required: false

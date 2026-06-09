@@ -20,7 +20,7 @@ function createBaseResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
     verdict: {
       readingValueLabel: 'medium',
       savingValueLabel: 'medium',
-      reliabilityLabel: 'not_reviewed',
+      reliabilityLabel: 'medium',
       recommendedAction: 'keep_as_reference',
       priority: 'medium',
     },

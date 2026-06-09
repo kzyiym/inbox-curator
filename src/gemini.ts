@@ -7,6 +7,8 @@ export interface GeminiChatRequest {
   apiKey: string;
   messages: ProviderChatMessage[];
   temperature?: number;
+  timeoutMs?: number;
+  maxOutputTokens?: number;
 }
 
 export function buildGeminiUrl(endpointUrl: string, model: string, apiKey: string): string {
@@ -62,6 +64,7 @@ export async function postGeminiChat(request: GeminiChatRequest): Promise<Provid
     contents,
     generationConfig: {
       temperature: request.temperature ?? 0,
+      ...(request.maxOutputTokens !== undefined ? { maxOutputTokens: request.maxOutputTokens } : {}),
       responseMimeType: 'application/json',
     },
   };
@@ -79,7 +82,8 @@ export async function postGeminiChat(request: GeminiChatRequest): Promise<Provid
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
-    });
+      timeout: request.timeoutMs,
+    } as any);
 
     if (response.status !== 200) {
       return {

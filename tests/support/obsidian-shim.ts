@@ -22,6 +22,11 @@ export class TFile {
   stat = { mtime: 0, size: 0 };
 }
 
+export class TFolder {
+  path = '';
+  name = '';
+}
+
 export class Notice {
   constructor(_message?: string, _duration?: number) {}
   setMessage(_message: string) {
@@ -42,6 +47,7 @@ export class Plugin {
   registerEvent() {}
   addSettingTab() {}
   addCommand() {}
+  addStatusBarItem() { return document.createElement('div'); }
   loadData() { return Promise.resolve({}); }
   saveData() { return Promise.resolve(); }
 }
@@ -97,3 +103,13 @@ export function normalizePath(value: string): string {
 }
 
 export const requestUrl = vi.fn();
+
+export const apiVersion = '1.0.0';
+
+// Mock Obsidian Element extensions for jsdom environment
+if (typeof window !== 'undefined' && window.HTMLElement) {
+  (window.HTMLElement.prototype as any).empty = function(this: HTMLElement) {
+    this.innerHTML = '';
+    return this;
+  };
+}

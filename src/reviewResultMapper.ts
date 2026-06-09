@@ -1,4 +1,6 @@
 import type {
+  ConceptCandidate,
+  InputContentReductionInfo,
   RecommendedAction,
   ReviewActionItem,
   ReviewAttachment,
@@ -34,20 +36,14 @@ const REVIEW_RELIABILITY_LABELS: readonly ReviewReliabilityLabel[] = [
   'high',
   'medium',
   'low',
-  'needs_verification',
-  'not_reviewed',
 ];
 const REVIEW_PRIORITIES: readonly ReviewPriority[] = ['high', 'medium', 'low'];
 const RECOMMENDED_ACTIONS: readonly RecommendedAction[] = [
-  'read_later',
   'keep_as_reference',
-  'turn_into_note',
-  'turn_into_task',
-  'needs_verification',
-  'research_more',
+  'read_later',
   'archive',
+  'task',
   'delete_candidate',
-  'ignore',
 ];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -70,30 +66,90 @@ function pickBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+function truncateString(val: string, max: number): string {
+  return val.length <= max ? val : val.slice(0, max);
+}
+
 function clampScore(value: unknown, fallback: number): number {
-  const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  let numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
   if (!Number.isFinite(numeric)) {
     return fallback;
+  }
+
+  if (numeric > 0 && numeric <= 1) {
+    numeric = numeric * 100;
   }
 
   return Math.max(0, Math.min(100, Math.round(numeric)));
 }
 
 function pickEnumValue<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
-  return typeof value === 'string' && allowed.includes(value as T) ? (value as T) : fallback;
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+  const clean = value.trim().toLowerCase();
+  return allowed.includes(clean as T) ? (clean as T) : fallback;
 }
 
-function normalizeStringArray(value: unknown): string[] {
+function normalizeStringArray(value: unknown, maxChars = 1000): string[] {
   if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean);
+    return value
+      .map((item) => {
+        if (typeof item === 'string') return item.trim();
+        if (typeof item === 'number' || typeof item === 'boolean') return String(item).trim();
+        return '';
+      })
+      .filter(Boolean)
+      .map((s) => s.slice(0, maxChars));
   }
 
   if (typeof value === 'string') {
     const trimmed = value.trim();
-    return trimmed ? [trimmed] : [];
+    return trimmed ? [trimmed.slice(0, maxChars)] : [];
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return [String(value).trim().slice(0, maxChars)];
   }
 
   return [];
+}
+
+function normalizeAction(action: unknown): RecommendedAction {
+  if (typeof action !== 'string') {
+    return 'keep_as_reference';
+  }
+  const clean = action.trim().toLowerCase().replace(/[-_]/g, '');
+
+  if (clean === 'keepasreference' || clean === 'reference') {
+    return 'keep_as_reference';
+  }
+  if (clean === 'readlater' || clean === 'read') {
+    return 'read_later';
+  }
+  if (clean === 'archive' || clean === 'archivenote' || clean === 'archived') {
+    return 'archive';
+  }
+  if (clean === 'task' || clean === 'turnintotask' || clean === 'tasks') {
+    return 'task';
+  }
+  if (clean === 'delete' || clean === 'deletecandidate') {
+    return 'delete_candidate';
+  }
+
+  // Deprecated action normalization
+  if (clean === 'researchmore' || clean === 'research') {
+    return 'read_later';
+  }
+  if (clean === 'ignore' || clean === 'none') {
+    return 'archive';
+  }
+  if (clean === 'turnintonote' || clean === 'note') {
+    return 'archive';
+  }
+
+  // Unknown actions fall back to archive (conservative storage)
+  return 'archive';
 }
 
 function normalizeStringMatrix(value: unknown): string[][] {
@@ -103,8 +159,22 @@ function normalizeStringMatrix(value: unknown): string[][] {
 
   return value
     .filter((row): row is unknown[] => Array.isArray(row))
-    .map((row) => row.filter((cell): cell is string => typeof cell === 'string').map((cell) => cell.trim()).filter(Boolean))
+    .map((row) => row.filter((cell): cell is string => typeof cell === 'string').map((cell) => cell.trim()))
     .filter((row) => row.length > 0);
+}
+
+function normalizeConceptCandidates(value: unknown): ConceptCandidate[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item))
+    .map((item) => ({
+      title: typeof item.title === 'string' ? item.title.trim() : '',
+      description: typeof item.description === 'string' ? item.description.trim() : '',
+    }))
+    .filter((item) => item.title !== '');
 }
 
 function normalizeActionItems(value: unknown): ReviewActionItem[] {
@@ -170,11 +240,22 @@ export interface ReviewResultMappingContext {
   extractionConfidence?: number;
   extractionWarnings?: string[];
   extractionMethod?: string;
+  inputReductionInfo?: InputContentReductionInfo;
+  promptLanguage?: 'english' | 'japanese';
 }
 
 export function mapToReviewResult(raw: unknown, context: ReviewResultMappingContext): ReviewResultMappingResult {
   if (!isRecord(raw)) {
     return { ok: false, error: 'AI response must be a JSON object.' };
+  }
+
+  if (
+    raw.verdict === undefined || raw.verdict === null ||
+    raw.scores === undefined || raw.scores === null ||
+    (raw.summary === undefined && raw.shortSummary === undefined) ||
+    raw.detailedSummary === undefined || raw.detailedSummary === null
+  ) {
+    return { ok: false, error: 'AI response is missing critical required fields.' };
   }
 
   const source = context.source;
@@ -188,7 +269,7 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
 
   const candidate: ReviewResult = {
     source: {
-      noteTitle: pickString(raw.noteTitle, source.noteTitle),
+      noteTitle: truncateString(pickString(raw.noteTitle, source.noteTitle), 300),
       notePath: pickString(raw.notePath, source.notePath),
       outputPath: pickString(raw.outputPath, source.outputPath),
       generatedAt: pickString(raw.generatedAt, source.generatedAt),
@@ -206,8 +287,8 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
     verdict: {
       readingValueLabel: pickEnumValue(verdict.readingValueLabel, REVIEW_VALUE_LABELS, 'medium'),
       savingValueLabel: pickEnumValue(verdict.savingValueLabel, REVIEW_VALUE_LABELS, 'medium'),
-      reliabilityLabel: pickEnumValue(verdict.reliabilityLabel, REVIEW_RELIABILITY_LABELS, 'not_reviewed'),
-      recommendedAction: pickEnumValue(verdict.recommendedAction, RECOMMENDED_ACTIONS, 'keep_as_reference'),
+      reliabilityLabel: pickEnumValue(verdict.reliabilityLabel, REVIEW_RELIABILITY_LABELS, 'medium'),
+      recommendedAction: normalizeAction(verdict.recommendedAction),
       priority: pickEnumValue(verdict.priority, REVIEW_PRIORITIES, 'medium'),
     },
     scores: {
@@ -216,21 +297,22 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
       reliability: clampScore(scores.reliability, 0),
       practicality: clampScore(scores.practicality, 50),
     },
-    summary: normalizeStringArray(raw.summary),
-    detailedSummary: pickString(raw.detailedSummary, ''),
-    credibilityReview: pickString(raw.credibilityReview, ''),
-    practicalityReview: pickString(raw.practicalityReview, ''),
-    decisionReason: pickOptionalString(raw.decisionReason),
-    retentionReasons: normalizeStringArray(raw.retentionReasons),
-    evidenceBasis: normalizeStringArray(raw.evidenceBasis),
+    summary: normalizeStringArray(raw.summary !== undefined ? raw.summary : raw.shortSummary, 1000),
+    detailedSummary: truncateString(pickString(raw.detailedSummary, ''), 10000),
+    credibilityReview: truncateString(pickString(raw.credibilityReview, ''), 10000),
+    practicalityReview: truncateString(pickString(raw.practicalityReview, ''), 10000),
+    decisionReason: raw.decisionReason !== undefined ? truncateString(pickString(raw.decisionReason, ''), 1000) : undefined,
+    retentionReasons: normalizeStringArray(raw.retentionReasons, 1000),
+    evidenceBasis: normalizeStringArray(raw.evidenceBasis, 1000),
     structuredSummary: normalizeStructuredSummary(raw.structuredSummary),
-    strengths: normalizeStringArray(raw.strengths),
-    risksOrGaps: normalizeStringArray(raw.risksOrGaps),
-    verificationNeeded: normalizeStringArray(raw.verificationNeeded),
-    nextActions: normalizeStringArray(raw.nextActions),
+    strengths: normalizeStringArray(raw.strengths, 1000),
+    risksOrGaps: normalizeStringArray(raw.risksOrGaps, 1000),
+    verificationNeeded: normalizeStringArray(raw.verificationNeeded, 1000),
+    nextActions: normalizeStringArray(raw.nextActions, 1000),
     actionItems: normalizeActionItems(raw.actionItems),
-    suggestedTags: normalizeStringArray(raw.suggestedTags),
-    suggestedFolder: pickOptionalString(raw.suggestedFolder),
+    conceptCandidates: (() => { const cc = normalizeConceptCandidates(raw.conceptCandidates); return cc.length > 0 ? cc : undefined; })(),
+    suggestedTags: normalizeStringArray(raw.suggestedTags, 1000),
+    suggestedFolder: raw.suggestedFolder !== undefined ? truncateString(pickString(raw.suggestedFolder, ''), 300) : undefined,
     flags: {
       needsVerification: pickBoolean(flags.needsVerification, false),
       deleteCandidate: pickBoolean(flags.deleteCandidate, false),
@@ -238,6 +320,8 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
     ...(typeof context.extractionConfidence === 'number' ? { extractionConfidence: context.extractionConfidence } : {}),
     ...(Array.isArray(context.extractionWarnings) ? { extractionWarnings: context.extractionWarnings } : {}),
     ...(typeof context.extractionMethod === 'string' ? { extractionMethod: context.extractionMethod } : {}),
+    ...(context.inputReductionInfo ? { inputReductionInfo: context.inputReductionInfo } : {}),
+    promptLanguage: context.promptLanguage ?? 'english',
   };
 
   const validation = validateReviewResult(candidate);

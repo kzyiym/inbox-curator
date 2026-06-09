@@ -1,20 +1,23 @@
+import { App } from 'obsidian';
+
 const API_KEY_SECRET_ID = 'inbox-curator-api-key';
 
 export const SAVED_API_KEY_MASK = '•••••••• saved';
 const MASKED_API_KEY_VALUES = [SAVED_API_KEY_MASK, '******** saved'] as const;
 
-type SecretStorageLike = {
-  getSecret(id: string): Promise<string | null | undefined>;
-  setSecret(id: string, value: string): Promise<void>;
-  deleteSecret(id: string): Promise<void>;
-};
+const sessionApiKeys = new Map<string, string>();
 
-function getSecretStorage(app: unknown): SecretStorageLike {
-  const storage = (app as { secretStorage?: SecretStorageLike }).secretStorage;
-  if (!storage) {
-    throw new Error('SecretStorage is not available in this Obsidian runtime.');
-  }
-  return storage;
+export function isSecretStorageAvailable(app: App): boolean {
+  return Boolean(
+    app.secretStorage &&
+    typeof app.secretStorage.getSecret === 'function' &&
+    typeof app.secretStorage.setSecret === 'function' &&
+    typeof app.secretStorage.deleteSecret === 'function'
+  );
+}
+
+export function clearSessionApiKeys(): void {
+  sessionApiKeys.clear();
 }
 
 export function getApiKeySecretId(provider: string): string {
@@ -27,13 +30,31 @@ export function getApiKeySecretId(provider: string): string {
   return 'inbox-curator-api-key-openai';
 }
 
-export function isMaskedApiKeyValue(value: string): boolean {
-  return MASKED_API_KEY_VALUES.includes(value.trim() as (typeof MASKED_API_KEY_VALUES)[number]);
+export function buildApiKeyMask(key: string): string {
+  const trimmed = key.trim();
+  if (trimmed.length <= 8) {
+    return '••••••••';
+  }
+  const prefix = trimmed.slice(0, 4);
+  const suffix = trimmed.slice(-4);
+  return `${prefix}••••••••${suffix}`;
 }
 
-export async function getApiKey(app: unknown, provider: string): Promise<string | null> {
-  const storage = getSecretStorage(app);
+export function isMaskedApiKeyValue(value: string): boolean {
+  const trimmed = value.trim();
+  if (MASKED_API_KEY_VALUES.includes(trimmed as (typeof MASKED_API_KEY_VALUES)[number])) {
+    return true;
+  }
+  return /(?:•{4,}|\*{4,})/.test(trimmed);
+}
+
+export async function getApiKey(app: App, provider: string): Promise<string | null> {
   const secretId = getApiKeySecretId(provider);
+  if (!isSecretStorageAvailable(app)) {
+    return sessionApiKeys.get(secretId) ?? null;
+  }
+
+  const storage = app.secretStorage;
   let value = await storage.getSecret(secretId);
 
   // Fallback for OpenAI legacy key
@@ -55,24 +76,34 @@ export async function getApiKey(app: unknown, provider: string): Promise<string 
   return normalized;
 }
 
-export async function saveApiKey(app: unknown, provider: string, apiKey: string): Promise<void> {
+export async function saveApiKey(app: App, provider: string, apiKey: string): Promise<void> {
   const normalized = apiKey.trim();
   if (!normalized || isMaskedApiKeyValue(normalized)) {
     throw new Error('Refusing to save an empty or masked API key value.');
   }
 
-  const storage = getSecretStorage(app);
   const secretId = getApiKeySecretId(provider);
+  if (!isSecretStorageAvailable(app)) {
+    sessionApiKeys.set(secretId, normalized);
+    return;
+  }
+
+  const storage = app.secretStorage;
   await storage.setSecret(secretId, normalized);
 }
 
-export async function deleteApiKey(app: unknown, provider: string): Promise<void> {
-  const storage = getSecretStorage(app);
+export async function deleteApiKey(app: App, provider: string): Promise<void> {
   const secretId = getApiKeySecretId(provider);
+  if (!isSecretStorageAvailable(app)) {
+    sessionApiKeys.delete(secretId);
+    return;
+  }
+
+  const storage = app.secretStorage;
   await storage.deleteSecret(secretId);
 }
 
-export async function hasApiKey(app: unknown, provider: string): Promise<boolean> {
+export async function hasApiKey(app: App, provider: string): Promise<boolean> {
   const value = await getApiKey(app, provider);
   return Boolean(value);
 }

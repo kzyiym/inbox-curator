@@ -1,20 +1,25 @@
-import { MarkdownView, Notice, Plugin, TFile, normalizePath } from 'obsidian';
+import { MarkdownView, Notice, Plugin, TFile, TFolder, normalizePath } from 'obsidian';
 import { registerInboxCuratorCommands } from './src/commands';
 import { readAiReviewSourceHash } from './src/frontmatter';
 import { ProcessingNoticeManager } from './src/processingNotice';
-import { createReviewJob } from './src/queue/job';
+import { createReviewJob, generateRunId } from './src/queue/job';
 import { ReviewRateLimiter } from './src/queue/rateLimiter';
 import { ReviewQueue } from './src/queue/reviewQueue';
-import type { ReviewJob, ReviewJobResult, ReviewJobSource } from './src/queue/queueTypes';
+import type { ReviewJob, ReviewJobResult, ReviewJobSource, ReviewQueueLogEntry } from './src/queue/queueTypes';
 import { buildReviewSourceInfo, runReviewPipeline, type ReviewPipelineOptions } from './src/reviewPipeline';
 import { DEFAULT_SETTINGS, InboxCuratorSettings, InboxCuratorSettingTab } from './src/settings';
 import { executeProposedAction } from './src/actionLayer';
-const REVIEWING_NOTICE_TEXT = 'Inbox Curator: Reviewing current note...';
-const PROCESSING_IN_PROGRESS_NOTICE_TEXT = 'Inbox Curator: Review already in progress';
-const REVIEW_COMPLETED_NOTICE_TEXT = 'Inbox Curator: Review completed';
-const REVIEW_FAILED_NOTICE_TEXT = 'Inbox Curator: Review failed';
-const MISSING_WATCHED_FOLDER_NOTICE_TEXT = 'Inbox Curator: Watched folder is not set';
-const PROCESSING_WATCHED_FOLDER_NOTICE_TEXT = 'Inbox Curator: Processing watched folder...';
+import { appendAutoExecuteResult } from './src/reviewWriter';
+import { canAutoExecuteReviewAction, type ReviewAction, type ReviewConfidence } from './src/reviewNormalizer';
+import { t } from './src/i18n';
+import { clearSessionApiKeys, getApiKey, hasApiKey } from './src/secrets';
+import { logError } from './src/utils/errorLog';
+import { logOperation } from './src/utils/operationLog';
+import { appendAutoSortActionRecord, type AutoSortActionRecord } from './src/utils/autoSortHistory';
+import { setLogLevelGetter } from './src/utils/logFiles';
+import { resolveReviewContextBudget } from './src/utils/contentFilter';
+import { resolveEffectiveOpenAiTokenLimitParam, buildOpenAiCompatibleTokenLimitDetectionKey } from './src/openAiCompatible';
+import { getFolderMarkdownFilesForCollectionReview, runCollectionReviewPipeline } from './src/collectionReview';
 
 type AutomaticReviewReason = 'create' | 'modify' | 'poll';
 
@@ -38,23 +43,136 @@ interface AutomaticEnqueueResult {
   promise?: Promise<ReviewJobResult>;
 }
 
+type FileSkipCacheEntry = {
+  mtime: number;
+  reviewHash: string;
+};
+
 export default class InboxCuratorPlugin extends Plugin {
   settings: InboxCuratorSettings = DEFAULT_SETTINGS;
+  isUnloaded = false;
   private processingInProgress = false;
   private readonly processingNotice = new ProcessingNoticeManager();
   private reviewQueue!: ReviewQueue;
   private reviewRateLimiter = new ReviewRateLimiter();
   private readonly automaticReviewTimers = new Map<string, number>();
+  private readonly fileSkipCache = new Map<string, FileSkipCacheEntry>();
   private pollingIntervalId: number | null = null;
   private pollingInProgress = false;
+  // Processing marker renames are UI-only file-name changes.
+  // Obsidian may emit rename/modify events for them, so these paths are
+  // temporarily skipped to avoid re-enqueueing the same note.
+  // Both original path and marker path are added before rename.
+  // The rename event handler clears stale entries, and the consumer
+  // (scheduleAutomaticReview / tryEnqueueAutomaticReview) removes them on hit.
+  // This ordering is intentional — do not rearrange without tracing the event sequence.
+  private readonly processingMarkerRenameSkipCache = new Set<string>();
+
+  private static readonly PROCESSING_FILE_MARKER = '🤖 ';
+
+  private hasProcessingFileMarker(fileName: string): boolean {
+    return fileName.startsWith(InboxCuratorPlugin.PROCESSING_FILE_MARKER);
+  }
+
+  private isProcessingMarkerPath(path: string): boolean {
+    const fileName = path.split('/').pop() ?? '';
+    return fileName.startsWith(InboxCuratorPlugin.PROCESSING_FILE_MARKER);
+  }
 
   async onload(): Promise<void> {
+    this.isUnloaded = false;
     await this.loadSettings();
+    setLogLevelGetter(() => this.settings.logLevel);
+
+    void logOperation(this.app, { timestamp: new Date().toISOString(), level: 'INFO', event: 'plugin_loaded' });
+
+    await this.cleanupEmojiPrefixFiles(true);
+
     this.reviewQueue = new ReviewQueue(async (job) => this.runQueuedReviewJob(job), {
       rateLimiter: this.reviewRateLimiter,
       maxConcurrentJobs: this.settings.maxConcurrentReviews,
       onRetry: (job, attempt, delayMs, result) => {
         this.logQueuedReviewRetry(job, attempt, delayMs, result.error);
+        void logOperation(this.app, {
+          timestamp: new Date().toISOString(),
+          level: 'WARN',
+          event: 'queue_retried',
+          operationId: job.operationId,
+          notePath: job.notePath,
+          details: { retryCount: attempt, delayMs, reason: result.error ?? 'unknown' },
+        });
+      },
+      // # Operation log verification guide
+      //
+      // After manual testing, check `.inbox-curator/logs/operations-*.ndjson`:
+      //
+      //   1. RUN_ID sharing — filter by `runId`:
+      //      - `processWatchedFolder` → same `runId` across all jobs in the batch
+      //      - `runPollingSweep`     → same `runId` across all jobs in the sweep
+      //      - single review / auto-create / auto-modify → each gets a unique `runId`
+      //
+      //   2. No double dispatch for same `notePath`:
+      //      - First enqueue → `enqueue_accepted`
+      //      - Second enqueue (same path while first is pending/running) → `enqueue_skipped`
+      //        with `skippedReason: "already_queued_or_running"`
+      //
+      //   3. Source discrimination — `details.source`:
+      //      - `manual-folder`  → processWatchedFolder (manual button)
+      //      - `manual-current` → reviewFile (single note command)
+      //      - `auto-create`    → vault `create` event
+      //      - `auto-modify`    → vault `modify` event
+      //      - `polling`        → runPollingSweep
+      //
+      //   4. Max concurrency — `runningCount` never exceeds `maxConcurrentJobs`
+      //
+      //   5. Cleanup on failure — `job_failed` followed by state reset:
+      //      `runningCount` drops and same `notePath` becomes enqueueable again
+      onLog: (entry: ReviewQueueLogEntry): void => {
+        void logOperation(this.app, {
+          timestamp: entry.timestamp,
+          level: entry.level,
+          event: entry.event,
+          operationId: entry.jobId,
+          notePath: entry.notePath,
+          details: {
+            runId: entry.runId ?? null,
+            source: entry.source ?? null,
+            pendingCount: entry.pendingCount ?? null,
+            runningCount: entry.runningCount ?? null,
+            maxConcurrentJobs: entry.maxConcurrentJobs ?? null,
+            queuedOrRunningCount: entry.queuedOrRunningCount ?? null,
+            skippedReason: entry.skippedReason ?? null,
+            durationMs: entry.durationMs ?? null,
+            errorMessage: entry.errorMessage ?? null,
+          },
+        });
+        // Also write human-readable entries to error log so they appear
+        // at both 'errors' and 'operations' log levels.
+        if (entry.event === 'job_succeeded' && entry.notePath) {
+          void logError(this.app, 'WARN', `Review completed: ${entry.notePath}`, {
+            durationMs: entry.durationMs,
+            source: entry.source,
+          });
+        }
+        if (entry.event === 'job_failed' && entry.notePath) {
+          void logError(this.app, 'ERROR', `Review failed: ${entry.notePath}`, {
+            error: entry.errorMessage,
+            source: entry.source,
+          });
+        }
+      },
+      onStatus: (status) => {
+        if (this.processingInProgress) return;
+        if (status.running > 0 && status.currentPath) {
+          const fileName = status.currentPath.split('/').pop() ?? '';
+          const cleanName = this.hasProcessingFileMarker(fileName)
+            ? fileName.slice(InboxCuratorPlugin.PROCESSING_FILE_MARKER.length)
+            : fileName;
+          const truncatedName = cleanName.length > 24 ? cleanName.slice(0, 22) + '…' : cleanName;
+          this.processingNotice.show(`Reviewing ${truncatedName} (${status.running}/${status.pending})`);
+        } else if (status.running === 0 && status.pending === 0) {
+          this.processingNotice.clear();
+        }
       },
     });
 
@@ -68,26 +186,51 @@ export default class InboxCuratorPlugin extends Plugin {
         void this.handleWatchedFolderModify(file);
       }
     }));
+    this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
+      this.fileSkipCache.delete(oldPath);
+      this.processingMarkerRenameSkipCache.delete(oldPath);
+      if (file instanceof TFile) {
+        this.processingMarkerRenameSkipCache.delete(file.path);
+      }
+    }));
+    this.registerEvent(this.app.vault.on('delete', (file) => {
+      this.fileSkipCache.delete(file.path);
+    }));
 
     this.addSettingTab(new InboxCuratorSettingTab(this.app, this));
     registerInboxCuratorCommands(this);
+    
+    const statusBarEl = this.addStatusBarItem();
+    this.processingNotice.setStatusBarElement(statusBarEl);
+
     this.configurePolling();
   }
 
   onunload(): void {
+    this.isUnloaded = true;
+    void logOperation(this.app, { timestamp: new Date().toISOString(), level: 'INFO', event: 'plugin_unloaded' });
     this.clearAutomaticReviewTimers();
     this.stopPolling();
-    this.reviewQueue.stop();
+    this.reviewQueue?.stop();
     this.reviewRateLimiter.reset();
+    this.fileSkipCache.clear();
+    clearSessionApiKeys();
     this.finishProcessing();
+    void this.cleanupEmojiPrefixFiles();
   }
 
   async loadSettings(): Promise<void> {
     const saved = (await this.loadData()) as Partial<InboxCuratorSettings> | null;
     this.settings = { ...DEFAULT_SETTINGS, ...(saved ?? {}) };
+
+    // Backwards compatibility migration
+    if (saved && saved.autoExecuteProposedActions === true && saved.autoExecuteArchive === undefined) {
+      this.settings.autoExecuteArchive = true;
+    }
   }
 
   async saveSettings(): Promise<void> {
+    const oldWatchedFolder = this.settings.watchedFolder;
     await this.saveData({
       watchedFolder: this.settings.watchedFolder,
       reviewOutputFolder: this.settings.reviewOutputFolder,
@@ -108,9 +251,43 @@ export default class InboxCuratorPlugin extends Plugin {
       extractUrlArticleText: this.settings.extractUrlArticleText,
       maxExtractedCharacters: this.settings.maxExtractedCharacters,
       readImages: this.settings.readImages,
+      optimizeImagesForAi: this.settings.optimizeImagesForAi,
       readVideos: this.settings.readVideos,
       autoExecuteProposedActions: this.settings.autoExecuteProposedActions,
+      autoExecuteArchive: this.settings.autoExecuteArchive,
+      autoExecuteReadLater: this.settings.autoExecuteReadLater,
+      autoExecuteTask: this.settings.autoExecuteTask,
+      autoExecuteDeleteCandidate: this.settings.autoExecuteDeleteCandidate,
+      readLaterFolder: this.settings.readLaterFolder,
+      taskFolder: this.settings.taskFolder,
+      deleteCandidateFolder: this.settings.deleteCandidateFolder,
+      requestTimeoutMs: this.settings.requestTimeoutMs,
+      promptLanguage: this.settings.promptLanguage,
+      customReviewPrompt: this.settings.customReviewPrompt,
+      suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
+      extractPdfText: this.settings.extractPdfText,
+      showProcessingMarkerInFileName: this.settings.showProcessingMarkerInFileName,
+      contextBudgetPreset: this.settings.contextBudgetPreset,
+      customMaxContextTokens: this.settings.customMaxContextTokens,
+      customMaxInputContentTokens: this.settings.customMaxInputContentTokens,
+      customMaxOutputTokens: this.settings.customMaxOutputTokens,
+      customSafetyMarginTokens: this.settings.customSafetyMarginTokens,
+      reviewMode: this.settings.reviewMode,
+      openAiCompatibleTokenLimitParam: this.settings.openAiCompatibleTokenLimitParam,
+      openAiCompatibleDetectedTokenLimitParam: this.settings.openAiCompatibleDetectedTokenLimitParam,
+      openAiCompatibleDetectedTokenLimitAt: this.settings.openAiCompatibleDetectedTokenLimitAt,
+      openAiCompatibleDetectedTokenLimitKey: this.settings.openAiCompatibleDetectedTokenLimitKey,
+      collectionReviewOutputFolder: this.settings.collectionReviewOutputFolder,
+      collectionReviewUseExistingReviewsFirst: this.settings.collectionReviewUseExistingReviewsFirst,
+      collectionReviewIncludeExcerptWhenNeeded: this.settings.collectionReviewIncludeExcerptWhenNeeded,
+      collectionReviewMaxNotes: this.settings.collectionReviewMaxNotes,
+      collectionReviewMaxExcerptCharsPerNote: this.settings.collectionReviewMaxExcerptCharsPerNote,
+      logLevel: this.settings.logLevel,
     });
+ 
+    if (oldWatchedFolder !== this.settings.watchedFolder) {
+      this.fileSkipCache.clear();
+    }
 
     this.reviewQueue?.setMaxConcurrentJobs(this.settings.maxConcurrentReviews);
     this.clearAutomaticReviewTimers();
@@ -124,17 +301,17 @@ export default class InboxCuratorPlugin extends Plugin {
   private buildShortReviewError(message: string): string {
     const normalized = message.replace(/\s+/g, ' ').trim();
     if (!normalized) {
-      return REVIEW_FAILED_NOTICE_TEXT;
+      return t('notice.reviewFailed');
     }
 
     const maxLength = 120;
     const clipped = normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}…`;
-    return `${REVIEW_FAILED_NOTICE_TEXT}: ${clipped}`;
+    return t('notice.reviewFailedDetail', { error: clipped });
   }
 
   private tryBeginProcessing(noticeText: string): boolean {
     if (this.processingInProgress) {
-      new Notice(PROCESSING_IN_PROGRESS_NOTICE_TEXT);
+      new Notice(t('notice.reviewAlreadyInProgress'));
       return false;
     }
 
@@ -149,6 +326,17 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   private getReviewPipelineOptions(): ReviewPipelineOptions {
+    const budget = resolveReviewContextBudget(
+      this.settings.contextBudgetPreset,
+      this.settings.contextBudgetPreset === 'custom'
+        ? {
+            maxContextTokens: this.settings.customMaxContextTokens,
+            maxInputContentTokens: this.settings.customMaxInputContentTokens,
+            maxOutputTokens: this.settings.customMaxOutputTokens,
+            safetyMarginTokens: this.settings.customSafetyMarginTokens,
+          }
+        : undefined,
+    );
     return {
       outputFolder: this.settings.reviewOutputFolder,
       provider: this.settings.provider,
@@ -158,7 +346,22 @@ export default class InboxCuratorPlugin extends Plugin {
       extractUrlArticleText: this.settings.extractUrlArticleText,
       maxExtractedCharacters: this.settings.maxExtractedCharacters,
       readImages: this.settings.readImages,
+      optimizeImagesForAi: this.settings.optimizeImagesForAi,
       readVideos: this.settings.readVideos,
+      reviewMode: this.settings.reviewMode,
+      requestTimeoutMs: this.settings.requestTimeoutMs,
+      promptLanguage: this.settings.promptLanguage,
+      customReviewPrompt: this.settings.customReviewPrompt,
+      extractPdfText: this.settings.extractPdfText,
+      isUnloaded: () => this.isUnloaded,
+      maxInputContentChars: budget.maxInputContentChars,
+      maxOutputTokens: budget.maxOutputTokens,
+      openAiTokenLimitParam: resolveEffectiveOpenAiTokenLimitParam(
+        this.settings.openAiCompatibleTokenLimitParam,
+        this.settings.openAiCompatibleDetectedTokenLimitParam,
+        this.settings.openAiCompatibleDetectedTokenLimitKey,
+        buildOpenAiCompatibleTokenLimitDetectionKey(this.settings.endpointUrl, this.settings.model),
+      ),
     };
   }
 
@@ -171,18 +374,122 @@ export default class InboxCuratorPlugin extends Plugin {
     return file;
   }
 
+  // Scans the vault for files whose name starts with the processing marker
+  // and renames them to remove the prefix. Intentionally does NOT mutate
+  // file content — any marker leaked into user prose or plugin metadata
+  // is left as-is. Only file names are restored.
+  async cleanupEmojiPrefixFiles(silent?: boolean): Promise<number> {
+    let count = 0;
+    try {
+      const marker = InboxCuratorPlugin.PROCESSING_FILE_MARKER;
+      const escapedMarker = marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const files = this.app.vault.getMarkdownFiles();
+
+      for (const file of files) {
+        if (!this.hasProcessingFileMarker(file.name)) continue;
+
+        const cleanPath = file.path.replace(new RegExp(`/${escapedMarker}`, 'g'), '/');
+
+        if (this.app.vault.getAbstractFileByPath(cleanPath) instanceof TFile) {
+          this.processingMarkerRenameSkipCache.add(cleanPath);
+          this.processingMarkerRenameSkipCache.add(file.path);
+          continue;
+        }
+
+        try {
+          this.processingMarkerRenameSkipCache.add(file.path);
+          this.processingMarkerRenameSkipCache.add(cleanPath);
+          await this.app.fileManager.renameFile(file, cleanPath);
+          count += 1;
+        } catch {
+          // skip single file
+        }
+      }
+    } catch {
+      // non-blocking cleanup
+    }
+
+    if (!silent && count > 0) {
+      new Notice(t('notice.cleanupMarkers', { count }));
+    }
+
+    return count;
+  }
+
   private async runQueuedReviewJob(job: ReviewJob): Promise<ReviewJobResult> {
+    void logOperation(this.app, {
+      timestamp: new Date().toISOString(),
+      level: 'INFO',
+      event: 'queue_started',
+      operationId: job.operationId,
+      notePath: job.notePath,
+    });
+
+    if (this.isUnloaded) {
+      return { status: 'cancelled', error: 'Plugin unloaded' };
+    }
     const file = this.resolveMarkdownFile(job.notePath);
     if (!file) {
+      void logOperation(this.app, {
+        timestamp: new Date().toISOString(),
+        level: 'WARN',
+        event: 'queue_skipped',
+        operationId: job.operationId,
+        notePath: job.notePath,
+        message: 'Markdown note not found',
+      });
       return {
         status: 'failed',
         error: 'Markdown note not found',
       };
     }
 
+    const isBackgroundAutoJob = !this.processingInProgress &&
+      (job.source === 'auto-create' || job.source === 'auto-modify' || job.source === 'polling');
+
+    let originalPath: string | undefined;
+    // Experimental: prefix file name with a marker during background auto-review.
+    // Both original and new paths are added to the skip cache before/after rename
+    // so Obsidian rename/modify events from this change do not trigger another review.
+    if (isBackgroundAutoJob && this.settings.showProcessingMarkerInFileName) {
+      originalPath = file.path;
+      this.processingMarkerRenameSkipCache.add(originalPath);
+      const dir = originalPath.substring(0, originalPath.lastIndexOf('/') + 1);
+      const originalFileName = file.name;
+      await this.app.fileManager.renameFile(file, `${dir}${InboxCuratorPlugin.PROCESSING_FILE_MARKER}${originalFileName}`);
+      this.processingMarkerRenameSkipCache.add(file.path);
+    }
+
     try {
-      const result = await runReviewPipeline(this.app, file, this.getReviewPipelineOptions());
+      const pipelineOptions = this.getReviewPipelineOptions();
+      pipelineOptions.operationId = job.operationId;
+      const result = await runReviewPipeline(this.app, file, pipelineOptions);
+      if (this.isUnloaded) {
+        return { status: 'cancelled', error: 'Plugin unloaded' };
+      }
       if (result.ok === false) {
+        logError(this.app, 'ERROR', 'Inbox Curator: Review pipeline failed', {
+          provider: this.settings.provider,
+          model: this.settings.model,
+          notePath: file.path,
+          stage: result.stage,
+          error: result.error ?? 'Unknown error',
+        });
+        void logOperation(this.app, {
+          timestamp: new Date().toISOString(),
+          level: 'ERROR',
+          event: 'pipeline_failed',
+          operationId: job.operationId,
+          notePath: file.path,
+          provider: this.settings.provider,
+          model: this.settings.model,
+          stage: result.stage,
+          message: result.error ?? 'Unknown error',
+          errorKind: result.retryable ? 'retryable' : 'fatal',
+        });
+        if (result.errorCode === 'image_not_supported') {
+          new Notice(t('error.imageNotSupported'));
+        }
         return {
           status: 'failed',
           error: result.error,
@@ -190,38 +497,240 @@ export default class InboxCuratorPlugin extends Plugin {
         };
       }
 
-      // Phase 5c: Auto-execute (Archive only)
-      if (
-        this.settings.autoExecuteProposedActions &&
-        (job.source === 'watched-folder-manual' || job.source === 'watched-folder-auto' || job.source === 'watched-folder-poll')
-      ) {
-        const action = result.reviewResult.verdict.recommendedAction;
-        if (action === 'archive') {
-          console.log(`Inbox Curator: Auto-executing "archive" action for note: ${file.path}`);
-          const actionResult = await executeProposedAction(this.app, file, {
-            outputFolder: this.settings.reviewOutputFolder,
-            skipConfirmation: true,
-          });
-          if (!actionResult.success) {
-            console.warn(`Inbox Curator: Auto-execute failed for ${file.path}: ${actionResult.error}`);
-            new Notice(`Inbox Curator: Auto-execute failed: ${actionResult.error}. Pausing queue.`);
-            this.reviewQueue.pause();
-            return {
-              status: 'failed',
-              error: `Auto-execute archive failed: ${actionResult.error}`,
-              retryable: false,
-            };
-          }
-          console.log(`Inbox Curator: Note successfully archived: ${file.path} to ${result.reviewResult.suggestedFolder ?? 'unknown'}`);
+      // Phase 5c: Auto-execute actions (Granular)
+      const action = result.reviewResult.verdict.recommendedAction;
+      const reviewAction = mapRecommendedActionToReviewAction(action);
+      const reliabilityLabel = result.reviewResult.verdict.reliabilityLabel;
+      const confidence: ReviewConfidence | undefined = (result as any).confidence;
+      const effectiveConfidence = confidence ||
+        (reliabilityLabel === 'high' ? 'high' : reliabilityLabel === 'medium' ? 'medium' : 'low');
+      const parseStatus = result.parseStatus || 'parsed';
+      let shouldAutoExecute = false;
+      let autoExecuteSkipReason: string | undefined;
+      let autoExecuteSkipCode: string | undefined;
+
+      if (this.settings.reviewMode === 'safe') {
+        autoExecuteSkipReason = 'review-only mode disables auto-sort';
+        autoExecuteSkipCode = 'safe_mode';
+      } else {
+        shouldAutoExecute = canAutoExecuteReviewAction(
+          reviewAction,
+          parseStatus,
+          effectiveConfidence,
+          this.settings.reviewMode,
+          {
+            autoExecuteArchive: this.settings.autoExecuteArchive,
+            autoExecuteReadLater: this.settings.autoExecuteReadLater,
+            autoExecuteTask: this.settings.autoExecuteTask,
+          },
+        );
+
+        if (!shouldAutoExecute) {
+          if (parseStatus !== 'parsed') { autoExecuteSkipReason = `parseStatus is ${parseStatus}`; autoExecuteSkipCode = 'parse_status'; }
+          else if (effectiveConfidence !== 'high' && reviewAction === 'task') { autoExecuteSkipReason = `task requires high confidence (got ${effectiveConfidence})`; autoExecuteSkipCode = 'task_requires_high'; }
+          else if (effectiveConfidence === 'low') { autoExecuteSkipReason = `confidence is low (${effectiveConfidence})`; autoExecuteSkipCode = 'confidence_low'; }
+          else if (action === 'delete_candidate') { autoExecuteSkipReason = 'delete_candidate is never auto-executed'; autoExecuteSkipCode = 'delete_candidate'; }
+          else { autoExecuteSkipReason = 'setting disabled or action none'; autoExecuteSkipCode = 'setting_disabled'; }
         }
       }
 
+      if (shouldAutoExecute && reliabilityLabel !== 'high') {
+        const allowsMediumReliability = reviewAction === 'archive' || reviewAction === 'read_later';
+        if (!allowsMediumReliability || reliabilityLabel !== 'medium') {
+          shouldAutoExecute = false;
+          autoExecuteSkipReason = `reliabilityLabel is ${reliabilityLabel} for action ${action}`;
+          autoExecuteSkipCode = 'reliability_low';
+          logError(this.app, 'WARN', `Inbox Curator: Skipped auto-execute for ${file.path} due to reliability ${reliabilityLabel}`, {
+            actionType: action,
+            reliabilityLabel,
+          });
+          void logOperation(this.app, {
+            timestamp: new Date().toISOString(),
+            level: 'WARN',
+            event: 'auto_sort_skipped',
+            operationId: job.operationId,
+            notePath: file.path,
+            actionType: action,
+            message: `Auto-sort skipped: reliabilityLabel is ${reliabilityLabel} for action ${action}`,
+            details: { reliabilityLabel, reviewAction, hasPromptInjectionSignals: result.hasPromptInjectionSignals ?? null, reasonCode: 'reliability_low' },
+          });
+        }
+      }
+
+      if (shouldAutoExecute && result.hasPromptInjectionSignals && reviewAction === 'task') {
+        shouldAutoExecute = false;
+        autoExecuteSkipReason = 'prompt injection signals detected for task';
+        autoExecuteSkipCode = 'prompt_injection';
+        void logOperation(this.app, {
+          timestamp: new Date().toISOString(),
+          level: 'INFO',
+          event: 'auto_sort_skipped',
+          operationId: job.operationId,
+          notePath: file.path,
+          actionType: action,
+          message: 'Auto-sort skipped: prompt injection signals detected for task',
+          details: {
+            action,
+            reviewMode: this.settings.reviewMode,
+            parseStatus,
+            confidence: effectiveConfidence,
+            reliabilityLabel,
+            hasPromptInjectionSignals: true,
+            reasonCode: 'prompt_injection',
+          },
+        });
+      }
+
+      if (!shouldAutoExecute && autoExecuteSkipReason) {
+        void logOperation(this.app, {
+          timestamp: new Date().toISOString(),
+          level: 'INFO',
+          event: 'auto_sort_skipped',
+          operationId: job.operationId,
+          notePath: file.path,
+          actionType: action,
+          message: `Auto-sort skipped: ${autoExecuteSkipReason}`,
+          details: { parseStatus, confidence: effectiveConfidence, reliabilityLabel, reviewMode: this.settings.reviewMode, hasPromptInjectionSignals: result.hasPromptInjectionSignals ?? null, reasonCode: autoExecuteSkipCode ?? null },
+        });
+      }
+
+      if (
+        shouldAutoExecute &&
+        (job.source === 'manual-folder' || job.source === 'auto-create' || job.source === 'auto-modify' || job.source === 'polling')
+      ) {
+        const actionResult = await executeProposedAction(this.app, file, {
+          outputFolder: this.settings.reviewOutputFolder,
+          readLaterFolder: this.settings.readLaterFolder,
+          taskFolder: this.settings.taskFolder,
+          deleteCandidateFolder: this.settings.deleteCandidateFolder,
+          skipConfirmation: true,
+          suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
+        });
+        if (this.isUnloaded) {
+          return { status: 'cancelled', error: 'Plugin unloaded' };
+        }
+
+        try {
+          await appendAutoExecuteResult(this.app, result.writeResult.outputPath, {
+            recommendedAction: action,
+            executed: actionResult.success,
+            status: actionResult.status,
+            sourcePath: file.path,
+            destinationPath: actionResult.destinationPath,
+            error: actionResult.success ? undefined : actionResult.error,
+          }, result.reviewResult.promptLanguage);
+        } catch (appendErr) {
+          logError(this.app, 'WARN', 'Inbox Curator: Failed to append auto-execute result to review log', {
+            error: appendErr instanceof Error ? appendErr.message : String(appendErr),
+          });
+        }
+
+        if (!actionResult.success) {
+          logError(this.app, 'ERROR', `Inbox Curator: Auto-execute failed for ${file.path}`, {
+            error: actionResult.error,
+          });
+          void logOperation(this.app, {
+            timestamp: new Date().toISOString(),
+            level: 'ERROR',
+            event: 'auto_sort_failed',
+            operationId: job.operationId,
+            notePath: file.path,
+            actionType: action,
+            message: actionResult.error ?? 'Unknown error',
+          });
+          new Notice(t('notice.autoExecuteFailed', { error: actionResult.error || 'Unknown error' }));
+          
+          return {
+            status: 'failed',
+            error: `Auto-execute action ${action} failed: ${actionResult.error}`,
+            retryable: false,
+          };
+        }
+
+        void logOperation(this.app, {
+          timestamp: new Date().toISOString(),
+          level: 'INFO',
+          event: 'auto_sort_executed',
+          operationId: job.operationId,
+          notePath: file.path,
+          actionType: action,
+          filePath: actionResult.destinationPath,
+          message: 'Auto-sort executed',
+          details: {
+            runId: job.runId,
+            action: reviewAction,
+            sourcePath: file.path,
+            destinationPath: actionResult.destinationPath ?? null,
+            reviewMode: this.settings.reviewMode,
+            parseStatus,
+            confidence: effectiveConfidence,
+            reliabilityLabel,
+            reasonCode: 'executed',
+          },
+        });
+
+        void appendAutoSortActionRecord(this.app, {
+          runId: job.runId,
+          timestamp: Date.now(),
+          action: reviewAction as AutoSortActionRecord['action'],
+          sourcePath: file.path,
+          destinationPath: actionResult.destinationPath ?? file.path,
+          reviewMode: this.settings.reviewMode,
+          parseStatus: parseStatus,
+          confidence: effectiveConfidence,
+          reliabilityLabel: reliabilityLabel,
+        }).catch((err) => {
+          logError(this.app, 'WARN', 'Inbox Curator: Failed to save auto-sort history', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      } else if (shouldAutoExecute) {
+        void logOperation(this.app, {
+          timestamp: new Date().toISOString(),
+          level: 'WARN',
+          event: 'auto_sort_skipped',
+          operationId: job.operationId,
+          notePath: file.path,
+          actionType: action,
+          message: 'Source is not a watched-folder job',
+          details: { reasonCode: 'non_watched_source' },
+        });
+      }
+
+      void logOperation(this.app, {
+        timestamp: new Date().toISOString(),
+        level: 'INFO',
+        event: 'queue_completed',
+        operationId: job.operationId,
+        notePath: file.path,
+      });
       return { status: 'processed' };
     } catch (error) {
+      logError(this.app, 'ERROR', 'Inbox Curator: Review job crashed', {
+        provider: this.settings.provider,
+        model: this.settings.model,
+        notePath: file.path,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      void logOperation(this.app, {
+        timestamp: new Date().toISOString(),
+        level: 'ERROR',
+        event: 'queue_failed',
+        operationId: job.operationId,
+        notePath: file.path,
+        provider: this.settings.provider,
+        model: this.settings.model,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        errorKind: 'crash',
+      });
       return {
         status: 'failed',
         error: error instanceof Error ? error.message : 'Unknown error',
       };
+    } finally {
+      if (isBackgroundAutoJob) {
+        await this.cleanupEmojiPrefixFiles(true);
+      }
     }
   }
 
@@ -250,6 +759,10 @@ export default class InboxCuratorPlugin extends Plugin {
       return false;
     }
 
+    if (file.path.startsWith('.inbox-curator/') || file.path.includes('/.inbox-curator/')) {
+      return false;
+    }
+
     if (!this.isInWatchedFolder(file, watchedFolder)) {
       return false;
     }
@@ -265,11 +778,59 @@ export default class InboxCuratorPlugin extends Plugin {
     return true;
   }
 
+  private isWatchedFolderValid(): boolean {
+    const folder = this.settings.watchedFolder.trim();
+    if (!folder) return false;
+    const folderRef = this.app.vault.getAbstractFileByPath(normalizePath(folder));
+    return folderRef instanceof TFolder;
+  }
+
   private async shouldSkipWatchedFile(file: TFile): Promise<boolean> {
+    // 1. metadataCache から file cache を取得する
+    const fileCache = this.app.metadataCache.getFileCache(file);
+
+    // 2. metadataCache が取得できない、または frontmatter cache がない場合は read にフォールバックする
+    if (fileCache && fileCache.frontmatter) {
+      const aiReviewSourceHash = fileCache.frontmatter.ai_review_source_hash;
+
+      // 3. frontmatter cache があり、ai_review_source_hash がない場合は cache を削除して return false
+      if (typeof aiReviewSourceHash !== 'string' || aiReviewSourceHash.trim() === '') {
+        this.fileSkipCache.delete(file.path);
+        return false;
+      }
+
+      // 4. ai_review_source_hash がある場合、cache の mtime と現在の mtime を比較する
+      const cached = this.fileSkipCache.get(file.path);
+      if (cached) {
+        // 5. mtime が一致し、cached reviewHash も一致する場合、readせず return true
+        if (cached.mtime === file.stat.mtime && cached.reviewHash === aiReviewSourceHash) {
+          return true;
+        }
+      }
+    }
+
+    // 6. cache miss または mtime変更時は app.vault.read(file)
     const content = await this.app.vault.read(file);
+
+    // 7. 本文から fresh hash (sourceHash) を計算する
     const currentSource = buildReviewSourceInfo(file, this.settings.reviewOutputFolder, content);
-    const existingHash = readAiReviewSourceHash(content);
-    return existingHash === currentSource.sourceHash;
+    const freshSourceHash = currentSource.sourceHash;
+
+    // 読み込んだ本文のフロントマターから取得した最新の ai_review_source_hash
+    const freshExistingHash = readAiReviewSourceHash(content);
+
+    // 8. fresh hash と ai_review_source_hash が一致する場合、cacheを更新して return true
+    if (freshExistingHash && freshExistingHash === freshSourceHash) {
+      this.fileSkipCache.set(file.path, {
+        mtime: file.stat.mtime,
+        reviewHash: freshExistingHash,
+      });
+      return true;
+    }
+
+    // 9. 一致しない場合、cacheを削除して return false
+    this.fileSkipCache.delete(file.path);
+    return false;
   }
 
   private getWatchedFolderMarkdownFiles(): TFile[] {
@@ -284,7 +845,7 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   private logQueuedReviewFailure(file: TFile, error: string | undefined): void {
-    console.warn('Inbox Curator queued review failed', {
+    logError(this.app, 'ERROR', 'Inbox Curator queued review failed', {
       provider: this.settings.provider,
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
@@ -294,7 +855,7 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   private logQueuedReviewRetry(job: ReviewJob, attempt: number, delayMs: number, error: string | undefined): void {
-    console.warn('Inbox Curator queued review retry scheduled', {
+    logError(this.app, 'WARN', 'Inbox Curator queued review retry scheduled', {
       provider: this.settings.provider,
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
@@ -307,7 +868,7 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   private logAutomaticReviewEnqueueFailure(file: TFile, reason: AutomaticReviewReason, error: string): void {
-    console.warn('Inbox Curator automatic review enqueue failed', {
+    logError(this.app, 'ERROR', 'Inbox Curator automatic review enqueue failed', {
       provider: this.settings.provider,
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
@@ -358,6 +919,7 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   private async handleWatchedFolderCreate(file: TFile): Promise<void> {
+    if (!this.isWatchedFolderValid()) return;
     if (!this.settings.enableAutomaticWatching || !this.settings.autoReviewOnCreate) {
       return;
     }
@@ -366,6 +928,7 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   private async handleWatchedFolderModify(file: TFile): Promise<void> {
+    if (!this.isWatchedFolderValid()) return;
     if (!this.settings.enableAutomaticWatching || !this.settings.autoReviewOnModify) {
       return;
     }
@@ -375,6 +938,21 @@ export default class InboxCuratorPlugin extends Plugin {
 
   private scheduleAutomaticReview(file: TFile, reason: AutomaticReviewReason): void {
     if (!this.isWatchedFolderReviewCandidate(file)) {
+      return;
+    }
+
+    void logOperation(this.app, {
+      timestamp: new Date().toISOString(),
+      level: 'INFO',
+      event: 'watch_triggered',
+      notePath: file.path,
+      details: { triggerType: reason },
+    });
+
+    // Suppress re-enqueue from marker rename / cleanup rename events.
+    // Consume-once: the matching path is removed to prevent indefinite skip.
+    if (this.processingMarkerRenameSkipCache.has(file.path)) {
+      this.processingMarkerRenameSkipCache.delete(file.path);
       return;
     }
 
@@ -395,7 +973,8 @@ export default class InboxCuratorPlugin extends Plugin {
       return;
     }
 
-    const result = await this.tryEnqueueAutomaticReview(file, reason === 'poll' ? 'watched-folder-poll' : 'watched-folder-auto');
+    const source: ReviewJobSource = reason === 'poll' ? 'polling' : reason === 'create' ? 'auto-create' : 'auto-modify';
+    const result = await this.tryEnqueueAutomaticReview(file, source);
     if (!result.accepted) {
       if (!result.skipped && !result.duplicate && result.error) {
         this.logAutomaticReviewEnqueueFailure(file, reason, result.error);
@@ -408,13 +987,19 @@ export default class InboxCuratorPlugin extends Plugin {
     }
   }
 
-  private async tryEnqueueAutomaticReview(file: TFile, source: Extract<ReviewJobSource, 'watched-folder-auto' | 'watched-folder-poll'>): Promise<AutomaticEnqueueResult> {
+  private async tryEnqueueAutomaticReview(file: TFile, source: Extract<ReviewJobSource, 'auto-create' | 'auto-modify' | 'polling'>, runId?: string): Promise<AutomaticEnqueueResult> {
     try {
+      if (this.isProcessingMarkerPath(file.path) || this.processingMarkerRenameSkipCache.has(file.path)) {
+        this.processingMarkerRenameSkipCache.delete(file.path);
+        return { accepted: false, skipped: true };
+      }
+
       if (await this.shouldSkipWatchedFile(file)) {
         return { accepted: false, skipped: true };
       }
 
-      const queued = this.reviewQueue.enqueue(createReviewJob(source, file.path));
+      const job = createReviewJob(source, file.path, 0, runId);
+      const queued = this.reviewQueue.enqueue(job);
       if (!queued.accepted) {
         return {
           accepted: false,
@@ -422,6 +1007,15 @@ export default class InboxCuratorPlugin extends Plugin {
           error: queued.duplicate ? 'Duplicate queued review job' : 'Queue is stopping',
         };
       }
+
+      void logOperation(this.app, {
+        timestamp: new Date().toISOString(),
+        level: 'INFO',
+        event: 'queue_enqueued',
+        operationId: job.operationId,
+        notePath: file.path,
+        details: { triggerType: source },
+      });
 
       return {
         accepted: true,
@@ -450,18 +1044,21 @@ export default class InboxCuratorPlugin extends Plugin {
       return;
     }
 
+    if (!this.isWatchedFolderValid()) return;
+
     this.pollingInProgress = true;
     try {
       const files = this.getWatchedFolderMarkdownFiles();
       const maxNotesPerSweep = Math.max(1, Math.round(this.settings.maxNotesPerRun));
       let acceptedCount = 0;
+      const batchRunId = generateRunId();
 
       for (const file of files) {
         if (acceptedCount >= maxNotesPerSweep) {
           break;
         }
 
-        const result = await this.tryEnqueueAutomaticReview(file, 'watched-folder-poll');
+        const result = await this.tryEnqueueAutomaticReview(file, 'polling', batchRunId);
         if (!result.accepted) {
           if (!result.skipped && !result.duplicate && result.error) {
             this.logAutomaticReviewEnqueueFailure(file, 'poll', result.error);
@@ -493,7 +1090,7 @@ export default class InboxCuratorPlugin extends Plugin {
   async reviewActiveFile(): Promise<void> {
     const file = this.getActiveMarkdownFile();
     if (!file) {
-      new Notice('Open a Markdown note first.');
+      new Notice(t('notice.openMarkdownNoteFirst'));
       return;
     }
 
@@ -501,23 +1098,33 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   async reviewFile(file: TFile): Promise<void> {
-    if (!this.tryBeginProcessing(REVIEWING_NOTICE_TEXT)) {
+    if (!this.tryBeginProcessing(t('notice.reviewingCurrentNote'))) {
       return;
     }
 
-    this.updateProcessingStatus(REVIEWING_NOTICE_TEXT);
+    this.updateProcessingStatus(t('notice.reviewingCurrentNote'));
 
     try {
-      const job = createReviewJob('current-note', file.path);
+      const job = createReviewJob('manual-current', file.path);
       const queued = this.reviewQueue.enqueue(job);
       const result = await queued.promise;
 
       if (result.status !== 'processed') {
+        logError(this.app, 'ERROR', 'Inbox Curator: Note review failed', {
+          notePath: file.path,
+          error: result.error ?? 'Review did not complete',
+        });
         new Notice(this.buildShortReviewError(result.error ?? 'Review did not complete'));
         return;
       }
 
-      new Notice(REVIEW_COMPLETED_NOTICE_TEXT);
+      new Notice(t('notice.reviewCompleted'));
+    } catch (error) {
+      logError(this.app, 'ERROR', 'Inbox Curator: Note review crashed', {
+        notePath: file.path,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      new Notice(this.buildShortReviewError(error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       this.finishProcessing();
     }
@@ -526,17 +1133,22 @@ export default class InboxCuratorPlugin extends Plugin {
   async processWatchedFolder(): Promise<void> {
     const watchedFolder = this.settings.watchedFolder.trim();
     if (!watchedFolder) {
-      new Notice(MISSING_WATCHED_FOLDER_NOTICE_TEXT);
+      new Notice(t('notice.watchedFolderNotSet'));
       return;
     }
 
-    if (!this.tryBeginProcessing(PROCESSING_WATCHED_FOLDER_NOTICE_TEXT)) {
+    if (!this.isWatchedFolderValid()) {
+      new Notice(t('notice.watchedFolderNotFound', { folder: watchedFolder }));
+      return;
+    }
+
+    if (!this.tryBeginProcessing(t('notice.processingWatchedFolder'))) {
       return;
     }
 
     try {
       const files = this.getWatchedFolderMarkdownFiles();
-      this.updateProcessingStatus(`Inbox Curator: Processing 0/${files.length}...`);
+      this.updateProcessingStatus(t('notice.processingProgress', { current: 0, total: files.length }));
 
       const summary: WatchedFolderProcessingSummary = {
         processed: 0,
@@ -548,10 +1160,11 @@ export default class InboxCuratorPlugin extends Plugin {
       const delayMs = this.getWatchedFolderRequestDelayMs();
       const queuedTasks: QueuedReviewTask[] = [];
       let queuedReviewCount = 0;
+      const batchRunId = generateRunId();
 
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
-        this.updateProcessingStatus(`Inbox Curator: Processing ${index + 1}/${files.length}...`);
+        this.updateProcessingStatus(t('notice.processingProgress', { current: index + 1, total: files.length }));
 
         try {
           if (await this.shouldSkipWatchedFile(file)) {
@@ -565,7 +1178,7 @@ export default class InboxCuratorPlugin extends Plugin {
           }
 
           const delayBeforeStartMs = queuedReviewCount > 0 ? delayMs : 0;
-          const job = createReviewJob('watched-folder-manual', file.path, delayBeforeStartMs);
+          const job = createReviewJob('manual-folder', file.path, delayBeforeStartMs, batchRunId);
           const queued = this.reviewQueue.enqueue(job);
           if (!queued.accepted) {
             summary.failed += 1;
@@ -580,7 +1193,7 @@ export default class InboxCuratorPlugin extends Plugin {
           queuedReviewCount += 1;
         } catch (error) {
           summary.failed += 1;
-          console.warn('Inbox Curator watched folder processing crashed', {
+          logError(this.app, 'ERROR', 'Inbox Curator watched folder processing crashed', {
             provider: this.settings.provider,
             endpointUrl: this.settings.endpointUrl,
             model: this.settings.model,
@@ -592,7 +1205,7 @@ export default class InboxCuratorPlugin extends Plugin {
 
       for (let index = 0; index < queuedTasks.length; index += 1) {
         const task = queuedTasks[index];
-        this.updateProcessingStatus(`Inbox Curator: Reviewing ${index + 1}/${queuedTasks.length}...`);
+        this.updateProcessingStatus(t('notice.reviewingProgress', { current: index + 1, total: queuedTasks.length }));
         const result = await task.resultPromise;
 
         if (result.status === 'processed') {
@@ -610,8 +1223,208 @@ export default class InboxCuratorPlugin extends Plugin {
       }
 
       new Notice(
-        `Inbox Curator: Watched folder completed (${summary.processed} processed, ${summary.skipped} skipped, ${summary.failed} failed, ${summary.remaining} remaining)`,
+        t('notice.watchedFolderCompleted', {
+          processed: summary.processed,
+          skipped: summary.skipped,
+          failed: summary.failed,
+          remaining: summary.remaining,
+        }),
       );
+    } finally {
+      this.finishProcessing();
+    }
+  }
+
+  async reviewSelectedNotesAsCollection(): Promise<void> {
+    const files = this.getSelectedMarkdownFiles();
+    if (files.length === 0) {
+      new Notice(t('notice.collectionReview.selectNotes'));
+      return;
+    }
+
+    await this.runCollectionReviewFlow(files, 'selected_notes', '');
+  }
+
+  async reviewFolderAsCollection(): Promise<void> {
+    const activeFile = this.getActiveMarkdownFile();
+    let folderPath: string;
+    if (activeFile) {
+      const parent = activeFile.parent;
+      folderPath = parent ? parent.path : '';
+    } else {
+      const watchedFolder = this.settings.watchedFolder.trim();
+      if (watchedFolder && this.isWatchedFolderValid()) {
+        folderPath = watchedFolder;
+      } else {
+        new Notice(t('notice.collectionReview.noNotes'));
+        return;
+      }
+    }
+
+    if (!folderPath) {
+      new Notice(t('notice.collectionReview.noNotes'));
+      return;
+    }
+
+    const files = await getFolderMarkdownFilesForCollectionReview(this.app, folderPath, {
+      outputFolder: this.settings.collectionReviewOutputFolder,
+      provider: this.settings.provider,
+      endpointUrl: this.settings.endpointUrl,
+      model: this.settings.model,
+      apiKey: '',
+      maxNotes: this.settings.collectionReviewMaxNotes,
+      maxExcerptCharsPerNote: this.settings.collectionReviewMaxExcerptCharsPerNote,
+      useExistingReviewsFirst: this.settings.collectionReviewUseExistingReviewsFirst,
+      includeExcerptWhenNeeded: this.settings.collectionReviewIncludeExcerptWhenNeeded,
+      promptLanguage: 'english',
+      requestTimeoutMs: this.settings.requestTimeoutMs,
+      maxOutputTokens: 4096,
+      isUnloaded: () => this.isUnloaded,
+    });
+
+    if (files.length === 0) {
+      new Notice(t('notice.collectionReview.noNotes'));
+      return;
+    }
+
+    new Notice(t('notice.collectionReview.processingFolder', { folder: folderPath }));
+    await this.runCollectionReviewFlow(files, 'folder', folderPath);
+  }
+
+  private getSelectedMarkdownFiles(): TFile[] {
+    const vault = this.app.vault;
+    const fileExplorer = (this.app as any).internalPlugins?.getPluginById?.('file-explorer');
+    if (!fileExplorer) {
+      return [];
+    }
+
+    try {
+      const selectedPaths: string[] = [];
+      const explorerLeaves = (this.app.workspace as any).getLeavesOfType?.('file-explorer');
+      if (explorerLeaves && explorerLeaves.length > 0) {
+        const explorerView = explorerLeaves[0]?.view;
+        if (explorerView) {
+          const tree = (explorerView as any).tree;
+          if (tree && tree.selectedPaths) {
+            const paths = tree.selectedPaths;
+            if (Array.isArray(paths)) {
+              selectedPaths.push(...paths);
+            }
+          }
+        }
+      }
+
+      const files: TFile[] = [];
+      for (const selPath of selectedPaths) {
+        const file = vault.getAbstractFileByPath(selPath);
+        if (file instanceof TFile && file.extension === 'md') {
+          files.push(file);
+        }
+      }
+      return files;
+    } catch {
+      return [];
+    }
+  }
+
+  private async runCollectionReviewFlow(
+    files: TFile[],
+    sourceType: 'selected_notes' | 'folder',
+    sourceFolder: string,
+  ): Promise<void> {
+    if (files.length < 2) {
+      new Notice(t('notice.collectionReview.tooFew'));
+      return;
+    }
+
+    if (files.length > this.settings.collectionReviewMaxNotes) {
+      new Notice(t('notice.collectionReview.tooMany', {
+        count: files.length,
+        max: this.settings.collectionReviewMaxNotes,
+      }));
+      return;
+    }
+
+    const provider = this.settings.provider;
+    const apiKey = await getApiKey(this.app, provider);
+    if (!apiKey) {
+      new Notice(t('notice.collectionReview.noApiKey'));
+      return;
+    }
+
+    const budget = resolveReviewContextBudget(
+      this.settings.contextBudgetPreset,
+      this.settings.contextBudgetPreset === 'custom'
+        ? {
+            maxContextTokens: this.settings.customMaxContextTokens,
+            maxInputContentTokens: this.settings.customMaxInputContentTokens,
+            maxOutputTokens: this.settings.customMaxOutputTokens,
+            safetyMarginTokens: this.settings.customSafetyMarginTokens,
+          }
+        : undefined,
+    );
+
+    const openAiTokenLimitParam = resolveEffectiveOpenAiTokenLimitParam(
+      this.settings.openAiCompatibleTokenLimitParam,
+      this.settings.openAiCompatibleDetectedTokenLimitParam,
+      this.settings.openAiCompatibleDetectedTokenLimitKey,
+      buildOpenAiCompatibleTokenLimitDetectionKey(this.settings.endpointUrl, this.settings.model),
+    );
+
+    const promptLanguage: 'english' | 'japanese' =
+      this.settings.promptLanguage === 'japanese' ? 'japanese' : 'english';
+
+    if (!this.tryBeginProcessing(t('notice.collectionReview.started', { count: files.length }))) {
+      return;
+    }
+
+    try {
+      const result = await runCollectionReviewPipeline(this.app, files, {
+        outputFolder: this.settings.collectionReviewOutputFolder,
+        provider: this.settings.provider,
+        endpointUrl: this.settings.endpointUrl,
+        model: this.settings.model,
+        apiKey,
+        maxNotes: this.settings.collectionReviewMaxNotes,
+        maxExcerptCharsPerNote: this.settings.collectionReviewMaxExcerptCharsPerNote,
+        useExistingReviewsFirst: this.settings.collectionReviewUseExistingReviewsFirst,
+        includeExcerptWhenNeeded: this.settings.collectionReviewIncludeExcerptWhenNeeded,
+        promptLanguage,
+        requestTimeoutMs: this.settings.requestTimeoutMs,
+        maxOutputTokens: budget.maxOutputTokens,
+        openAiTokenLimitParam,
+        isUnloaded: () => this.isUnloaded,
+      });
+
+      if (result.ok) {
+        new Notice(t('notice.collectionReview.completed', { path: result.outputPath }));
+        void logOperation(this.app, {
+          timestamp: new Date().toISOString(),
+          level: 'INFO',
+          event: 'collection_review_completed',
+          notePath: result.outputPath,
+          details: { noteCount: files.length, sourceType },
+        });
+      } else {
+        new Notice(t('notice.collectionReview.failed', { error: result.error }));
+        void logOperation(this.app, {
+          timestamp: new Date().toISOString(),
+          level: 'ERROR',
+          event: 'collection_review_failed',
+          message: result.error,
+          details: { noteCount: files.length, sourceType },
+        });
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      new Notice(t('notice.collectionReview.failed', { error: errorMsg }));
+      void logOperation(this.app, {
+        timestamp: new Date().toISOString(),
+        level: 'ERROR',
+        event: 'collection_review_failed',
+        message: errorMsg,
+        details: { noteCount: files.length, sourceType },
+      });
     } finally {
       this.finishProcessing();
     }
@@ -620,22 +1433,41 @@ export default class InboxCuratorPlugin extends Plugin {
   async executeProposedActionForActiveFile(): Promise<void> {
     const file = this.getActiveMarkdownFile();
     if (!file) {
-      new Notice('Open a Markdown note first.');
+      new Notice(t('notice.openMarkdownNoteFirst'));
       return;
     }
 
     const result = await executeProposedAction(this.app, file, {
       outputFolder: this.settings.reviewOutputFolder,
+      readLaterFolder: this.settings.readLaterFolder,
+      taskFolder: this.settings.taskFolder,
+      deleteCandidateFolder: this.settings.deleteCandidateFolder,
+      suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
     });
 
     if (result.success) {
       if (result.actionTaken === 'archive') {
-        new Notice(`Inbox Curator: Note successfully archived.`);
+        new Notice(t('notice.autoExecutedArchive'));
+      } else if (result.actionTaken === 'delete_candidate') {
+        new Notice(t('notice.noteMovedToTrash'));
+      } else if (result.actionTaken === 'none') {
+        new Notice(t('notice.manualActionNoAutomatedSteps', { action: result.action || 'unknown' }));
       }
     } else {
       if (result.error && !result.error.includes('User cancelled')) {
-        new Notice(`Inbox Curator Action Failed: ${result.error}`);
+        new Notice(t('notice.actionFailed', { error: result.error }));
       }
     }
+  }
+}
+
+function mapRecommendedActionToReviewAction(action: string): ReviewAction {
+  switch (action) {
+    case 'archive': return 'archive';
+    case 'read_later': return 'read_later';
+    case 'task':
+    case 'turn_into_task': return 'task';
+    case 'delete_candidate': return 'delete_candidate';
+    default: return 'none';
   }
 }

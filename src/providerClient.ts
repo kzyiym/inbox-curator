@@ -7,6 +7,7 @@ import {
 import type { InboxCuratorProvider } from './settings';
 import { postGeminiChat } from './gemini';
 import { postAnthropicChat } from './anthropic';
+import { isImageNotSupportedErrorText } from './providerErrorClassifier';
 
 export interface ChatContentTextPart {
   type: 'text';
@@ -35,6 +36,9 @@ export interface ProviderChatRequest {
   apiKey: string;
   messages: ProviderChatMessage[];
   temperature?: number;
+  timeoutMs?: number;
+  maxOutputTokens?: number;
+  openAiTokenLimitParam?: 'max_tokens' | 'max_completion_tokens' | 'none';
 }
 
 export interface ProviderChatSuccess {
@@ -80,6 +84,9 @@ export function classifyProviderFailure(provider: InboxCuratorProvider, failure:
     case 'gemini-native':
     case 'anthropic-native': {
       const status = failure.status;
+      if (isImageNotSupportedErrorText(failure.responseBody)) {
+        return { retryable: false, reason: 'image_not_supported' };
+      }
       if (!status) {
         return { retryable: true, reason: 'Network error or timeout' };
       }
@@ -108,6 +115,9 @@ export async function postProviderChat(request: ProviderChatRequest): Promise<Pr
         apiKey: request.apiKey,
         messages: request.messages,
         temperature: request.temperature,
+        timeoutMs: request.timeoutMs,
+        maxOutputTokens: request.maxOutputTokens,
+        tokenLimitParam: request.openAiTokenLimitParam,
       });
       break;
     case 'gemini-native':
@@ -117,6 +127,8 @@ export async function postProviderChat(request: ProviderChatRequest): Promise<Pr
         apiKey: request.apiKey,
         messages: request.messages,
         temperature: request.temperature,
+        timeoutMs: request.timeoutMs,
+        maxOutputTokens: request.maxOutputTokens,
       });
       break;
     case 'anthropic-native':
@@ -126,6 +138,8 @@ export async function postProviderChat(request: ProviderChatRequest): Promise<Pr
         apiKey: request.apiKey,
         messages: request.messages,
         temperature: request.temperature,
+        timeoutMs: request.timeoutMs,
+        maxOutputTokens: request.maxOutputTokens,
       });
       break;
     default: {

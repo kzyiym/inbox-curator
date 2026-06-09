@@ -213,4 +213,33 @@ describe('fetchUrlContext', () => {
     expect(result.extractionWarnings?.[0]).toContain('PDF files cannot be fully parsed');
     expect(result.extractionMethod).toBe('PDF-fallback');
   });
+
+  it('conservatively filters out obvious advertisement and iframe lines from extracted text', async () => {
+    vi.mocked(requestUrl).mockResolvedValue({
+      status: 200,
+      text: `<html><body><article>
+        <h1>Article Header</h1>
+        <p>This is standard article text paragraph that should remain in the output.</p>
+        <div>広告</div>
+        <p>Another genuine paragraph explaining the concept details.</p>
+        <div>## Advertisement</div>
+        <p>Third genuine paragraph that is long enough to pass quality gates.</p>
+        <div>iframe</div>
+        <p>Fourth paragraph to ensure we have enough content to satisfy quality gates.</p>
+      </article></body></html>`,
+    } as never);
+
+    const result = await fetchUrlContext('https://example.com', 'Inbox/example.md', {
+      fetchMetadata: true,
+      extractArticle: true,
+      maxExtractedCharacters: 12000,
+    });
+
+    expect(result.fetchStatus).toBe('success');
+    expect(result.extractionUsed).toBe(true);
+    expect(result.extractedText).toContain('This is standard article text');
+    expect(result.extractedText).not.toContain('広告');
+    expect(result.extractedText).not.toContain('Advertisement');
+    expect(result.extractedText).not.toContain('iframe');
+  });
 });

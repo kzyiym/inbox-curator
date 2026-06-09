@@ -1,13 +1,17 @@
-export type ReviewJobSource = 'current-note' | 'watched-folder-manual' | 'watched-folder-auto' | 'watched-folder-poll';
+export type ReviewJobSource = 'manual-current' | 'manual-folder' | 'auto-create' | 'auto-modify' | 'polling';
 
 export type ReviewJobStatus = 'pending' | 'running' | 'processed' | 'skipped' | 'failed' | 'cancelled';
 
 export interface ReviewJob {
   id: string;
+  runId: string;
   source: ReviewJobSource;
   notePath: string;
   createdAt: number;
   delayBeforeStartMs: number;
+  operationId: string;
+  startedAt?: number;
+  finishedAt?: number;
 }
 
 export interface ReviewJobResult {
@@ -50,3 +54,35 @@ export interface ReviewQueueEnqueueResult {
 }
 
 export type ReviewJobProcessor = (job: ReviewJob) => Promise<ReviewJobResult>;
+
+export interface ReviewQueueStatus {
+  pending: number;
+  running: number;
+  completed: number;
+  failed: number;
+  maxConcurrentJobs?: number;
+  currentPath?: string;
+  lastCompletedPath?: string;
+  lastFailedPath?: string;
+}
+
+export type ReviewQueueStatusListener = (status: ReviewQueueStatus) => void;
+
+export interface ReviewQueueLogEntry {
+  level: 'INFO' | 'WARN' | 'ERROR';
+  event: string;
+  jobId?: string;
+  runId?: string;
+  source?: ReviewJobSource;
+  notePath?: string;
+  pendingCount?: number;
+  runningCount?: number;
+  maxConcurrentJobs?: number;
+  queuedOrRunningCount?: number;
+  skippedReason?: string;
+  durationMs?: number;
+  errorMessage?: string;
+  timestamp: string;
+}
+
+export type ReviewQueueLogCallback = (entry: ReviewQueueLogEntry) => void;

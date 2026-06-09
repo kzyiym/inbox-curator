@@ -1,6 +1,6 @@
 {
   "name": "inbox-curator",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Inbox Curator Obsidian community plugin",
   "packageManager": "pnpm@11.3.0",
@@ -18,7 +18,7 @@
     "esbuild": "^0.25.9",
     "js-yaml": "^4.1.0",
     "jsdom": "^29.1.1",
-    "obsidian": "latest",
+    "obsidian": "^1.5.0",
     "typescript": "^5.9.2",
     "vitest": "^4.1.8"
   }

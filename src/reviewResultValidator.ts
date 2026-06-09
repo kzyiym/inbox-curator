@@ -25,18 +25,14 @@ const REVIEW_INPUT_PROFILES = [
 ] as const;
 const REVIEW_FETCH_STATUSES = ['not_applicable', 'success', 'failed'] as const;
 const REVIEW_VALUE_LABELS = ['high', 'medium', 'low'] as const;
-const REVIEW_RELIABILITY_LABELS = ['high', 'medium', 'low', 'needs_verification', 'not_reviewed'] as const;
+const REVIEW_RELIABILITY_LABELS = ['high', 'medium', 'low'] as const;
 const REVIEW_PRIORITIES = ['high', 'medium', 'low'] as const;
 const RECOMMENDED_ACTIONS = [
-  'read_later',
   'keep_as_reference',
-  'turn_into_note',
-  'turn_into_task',
-  'needs_verification',
-  'research_more',
+  'read_later',
   'archive',
+  'task',
   'delete_candidate',
-  'ignore',
 ] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -224,6 +220,17 @@ export function validateReviewResult(value: unknown): ReviewResultValidationResu
 
   if (value.evidenceBasis !== undefined && !isStringArray(value.evidenceBasis)) {
     return { ok: false, error: 'ReviewResult.evidenceBasis must be a string array when present.' };
+  }
+
+  if (value.conceptCandidates !== undefined) {
+    if (!Array.isArray(value.conceptCandidates)) {
+      return { ok: false, error: 'ReviewResult.conceptCandidates must be an array when present.' };
+    }
+    for (const cc of value.conceptCandidates) {
+      if (!isRecord(cc) || typeof cc.title !== 'string' || typeof cc.description !== 'string') {
+        return { ok: false, error: 'ReviewResult.conceptCandidates items must have title (string) and description (string).' };
+      }
+    }
   }
 
   if (value.structuredSummary !== undefined) {

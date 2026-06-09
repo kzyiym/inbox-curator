@@ -1,3 +1,5 @@
+export type ReviewMode = 'standard' | 'simple' | 'safe';
+
 export type ReviewContentType = 'plain_note' | 'url_only' | 'fetched_url' | 'ai_answer_log';
 
 export type ReviewInputProfile =
@@ -12,20 +14,31 @@ export type ReviewInputProfile =
   | 'ai_answer_log'
   | 'unknown';
 
-export type ReviewReliabilityLabel = 'high' | 'medium' | 'low' | 'needs_verification' | 'not_reviewed';
+export type ReviewReliabilityLabel = 'high' | 'medium' | 'low';
 export type ReviewValueLabel = 'high' | 'medium' | 'low';
 export type ReviewPriority = 'high' | 'medium' | 'low';
 export type ReviewFetchStatus = 'not_applicable' | 'success' | 'failed';
+// TODO: Consider adding "temporary_reference" for pricing/news/spec-change articles.
 export type RecommendedAction =
-  | 'read_later'
   | 'keep_as_reference'
-  | 'turn_into_note'
-  | 'turn_into_task'
-  | 'needs_verification'
-  | 'research_more'
+  | 'read_later'
   | 'archive'
-  | 'delete_candidate'
-  | 'ignore';
+  | 'task'
+  | 'delete_candidate';
+
+export interface ConceptCandidate {
+  title: string;
+  description: string;
+}
+
+export interface InputContentReductionInfo {
+  wasFiltered: boolean;
+  removedLineCount: number;
+  removedCharCount: number;
+  wasTruncated: boolean;
+  originalCharCount: number;
+  finalCharCount: number;
+}
 
 export type ReviewAttachmentKind = 'image' | 'video' | 'audio' | 'pdf' | 'document' | 'archive' | 'other';
 export type ReviewActionItemType = 'note' | 'task' | 'verify' | 'extract' | 'review_attachment' | 'follow_up';
@@ -78,6 +91,14 @@ export interface ReviewAttachment {
   kind: ReviewAttachmentKind;
   embedded: boolean;
   exists: boolean;
+  wasOptimized?: boolean;
+  originalBytes?: number;
+  optimizedBytes?: number;
+  originalWidth?: number;
+  originalHeight?: number;
+  optimizedWidth?: number;
+  optimizedHeight?: number;
+  skipReason?: string;
 }
 
 export interface ReviewAttachmentSummary {
@@ -97,6 +118,45 @@ export interface ReviewActionItem {
   title: string;
   detail?: string;
   targetPath?: string;
+}
+
+export interface CollectionReviewNoteInput {
+  notePath: string;
+  noteTitle: string;
+  hasExistingReview: boolean;
+  existingReviewContent: string;
+  frontmatterSummary: string;
+  excerpt: string;
+}
+
+export type CollectionReviewBuildResult = {
+  ok: true;
+  notesInput: CollectionReviewNoteInput[];
+  prompt: string;
+  outputFolder: string;
+  sourceType: 'selected_notes' | 'folder';
+  sourceFolder: string;
+  sourceNotePaths: string[];
+} | {
+  ok: false;
+  error: string;
+}
+
+export interface CollectionReviewPipelineOptions {
+  outputFolder: string;
+  provider: string;
+  endpointUrl: string;
+  model: string;
+  apiKey: string;
+  maxNotes: number;
+  maxExcerptCharsPerNote: number;
+  useExistingReviewsFirst: boolean;
+  includeExcerptWhenNeeded: boolean;
+  promptLanguage: 'english' | 'japanese';
+  requestTimeoutMs: number;
+  maxOutputTokens: number;
+  openAiTokenLimitParam?: 'max_tokens' | 'max_completion_tokens' | 'none';
+  isUnloaded: () => boolean;
 }
 
 export interface ReviewResult {
@@ -124,10 +184,13 @@ export interface ReviewResult {
   verificationNeeded: string[];
   nextActions: string[];
   actionItems?: ReviewActionItem[];
+  conceptCandidates?: ConceptCandidate[];
   suggestedTags: string[];
   suggestedFolder?: string;
   flags: ReviewFlags;
   extractionConfidence?: number;
   extractionWarnings?: string[];
   extractionMethod?: string;
+  inputReductionInfo?: InputContentReductionInfo;
+  promptLanguage: 'english' | 'japanese';
 }

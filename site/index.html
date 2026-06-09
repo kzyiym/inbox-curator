@@ -1,0 +1,3108 @@
+<!doctype html>
+<html lang="ja" data-theme="light">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>
+            Inbox Curator FAQ — AI-Powered Obsidian Note Organization &amp; Collection Review
+        </title>
+        <meta
+            name="description"
+            content="Obsidianプラグイン「Inbox Curator」の日本語・英語対応FAQ。使い方、APIキー設定、Collection Review（複数ノートまとめレビュー）、プライバシー情報を掲載。/ FAQ page providing usage, setup, Collection Review, and privacy details for Inbox Curator."
+        />
+        <meta name="robots" content="index, follow" />
+        <link rel="canonical" href="https://inbox-curator.antidot.jp/" />
+        <link
+            rel="alternate"
+            hreflang="ja"
+            href="https://inbox-curator.antidot.jp/"
+        />
+        <link
+            rel="alternate"
+            hreflang="en"
+            href="https://inbox-curator.antidot.jp/"
+        />
+        <link
+            rel="alternate"
+            hreflang="x-default"
+            href="https://inbox-curator.antidot.jp/"
+        />
+        <!-- OGP / Social -->
+        <meta property="og:title" content="Inbox Curator FAQ — AI-Powered Obsidian Note Organization &amp; Collection Review" />
+        <meta property="og:description" content="Obsidianプラグイン「Inbox Curator」のFAQ。使い方、APIキー設定、Collection Review（複数ノートまとめレビュー）、プライバシー情報。日本語・英語対応。" />
+        <meta property="og:image" content="https://inbox-curator.antidot.jp/eyecatch.webp" />
+        <meta property="og:url" content="https://inbox-curator.antidot.jp/" />
+        <meta property="og:type" content="website" />
+        <meta property="og:locale" content="ja_JP" />
+        <meta property="og:locale:alternate" content="en_US" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Inbox Curator FAQ — AI-Powered Obsidian Note Organization &amp; Collection Review" />
+        <meta name="twitter:description" content="Obsidianプラグイン「Inbox Curator」のFAQ。使い方、APIキー設定、Collection Review、プライバシー情報。" />
+        <meta name="twitter:image" content="https://inbox-curator.antidot.jp/eyecatch.webp" />
+        <!-- Favicon -->
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📥</text></svg>" />
+        <!-- Theme Color -->
+        <meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)" />
+        <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&display=swap"
+            rel="stylesheet"
+        />
+        <!-- Google Analytics 4 (GA4) with Opt-In Support -->
+        <script>
+            const GA_ID = "G-H0NMPE813V";
+
+            function loadGA4() {
+                // Don't load if already loaded or if consent is not granted
+                if (
+                    window.dataLayer ||
+                    localStorage.getItem("ga-consent") !== "true"
+                ) {
+                    return;
+                }
+                const gaScript = document.createElement("script");
+                gaScript.async = true;
+                gaScript.src =
+                    "https://www.googletagmanager.com/gtag/js?id=" + GA_ID;
+                document.head.appendChild(gaScript);
+
+                window.dataLayer = window.dataLayer || [];
+                function gtag() {
+                    dataLayer.push(arguments);
+                }
+                window.gtag = gtag;
+                gtag("js", new Date());
+                gtag("config", GA_ID);
+            }
+
+            // Initial load check
+            if (localStorage.getItem("ga-consent") === "true") {
+                loadGA4();
+            }
+        </script>
+        <style>
+            /* Design Tokens & Theme Variables */
+            :root {
+                --bg-color: #f8fafc;
+                --card-bg: #ffffff;
+                --text-main: #0f172a;
+                --text-muted: #64748b;
+                --accent: #1e40af;
+                --accent-hover: #1e3a8a;
+                --accent-subtle: rgba(30, 64, 175, 0.08);
+                --border-color: #e2e8f0;
+                --focus-ring: #3b82f6;
+                --shadow-sm:
+                    0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 1px rgba(0, 0, 0, 0.02);
+                --shadow-md:
+                    0 4px 12px -2px rgba(0, 0, 0, 0.06),
+                    0 2px 4px -2px rgba(0, 0, 0, 0.03);
+                --shadow-lg:
+                    0 12px 24px -6px rgba(0, 0, 0, 0.06),
+                    0 4px 8px -4px rgba(0, 0, 0, 0.03);
+                --shadow-diffuse: 0 20px 40px -15px rgba(0, 0, 0, 0.05);
+                --font-family:
+                    "Outfit", -apple-system, BlinkMacSystemFont, "Segoe UI",
+                    Roboto, sans-serif;
+                --font-body:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    "Helvetica Neue", Arial, sans-serif;
+                --transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+
+            html[data-theme="dark"] {
+                --bg-color: #0f172a;
+                --card-bg: #1e293b;
+                --text-main: #f8fafc;
+                --text-muted: #94a3b8;
+                --border-color: #334155;
+                --accent: #3b82f6;
+                --accent-hover: #60a5fa;
+                --accent-subtle: rgba(59, 130, 246, 0.1);
+                --focus-ring: #60a5fa;
+                --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+                --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.3);
+                --shadow-lg: 0 12px 24px -6px rgba(0, 0, 0, 0.3);
+                --shadow-diffuse: 0 20px 40px -15px rgba(0, 0, 0, 0.2);
+            }
+
+            html {
+                scroll-behavior: smooth;
+            }
+
+            /* Base Reset */
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+            body {
+                font-family: var(--font-body);
+                background-color: var(--bg-color);
+                color: var(--text-main);
+                line-height: 1.6;
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+                padding: 2.5rem 1rem;
+                transition:
+                    background-color 0.3s ease,
+                    color 0.3s ease;
+                background-image: radial-gradient(
+                    circle at 50% 0%,
+                    rgba(30, 64, 175, 0.02) 0%,
+                    transparent 60%
+                );
+            }
+
+            h1,
+            h2,
+            h3,
+            h4,
+            .hero-tagline,
+            .step-title,
+            .faq-trigger {
+                font-family: var(--font-family);
+            }
+
+            /* Accessible Skip Link */
+            .skip-link {
+                position: absolute;
+                top: -100px;
+                left: 1rem;
+                background: var(--accent);
+                color: #ffffff;
+                padding: 0.8rem 1.5rem;
+                border-radius: 8px;
+                z-index: 100;
+                text-decoration: none;
+                font-weight: 700;
+                box-shadow: var(--shadow-md);
+                transition: top 0.2s ease;
+            }
+
+            .skip-link:focus {
+                top: 1rem;
+                outline: 2px solid var(--focus-ring);
+                outline-offset: 2px;
+            }
+
+            /* Accessible Focus Ring */
+            *:focus-visible {
+                outline: 2px solid var(--accent) !important;
+                outline-offset: 2px !important;
+                box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.2) !important;
+            }
+
+            *:focus:not(:focus-visible) {
+                outline: none;
+            }
+
+            /* Main Container (Max 720px for clean 1-Column Layout) */
+            .container {
+                max-width: 720px;
+                margin: 0 auto;
+                display: flex;
+                flex-direction: column;
+                gap: 2rem;
+            }
+
+            /* 1. Hero Section (full width) */
+            .hero-section {
+                text-align: center;
+                padding: 4rem 1rem 2.5rem 1rem;
+                display: flex;
+                flex-direction: column;
+                gap: 1.5rem;
+                align-items: center;
+                width: 100%;
+                border-bottom: 1px solid var(--border-color);
+                margin-bottom: 1rem;
+            }
+
+            .hero-brand h1 {
+                font-size: 2.4rem;
+                font-weight: 800;
+                letter-spacing: -0.03em;
+                color: var(--text-main);
+            }
+
+            .hero-brand h1 span {
+                color: var(--accent);
+            }
+
+            .hero-subtitle {
+                font-size: 1.05rem;
+                color: var(--text-muted);
+                margin-top: 0.4rem;
+                max-width: 540px;
+                font-weight: 400;
+            }
+
+            /* Hero Layout (Text + Image side by side) */
+            .hero-layout {
+                display: flex;
+                gap: 3rem;
+                align-items: center;
+                text-align: left;
+                width: 100%;
+                max-width: min(90%, 1200px);
+                margin: 0 auto;
+            }
+
+            .hero-content {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 0.75rem;
+            }
+
+            .hero-content h1 {
+                font-size: 2.25rem;
+                font-weight: 800;
+                letter-spacing: -0.02em;
+                color: var(--text-main);
+                margin: 0;
+                line-height: 1.2;
+                text-wrap: balance;
+            }
+
+            .hero-image {
+                flex: 0 0 670px;
+                max-width: 100%;
+            }
+
+            .hero-image img {
+                width: 100%;
+                height: auto;
+                border-radius: 20px;
+                box-shadow: var(--shadow-diffuse), var(--shadow-lg);
+                display: block;
+                aspect-ratio: 600 / 315;
+                object-fit: cover;
+            }
+
+            /* Tagline */
+            .hero-tagline {
+                font-size: 0.8rem;
+                font-weight: 800;
+                letter-spacing: 0.18em;
+                text-transform: uppercase;
+                color: var(--accent);
+                margin: 0;
+            }
+
+            .hero-description {
+                font-size: 0.95rem;
+                color: var(--text-muted);
+                line-height: 1.7;
+                max-width: 480px;
+                margin: 0;
+            }
+
+            .hero-supplementary {
+                font-size: 0.78rem;
+                color: var(--text-muted);
+                line-height: 1.5;
+                margin: 0.25rem 0 0;
+                padding: 0.6rem 0.85rem;
+                background: var(--accent-subtle);
+                border-radius: 10px;
+                border: 1px solid var(--border-color);
+            }
+
+            /* 3-Step Flow */
+            .hero-steps {
+                display: flex;
+                align-items: flex-start;
+                gap: 0.75rem;
+                margin-top: 0.5rem;
+            }
+
+            .step {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 0.4rem;
+                flex: 1;
+                text-align: center;
+                padding: 1rem 0.6rem;
+                background: var(--card-bg);
+                border-radius: 16px;
+                box-shadow:
+                    var(--shadow-diffuse),
+                    0 0 0 1px var(--border-color);
+                transition: var(--transition);
+            }
+
+            .step:hover {
+                box-shadow:
+                    var(--shadow-md),
+                    0 0 0 1px var(--accent);
+                transform: translateY(-1px);
+            }
+
+            .step-number {
+                width: 28px;
+                height: 28px;
+                border-radius: 50%;
+                background: var(--accent);
+                color: #ffffff;
+                font-size: 0.78rem;
+                font-weight: 700;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+            }
+
+            .step-text {
+                display: flex;
+                flex-direction: column;
+                gap: 0.1rem;
+            }
+
+            .step-title {
+                font-size: 0.88rem;
+                font-weight: 700;
+                color: var(--text-main);
+            }
+
+            .step-desc {
+                font-size: 0.72rem;
+                color: var(--text-muted);
+                line-height: 1.3;
+            }
+
+            .step-connector {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--border-color);
+                flex-shrink: 0;
+                padding-top: 1rem;
+            }
+
+            .hero-caution {
+                font-size: 0.75rem;
+                color: var(--text-muted);
+                text-align: center;
+                margin: 0 auto;
+                padding: 0 1rem;
+                line-height: 1.5;
+                max-width: 620px;
+            }
+
+            /* Sticky Search Bar */
+            .search-sticky {
+                position: sticky;
+                top: 0;
+                z-index: 100;
+                background: color-mix(
+                    in srgb,
+                    var(--bg-color) 92%,
+                    transparent
+                );
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                padding: 1rem 1rem;
+                border-bottom: 1px solid var(--border-color);
+                transition: box-shadow 0.2s ease;
+            }
+
+            .search-sticky .search-box--sticky {
+                max-width: 620px;
+                margin: 0 auto;
+            }
+
+            @media (max-width: 1100px) {
+                .hero-section {
+                    padding: 2.5rem 1rem 2rem 1rem;
+                }
+                .hero-layout {
+                    flex-direction: column;
+                    gap: 2rem;
+                    text-align: center;
+                }
+                .hero-content {
+                    align-items: center;
+                }
+                .hero-description {
+                    max-width: 100%;
+                }
+                .hero-image {
+                    flex: none;
+                    width: 100%;
+                    max-width: 500px;
+                }
+                .hero-content h1 {
+                    font-size: 1.8rem;
+                }
+                .hero-steps {
+                    max-width: 400px;
+                }
+            }
+
+            @media (max-width: 768px) {
+                .hero-section {
+                    padding: 2rem 1rem 1.5rem 1rem;
+                }
+                .hero-image {
+                    max-width: 100%;
+                }
+                .hero-content h1 {
+                    font-size: 1.5rem;
+                }
+                .hero-steps {
+                    flex-wrap: wrap;
+                    justify-content: center;
+                    gap: 0.5rem;
+                    max-width: 100%;
+                }
+                .step {
+                    min-width: 90px;
+                    flex: none;
+                    padding: 0.75rem 0.5rem;
+                }
+                .step-connector {
+                    display: none;
+                }
+                .hero-supplementary {
+                    font-size: 0.72rem;
+                    padding: 0.5rem 0.7rem;
+                }
+            }
+
+            /* Big Search Input style */
+            .search-box {
+                width: 100%;
+                max-width: 620px;
+                margin-top: 0.5rem;
+            }
+
+            .search-input-wrapper {
+                position: relative;
+                width: 100%;
+            }
+
+            .search-input {
+                width: 100%;
+                padding: 0.9rem 3rem 0.9rem 3rem;
+                font-size: 1.05rem;
+                border-radius: 16px;
+                border: 1.5px solid var(--border-color);
+                background-color: var(--card-bg);
+                color: var(--text-main);
+                transition: var(--transition);
+                box-shadow: var(--shadow-sm);
+                font-family: var(--font-body);
+            }
+
+            .search-input:focus {
+                border-color: var(--accent);
+                box-shadow:
+                    0 0 0 3px var(--accent-subtle),
+                    var(--shadow-sm);
+                outline: none;
+            }
+
+            .search-icon {
+                position: absolute;
+                left: 1.1rem;
+                top: 50%;
+                transform: translateY(-50%);
+                color: var(--text-muted);
+                pointer-events: none;
+                transition: var(--transition);
+            }
+
+            .search-input:focus + .search-icon {
+                color: var(--accent);
+            }
+
+            .search-clear-btn {
+                position: absolute;
+                right: 1.1rem;
+                top: 50%;
+                transform: translateY(-50%);
+                background: transparent;
+                border: none;
+                font-size: 1.25rem;
+                color: var(--text-muted);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 24px;
+                height: 24px;
+                border-radius: 50%;
+                transition: var(--transition);
+            }
+
+            .search-clear-btn:hover {
+                background: var(--border-color);
+                color: var(--text-main);
+            }
+
+            /* 2. Controls Panel (Filter Tabs, Lang/Theme Controls) */
+            .controls-panel {
+                background: var(--card-bg);
+                border-radius: 16px;
+                padding: 1.25rem 1.5rem;
+                margin-top: 1rem;
+                box-shadow:
+                    var(--shadow-sm),
+                    0 0 0 1px var(--border-color);
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: space-between;
+                align-items: center;
+                gap: 1.5rem;
+            }
+
+            .control-group {
+                display: flex;
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            .control-group-row {
+                display: flex;
+                gap: 1.5rem;
+                align-items: center;
+            }
+
+            .control-subgroup {
+                display: flex;
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            .control-label {
+                font-size: 0.75rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: var(--text-muted);
+            }
+
+            /* Tab Switcher */
+            .tabs {
+                display: flex;
+                gap: 0.3rem;
+                background: var(--bg-color);
+                padding: 0.25rem;
+                border-radius: 10px;
+                width: fit-content;
+                border: 1px solid var(--border-color);
+            }
+
+            .tab-btn {
+                background: transparent;
+                border: none;
+                color: var(--text-muted);
+                padding: 0.45rem 1.1rem;
+                font-size: 0.85rem;
+                font-weight: 600;
+                border-radius: 8px;
+                cursor: pointer;
+                transition: var(--transition);
+            }
+
+            .tab-btn[aria-selected="true"] {
+                background: var(--card-bg);
+                color: var(--text-main);
+                box-shadow: var(--shadow-sm);
+            }
+
+            /* Lang & Theme Buttons */
+            .lang-btn {
+                background: transparent;
+                color: var(--text-muted);
+                border: 1px solid var(--border-color);
+                padding: 0 1.2rem;
+                border-radius: 8px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                cursor: pointer;
+                transition: var(--transition);
+                height: 36px;
+            }
+
+            .lang-btn:hover {
+                background: var(--bg-color);
+                color: var(--text-main);
+            }
+
+            .theme-btn {
+                background: transparent;
+                color: var(--text-muted);
+                border: 1px solid var(--border-color);
+                width: 36px;
+                height: 36px;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1rem;
+                cursor: pointer;
+                transition: var(--transition);
+            }
+
+            .theme-btn .theme-icon,
+            .mini-btn .theme-icon {
+                width: 16px;
+                height: 16px;
+            }
+
+            .theme-btn .theme-icon--sun {
+                display: none;
+            }
+            html[data-theme="dark"] .theme-btn .theme-icon--sun {
+                display: block;
+            }
+            html[data-theme="dark"] .theme-btn .theme-icon--moon {
+                display: none;
+            }
+
+            .mini-btn .theme-icon--sun {
+                display: none;
+            }
+            html[data-theme="dark"] .mini-btn .theme-icon--sun {
+                display: block;
+            }
+            html[data-theme="dark"] .mini-btn .theme-icon--moon {
+                display: none;
+            }
+
+            .theme-btn:hover {
+                background: var(--bg-color);
+                color: var(--text-main);
+            }
+
+            /* 3. Main Content Area */
+            .faq-main-content {
+                display: flex;
+                flex-direction: column;
+                gap: 1.5rem;
+            }
+
+            /* Additional Info stacked section */
+            .additional-info {
+                display: flex;
+                flex-direction: column;
+                gap: 1.25rem;
+                margin-top: 1rem;
+            }
+
+            /* Keyboard Guide Section */
+            .guide-section {
+                background: var(--card-bg);
+                border-radius: 14px;
+                padding: 1.25rem;
+                box-shadow:
+                    var(--shadow-sm),
+                    0 0 0 1px var(--border-color);
+            }
+
+            .guide-section h3 {
+                font-size: 0.95rem;
+                font-weight: 700;
+                margin-bottom: 0.75rem;
+                color: var(--text-main);
+            }
+
+            .guide-content {
+                color: var(--text-muted);
+            }
+
+            .a11y-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 0.8rem;
+            }
+
+            .a11y-table th,
+            .a11y-table td {
+                border: 1px solid var(--border-color);
+                padding: 0.5rem 0.6rem;
+                text-align: left;
+            }
+
+            .a11y-table th {
+                background-color: var(--bg-color);
+                color: var(--text-main);
+                font-weight: 700;
+            }
+
+            .a11y-table kbd {
+                background-color: var(--bg-color);
+                border: 1px solid var(--border-color);
+                border-radius: 4px;
+                padding: 0.1rem 0.4rem;
+                font-size: 0.75rem;
+                font-family: monospace;
+                box-shadow: 0 1px 0px rgba(0, 0, 0, 0.1);
+            }
+
+            code {
+                background-color: rgba(120, 120, 120, 0.15);
+                border-radius: 4px;
+                padding: 0.2rem 0.4rem;
+                font-family: monospace;
+                font-size: 0.9em;
+                color: var(--accent);
+            }
+
+            .code-block {
+                background-color: rgba(120, 120, 120, 0.12);
+                border-radius: 6px;
+                padding: 0.8rem 1rem;
+                font-family: monospace;
+                font-size: 0.9em;
+                color: var(--text-main);
+                margin-top: 0.4rem;
+                border-left: 3px solid var(--accent);
+                white-space: pre-wrap;
+                word-break: break-word;
+            }
+
+            /* FAQ List Accordion */
+            .faq-list {
+                display: flex;
+                flex-direction: column;
+                gap: 0.85rem;
+            }
+
+            .faq-item {
+                background: var(--card-bg);
+                border: none;
+                border-radius: 14px;
+                border-left: 3px solid transparent;
+                box-shadow:
+                    0 1px 3px rgba(0, 0, 0, 0.05),
+                    0 0 0 1px var(--border-color);
+                overflow: hidden;
+                transition:
+                    transform 0.2s cubic-bezier(0.2, 0, 0, 1),
+                    box-shadow 0.2s cubic-bezier(0.2, 0, 0, 1),
+                    border-color 0.2s cubic-bezier(0.2, 0, 0, 1),
+                    background-color 0.2s cubic-bezier(0.2, 0, 0, 1);
+                cursor: pointer;
+            }
+
+            .faq-item:hover {
+                transform: translateY(-1px);
+                background-color: var(--bg-main);
+                border-left-color: rgba(37, 99, 235, 0.4);
+                box-shadow:
+                    0 4px 12px rgba(0, 0, 0, 0.06),
+                    0 0 0 1px rgba(37, 99, 235, 0.2);
+            }
+
+            .faq-item:focus-within {
+                outline: 2px solid var(--accent);
+                outline-offset: 2px;
+            }
+
+            .faq-item.open {
+                border-left-color: var(--accent);
+                box-shadow:
+                    var(--shadow-lg),
+                    0 0 0 1px var(--accent);
+                background-color: var(--card-bg);
+                cursor: default;
+            }
+
+            .faq-trigger {
+                width: 100%;
+                text-align: left;
+                background: transparent;
+                border: none;
+                padding: 1.25rem 1.5rem;
+                font-size: 1.05rem;
+                font-weight: 600;
+                font-family: inherit;
+                color: var(--text-main);
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                transition: color 0.2s cubic-bezier(0.2, 0, 0, 1);
+                gap: 1rem;
+            }
+
+            .faq-item:hover .faq-trigger {
+                color: var(--accent);
+            }
+
+            .faq-icon {
+                font-size: 1.2rem;
+                color: var(--text-muted);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 24px;
+                height: 24px;
+            }
+
+            .faq-chevron {
+                display: flex;
+                align-items: center;
+                color: var(--text-muted);
+                transition:
+                    transform 0.2s cubic-bezier(0.2, 0, 0, 1),
+                    color 0.2s cubic-bezier(0.2, 0, 0, 1);
+            }
+
+            .faq-item.open .faq-chevron {
+                transform: rotate(180deg);
+                color: var(--accent);
+            }
+
+            .faq-panel {
+                display: grid;
+                grid-template-rows: 0fr;
+                visibility: hidden;
+                transition:
+                    grid-template-rows 0.2s cubic-bezier(0.2, 0, 0, 1),
+                    visibility 0.2s cubic-bezier(0.2, 0, 0, 1),
+                    opacity 0.2s cubic-bezier(0.2, 0, 0, 1);
+                overflow: hidden;
+                color: var(--text-muted);
+                font-size: 0.92rem;
+                opacity: 0;
+            }
+
+            .faq-item.open .faq-panel {
+                grid-template-rows: 1fr;
+                visibility: visible;
+                opacity: 1;
+            }
+
+            .faq-panel-content {
+                min-height: 0;
+                padding: 0 1.5rem;
+                border-top: 1px solid transparent;
+                margin-top: 0;
+                transition:
+                    padding 0.2s cubic-bezier(0.2, 0, 0, 1),
+                    margin 0.2s cubic-bezier(0.2, 0, 0, 1),
+                    border-color 0.2s cubic-bezier(0.2, 0, 0, 1);
+            }
+
+            .faq-item.open .faq-panel-content {
+                padding-top: 1.25rem;
+                padding-bottom: 1.25rem;
+                margin-top: 0.25rem;
+                border-top-color: var(--border-color);
+            }
+
+            @media (prefers-reduced-motion: reduce) {
+                .faq-item,
+                .faq-item:hover,
+                .faq-trigger,
+                .faq-icon,
+                .faq-item.open .faq-icon,
+                .faq-panel,
+                .faq-panel-content {
+                    transition: none !important;
+                    transform: none !important;
+                }
+            }
+
+            /* Mark highlight */
+            mark {
+                background: rgba(250, 204, 21, 0.35);
+                color: inherit;
+                border-radius: 2px;
+                padding: 0 2px;
+            }
+
+            /* Live Region Search Status */
+            .search-status {
+                font-size: 0.82rem;
+                color: var(--text-muted);
+                font-weight: 600;
+                text-align: center;
+                min-height: 1.2rem;
+                margin-top: -0.5rem;
+            }
+
+            /* No results card style */
+            .no-results-card {
+                background: var(--card-bg);
+                border-radius: 14px;
+                box-shadow:
+                    var(--shadow-sm),
+                    0 0 0 1px var(--border-color);
+                padding: 2.5rem 2rem;
+                text-align: center;
+                color: var(--text-muted);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+
+            /* 4. Sidebar Elements (Disclaimer, Support) */
+            .disclaimer-card {
+                background: var(--card-bg);
+                border-radius: 14px;
+                padding: 1.25rem;
+                box-shadow:
+                    var(--shadow-sm),
+                    0 0 0 1px var(--border-color);
+                display: flex;
+                flex-direction: column;
+                gap: 0.75rem;
+            }
+
+            .disclaimer-header {
+                font-size: 0.75rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                color: var(--text-muted);
+                display: flex;
+                justify-content: space-between;
+            }
+
+            .disclaimer-card p {
+                font-size: 0.82rem;
+                color: var(--text-muted);
+                line-height: 1.5;
+            }
+
+            /* Support Widget (Ko-fi) */
+            .support-widget {
+                background: var(--card-bg);
+                border-radius: 14px;
+                padding: 1.25rem;
+                box-shadow:
+                    var(--shadow-sm),
+                    0 0 0 1px var(--border-color);
+                display: flex;
+                flex-direction: column;
+                gap: 0.75rem;
+            }
+
+            .support-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                border-bottom: 1px solid var(--border-color);
+                padding-bottom: 0.5rem;
+            }
+
+            .support-header h2 {
+                font-size: 0.95rem;
+                font-weight: 700;
+            }
+
+            .external-label {
+                background: var(--bg-color);
+                color: var(--text-muted);
+                font-size: 0.65rem;
+                font-weight: 700;
+                padding: 0.15rem 0.4rem;
+                border-radius: 4px;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                border: 1px solid var(--border-color);
+            }
+
+            .support-widget p {
+                font-size: 0.82rem;
+                color: var(--text-muted);
+                line-height: 1.5;
+            }
+
+            .iframe-fallback {
+                display: block;
+                text-align: center;
+                font-size: 0.78rem;
+                margin-top: 0.2rem;
+                color: var(--accent);
+                text-decoration: none;
+                font-weight: 600;
+            }
+
+            .iframe-fallback:hover {
+                text-decoration: underline;
+            }
+
+            /* 5. Footer and Bottom Meta (Consent Toggle, Links) */
+            .footer-meta {
+                border-top: 1px solid var(--border-color);
+                padding-top: 1.5rem;
+                display: grid;
+                grid-template-columns: 1.5fr 1fr;
+                gap: 2rem;
+                font-size: 0.82rem;
+                color: var(--text-muted);
+            }
+
+            @media (max-width: 600px) {
+                .footer-meta {
+                    grid-template-columns: 1fr;
+                    gap: 1.5rem;
+                }
+            }
+
+            .footer-meta h2 {
+                font-size: 0.9rem;
+                font-weight: 700;
+                color: var(--text-main);
+                margin-bottom: 0.5rem;
+            }
+
+            .footer-meta p {
+                line-height: 1.5;
+            }
+
+            .links-list {
+                list-style: none;
+                display: flex;
+                flex-direction: column;
+                gap: 0.4rem;
+            }
+
+            .links-list a {
+                color: var(--accent);
+                text-decoration: none;
+                font-weight: 600;
+                transition: var(--transition);
+            }
+
+            .links-list a:hover {
+                color: var(--accent-hover);
+                text-decoration: underline;
+            }
+
+            footer {
+                text-align: center;
+                margin-top: 2rem;
+                color: var(--text-muted);
+                font-size: 0.8rem;
+                border-top: 1px solid var(--border-color);
+                padding-top: 1.2rem;
+            }
+
+            footer a {
+                color: var(--text-main);
+                text-decoration: none;
+                font-weight: 600;
+                transition: var(--transition);
+            }
+
+            footer a:hover {
+                color: var(--accent);
+                text-decoration: underline;
+            }
+
+            /* Consent Toast (Opt-In style) */
+            .consent-toast {
+                position: fixed;
+                bottom: 24px;
+                left: 50%;
+                transform: translateX(-50%) translateY(100px);
+                width: calc(100% - 32px);
+                max-width: 600px;
+                background: var(--card-bg);
+                border: 1.5px solid var(--border-color);
+                border-radius: 16px;
+                box-shadow:
+                    var(--shadow-md),
+                    0 10px 25px -5px rgba(0, 0, 0, 0.1);
+                padding: 1.25rem;
+                z-index: 1000;
+                opacity: 0;
+                visibility: hidden;
+                transition:
+                    transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                    opacity 0.4s ease,
+                    visibility 0.4s;
+            }
+
+            .consent-toast.show {
+                transform: translateX(-50%) translateY(0);
+                opacity: 1;
+                visibility: visible;
+            }
+
+            .consent-toast-content {
+                display: flex;
+                flex-direction: column;
+                gap: 0.8rem;
+            }
+
+            .consent-toast-content h4 {
+                font-size: 1.05rem;
+                font-weight: 700;
+                color: var(--text-main);
+            }
+
+            .consent-toast-content p {
+                font-size: 0.82rem;
+                color: var(--text-muted);
+                line-height: 1.5;
+            }
+
+            .consent-toast-actions {
+                display: flex;
+                gap: 0.75rem;
+                justify-content: flex-end;
+                margin-top: 0.2rem;
+            }
+
+            .toast-btn {
+                padding: 0.5rem 1.2rem;
+                font-size: 0.82rem;
+                font-weight: 600;
+                border-radius: 8px;
+                cursor: pointer;
+                transition: var(--transition);
+                border: 1px solid transparent;
+                font-family: inherit;
+            }
+
+            .accept-btn {
+                background: var(--accent);
+                color: #ffffff;
+            }
+
+            .accept-btn:hover {
+                background: var(--accent-hover);
+            }
+
+            .decline-btn {
+                background: transparent;
+                border-color: var(--border-color);
+                color: var(--text-muted);
+            }
+
+            .decline-btn:hover {
+                background: var(--border-color);
+                color: var(--text-main);
+            }
+
+            /* Subtle search clear button */
+            .clear-search-link {
+                background: transparent;
+                border: none;
+                color: var(--text-muted);
+                text-decoration: underline;
+                font-size: 0.82rem;
+                font-weight: 500;
+                cursor: pointer;
+                margin-top: 1rem;
+                transition: var(--transition);
+                font-family: inherit;
+            }
+
+            .clear-search-link:hover {
+                color: var(--accent);
+            }
+
+            @media (max-width: 600px) {
+                .consent-toast {
+                    bottom: 16px;
+                }
+                .consent-toast-actions {
+                    flex-direction: column-reverse;
+                }
+                .toast-btn {
+                    width: 100%;
+                    text-align: center;
+                }
+            }
+
+            /* Floating Mini Controls */
+            .mini-controls {
+                position: fixed;
+                bottom: 24px;
+                right: 24px;
+                z-index: 900;
+                display: flex;
+                align-items: center;
+                gap: 0.6rem;
+                padding: 0.5rem;
+                background: rgba(255, 255, 255, 0.75);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                border: 1px solid var(--border-color);
+                border-radius: 9999px;
+                box-shadow:
+                    var(--shadow-lg),
+                    0 0 0 1px rgba(0, 0, 0, 0.05);
+                opacity: 0;
+                transform: translateY(15px) scale(0.95);
+                pointer-events: none;
+                transition:
+                    opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                    transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+                    background-color 0.3s ease,
+                    border-color 0.3s ease;
+            }
+
+            html[data-theme="dark"] .mini-controls {
+                background: rgba(30, 41, 59, 0.75);
+            }
+
+            .mini-controls.visible {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                pointer-events: auto;
+            }
+
+            .mini-select {
+                background: transparent;
+                border: none;
+                color: var(--text-main);
+                font-size: 0.82rem;
+                font-weight: 600;
+                padding: 0.35rem 1.8rem 0.35rem 0.8rem;
+                border-radius: 9999px;
+                cursor: pointer;
+                outline: none;
+                appearance: none;
+                -webkit-appearance: none;
+                -moz-appearance: none;
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+                background-repeat: no-repeat;
+                background-position: right 0.7rem center;
+                transition: var(--transition);
+            }
+
+            html[data-theme="dark"] .mini-select {
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+            }
+
+            .mini-select:focus-visible {
+                box-shadow: 0 0 0 2px var(--accent);
+            }
+
+            .mini-select option {
+                background-color: var(--card-bg);
+                color: var(--text-main);
+            }
+
+            .mini-btn {
+                background: var(--card-bg);
+                border: 1px solid var(--border-color);
+                color: var(--text-muted);
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 0.85rem;
+                font-weight: 700;
+                cursor: pointer;
+                transition: var(--transition);
+            }
+
+            .mini-btn:hover {
+                background: var(--bg-color);
+                color: var(--text-main);
+                transform: scale(1.05);
+            }
+
+            .mini-btn:focus-visible {
+                outline: 2px solid var(--accent);
+                outline-offset: 1px;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- Skip Link -->
+        <a href="#main-content" class="skip-link">
+            <span class="lang-ja-inline">FAQコンテンツへスキップ</span>
+            <span class="lang-en-inline" style="display: none"
+                >Skip to FAQ Content</span
+            >
+        </a>
+
+        <!-- Google Analytics Consent Toast -->
+        <div
+            id="gaConsentToast"
+            class="consent-toast"
+            role="dialog"
+            aria-labelledby="toastTitle"
+            aria-describedby="toastMsg"
+            hidden
+        >
+            <div class="consent-toast-content">
+                <h4 id="toastTitle">
+                    <span class="lang-ja-inline">プライバシーへの同意</span>
+                    <span class="lang-en-inline" style="display: none"
+                        >Privacy Consent</span
+                    >
+                </h4>
+                <p id="toastMsg">
+                    <span class="lang-ja-inline"
+                        >このヘルプページでは、コンテンツの改善や利用状況の統計把握のために匿名のアクセス解析（Google
+                        Analytics
+                        4）を使用しています。データの収集を許可しますか？</span
+                    >
+                    <span class="lang-en-inline" style="display: none"
+                        >This FAQ page utilizes Google Analytics 4 to collect
+                        anonymous usage metrics for readability improvements. Do
+                        you consent to this tracking?</span
+                    >
+                </p>
+                <div class="consent-toast-actions">
+                    <button id="gaDeclineBtn" class="toast-btn decline-btn">
+                        <span class="lang-ja-inline">拒否する</span>
+                        <span class="lang-en-inline" style="display: none"
+                            >Decline</span
+                        >
+                    </button>
+                    <button id="gaAcceptBtn" class="toast-btn accept-btn">
+                        <span class="lang-ja-inline">許可する</span>
+                        <span class="lang-en-inline" style="display: none"
+                            >Accept</span
+                        >
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Floating Mini Controls (scroll-triggered) -->
+        <div
+            id="miniControls"
+            class="mini-controls"
+            aria-label="Mini Controls"
+            role="region"
+        >
+            <select
+                id="miniCategorySelect"
+                class="mini-select"
+                aria-label="Category Filter"
+            >
+                <!-- options populated dynamically -->
+            </select>
+            <button
+                id="miniLangToggle"
+                class="mini-btn"
+                aria-label="Switch Language"
+            >
+                EN
+            </button>
+            <button
+                id="miniThemeToggle"
+                class="mini-btn"
+                aria-label="Switch Theme"
+            >
+                <svg
+                    class="theme-icon theme-icon--moon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                >
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+                <svg
+                    class="theme-icon theme-icon--sun"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                >
+                    <circle cx="12" cy="12" r="5" />
+                    <path
+                        d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                    />
+                </svg>
+            </button>
+        </div>
+
+        <!-- 1. Hero Section (full width) -->
+        <section class="hero-section">
+            <div class="hero-layout">
+                <div class="hero-content">
+                    <p class="hero-tagline">Collect. Review. Organize.</p>
+                    <h1>
+                        <span class="lang-ja-inline"
+                            >Inboxを、溜める場所から整う場所へ。</span
+                        >
+                        <span class="lang-en-inline" style="display: none"
+                            >Turn Your Inbox from a Dumping Ground into an
+                            Organized Space</span
+                        >
+                    </h1>
+                    <p class="hero-description">
+                        <span class="lang-ja-inline"
+                            >Inbox
+                            Curatorは、Obsidianに集まる未整理ノートをAIでレビューし、読むべきもの・保管すべきもの・タスク化すべきものに自動で仕分けるプラグインです。</span
+                        >
+                        <span class="lang-en-inline" style="display: none"
+                            >Inbox Curator uses AI to review unorganized notes
+                            in Obsidian, automatically sorting them into what to
+                            read, what to keep, and what to turn into
+                            tasks.</span
+                        >
+                    </p>
+                    <div
+                        class="hero-steps"
+                        role="list"
+                        aria-label="Workflow steps"
+                    >
+                        <div class="step" role="listitem">
+                            <span class="step-number">1</span>
+                            <div class="step-text">
+                                <span class="step-title">Collect</span>
+                            </div>
+                        </div>
+                        <div class="step-connector" aria-hidden="true">
+                            <svg
+                                width="24"
+                                height="24"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </div>
+                        <div class="step" role="listitem">
+                            <span class="step-number">2</span>
+                            <div class="step-text">
+                                <span class="step-title">Review</span>
+                            </div>
+                        </div>
+                        <div class="step-connector" aria-hidden="true">
+                            <svg
+                                width="24"
+                                height="24"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
+                        </div>
+                        <div class="step" role="listitem">
+                            <span class="step-number">3</span>
+                            <div class="step-text">
+                                <span class="step-title">Organize</span>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="hero-supplementary">
+                        <span class="lang-ja-inline"
+                            >ブラウザから記事を保存する場合は、Obsidianのクリップ系拡張機能と組み合わせると、「保存
+                            → レビュー →
+                            整理」までの流れをよりスムーズにできます。</span
+                        >
+                        <span class="lang-en-inline" style="display: none"
+                            >To save articles from your browser, pairing with
+                            Obsidian's clipping extensions streamlines the
+                            save-to-organize workflow.</span
+                        >
+                    </p>
+                </div>
+                <div class="hero-image">
+                    <img
+                        src="eyecatch.webp"
+                        alt="Inbox Curator - インボックスのAI自動整理"
+                        width="600"
+                        height="315"
+                        loading="lazy"
+                        decoding="async"
+                    />
+                </div>
+            </div>
+
+            <p class="hero-caution">
+                <span class="lang-ja-inline"
+                    >自動整理を使う前に、まずは1〜2件のノートでテストしてください。フォルダ設定、レビュー結果、移動先が意図通りか確認してから本格運用するのがおすすめです。</span
+                >
+                <span class="lang-en-inline" style="display: none"
+                    >Before enabling auto-organize, test with 1–2 notes first.
+                    Verify folder settings, review results, and destinations
+                    before going fully automated.</span
+                >
+            </p>
+        </section>
+
+        <!-- Sticky Search Bar -->
+        <div class="search-sticky" role="search">
+            <div
+                class="search-box search-box--sticky"
+                aria-labelledby="searchLabel"
+            >
+                <label id="searchLabel" for="searchInput" style="display: none">
+                    <span class="lang-ja-inline">FAQを検索</span>
+                    <span class="lang-en-inline" style="display: none"
+                        >Search FAQ</span
+                    >
+                </label>
+                <div class="search-input-wrapper">
+                    <svg
+                        class="search-icon"
+                        aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <input
+                        type="text"
+                        id="searchInput"
+                        class="search-input"
+                        aria-controls="faqList"
+                        aria-autocomplete="list"
+                        placeholder="キーワードを入力して検索..."
+                    />
+                    <button
+                        id="searchClearBtn"
+                        class="search-clear-btn"
+                        aria-label="検索キーワードをクリア"
+                        hidden
+                    >
+                        ×
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <!-- 2. Controls Panel -->
+            <section class="controls-panel" aria-label="Settings and Filters">
+                <!-- Category Filter Tabs -->
+                <div class="control-group">
+                    <span class="control-label">
+                        <span class="lang-ja-inline">カテゴリ</span>
+                        <span class="lang-en-inline" style="display: none"
+                            >Category</span
+                        >
+                    </span>
+                    <div
+                        role="tablist"
+                        class="tabs"
+                        id="categoryTabList"
+                        aria-label="FAQ Categories"
+                    >
+                        <button
+                            id="tab-all"
+                            role="tab"
+                            aria-selected="true"
+                            aria-controls="faqList"
+                            tabindex="0"
+                            class="tab-btn"
+                            data-category="all"
+                        >
+                            <span class="lang-ja-inline">すべて</span>
+                            <span class="lang-en-inline" style="display: none"
+                                >All</span
+                            >
+                        </button>
+                        <button
+                            id="tab-beginner"
+                            role="tab"
+                            aria-selected="false"
+                            aria-controls="faqList"
+                            tabindex="-1"
+                            class="tab-btn"
+                            data-category="beginner"
+                        >
+                            <span class="lang-ja-inline">🔰 初心者向け</span>
+                            <span class="lang-en-inline" style="display: none"
+                                >🔰 Beginner</span
+                            >
+                        </button>
+                        <button
+                            id="tab-collection-review"
+                            role="tab"
+                            aria-selected="false"
+                            aria-controls="faqList"
+                            tabindex="-1"
+                            class="tab-btn"
+                            data-category="collection-review"
+                        >
+                            <span class="lang-ja-inline"
+                                >📚 コレクションレビュー</span
+                            >
+                            <span class="lang-en-inline" style="display: none"
+                                >📚 Collection Review</span
+                            >
+                        </button>
+                        <button
+                            id="tab-advanced"
+                            role="tab"
+                            aria-selected="false"
+                            aria-controls="faqList"
+                            tabindex="-1"
+                            class="tab-btn"
+                            data-category="advanced"
+                        >
+                            <span class="lang-ja-inline">⚙️ 技術的仕様</span>
+                            <span class="lang-en-inline" style="display: none"
+                                >⚙️ Advanced</span
+                            >
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Language & Theme Switchers -->
+                <div class="control-group-row">
+                    <div class="control-subgroup">
+                        <span class="control-label">
+                            <span class="lang-ja-inline">表示言語</span>
+                            <span class="lang-en-inline" style="display: none"
+                                >Language</span
+                            >
+                        </span>
+                        <button
+                            id="langToggle"
+                            class="lang-btn"
+                            aria-pressed="false"
+                            aria-label="Switch to English"
+                        >
+                            English
+                        </button>
+                    </div>
+                    <div class="control-subgroup">
+                        <span class="control-label">
+                            <span class="lang-ja-inline">テーマ</span>
+                            <span class="lang-en-inline" style="display: none"
+                                >Theme</span
+                            >
+                        </span>
+                        <button
+                            id="themeToggle"
+                            class="theme-btn"
+                            aria-live="polite"
+                            aria-label="ダークモードに切り替え"
+                        >
+                            <svg
+                                class="theme-icon theme-icon--moon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
+                                />
+                            </svg>
+                            <svg
+                                class="theme-icon theme-icon--sun"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                            >
+                                <circle cx="12" cy="12" r="5" />
+                                <path
+                                    d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
+                                />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Search Status Live Region -->
+            <div
+                id="searchStatus"
+                class="search-status"
+                aria-live="polite"
+            ></div>
+
+            <!-- 3. Main Content Area -->
+            <main class="faq-main-content" id="main-content">
+                <!-- FAQ List Accordion -->
+                <div
+                    id="faqList"
+                    class="faq-list"
+                    role="list"
+                    aria-label="FAQ items"
+                >
+                    <!-- JS renders items here -->
+                </div>
+            </main>
+
+            <!-- 4. Stacked Additional Info Section -->
+            <section class="additional-info">
+                <!-- Accessibility / Keyboard Guide -->
+                <section
+                    class="guide-section"
+                    id="guideSection"
+                    aria-label="Keyboard Guide"
+                >
+                    <h3>
+                        <span class="lang-ja-inline"
+                            >⌨️ キーボードでの操作方法</span
+                        >
+                        <span class="lang-en-inline" style="display: none"
+                            >⌨️ Keyboard Controls</span
+                        >
+                    </h3>
+                    <div class="guide-content">
+                        <table class="a11y-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col" class="lang-ja-inline">
+                                        キー
+                                    </th>
+                                    <th
+                                        scope="col"
+                                        class="lang-en-inline"
+                                        style="display: none"
+                                    >
+                                        Key
+                                    </th>
+                                    <th scope="col" class="lang-ja-inline">
+                                        動作
+                                    </th>
+                                    <th
+                                        scope="col"
+                                        class="lang-en-inline"
+                                        style="display: none"
+                                    >
+                                        Action
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><kbd>Tab</kbd></td>
+                                    <td class="lang-ja-inline">
+                                        フォーカスの移動
+                                    </td>
+                                    <td
+                                        class="lang-en-inline"
+                                        style="display: none"
+                                    >
+                                        Move focus
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td><kbd>Space</kbd> / <kbd>Enter</kbd></td>
+                                    <td class="lang-ja-inline">
+                                        アコーディオンの開閉 / タブ選択 /
+                                        ボタン押下
+                                    </td>
+                                    <td
+                                        class="lang-en-inline"
+                                        style="display: none"
+                                    >
+                                        Open/close accordion, select tab, or
+                                        trigger buttons
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td><kbd>←</kbd> / <kbd>→</kbd></td>
+                                    <td class="lang-ja-inline">
+                                        カテゴリタブのフォーカス切り替え（選択時に自動実行）
+                                    </td>
+                                    <td
+                                        class="lang-en-inline"
+                                        style="display: none"
+                                    >
+                                        Switch active categories (applied
+                                        automatically on focus)
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td><kbd>Home</kbd> / <kbd>End</kbd></td>
+                                    <td class="lang-ja-inline">
+                                        最初 / 最後のカテゴリタブへ移動
+                                    </td>
+                                    <td
+                                        class="lang-en-inline"
+                                        style="display: none"
+                                    >
+                                        Go to first/last category tab
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td><kbd>Enter</kbd> (検索欄内)</td>
+                                    <td class="lang-ja-inline">
+                                        現在ヒットしている最初のFAQ質問にフォーカスを移動
+                                    </td>
+                                    <td
+                                        class="lang-en-inline"
+                                        style="display: none"
+                                    >
+                                        Focus the first visible FAQ question
+                                        button
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Support Section (Ko-fi Widget) -->
+                <section class="support-widget" aria-labelledby="supportTitle">
+                    <div class="support-header">
+                        <h2 id="supportTitle">
+                            <span class="lang-ja-inline">開発者を支援する</span>
+                            <span class="lang-en-inline" style="display: none"
+                                >Support Development</span
+                            >
+                        </h2>
+                        <span class="external-label">External</span>
+                    </div>
+                    <p class="lang-ja-inline">
+                        もしInbox
+                        Curatorがお役に立ちましたら、ご支援をいただけますと幸いです（外部寄付サービス
+                        Ko-fi）。
+                    </p>
+                    <p class="lang-en-inline" style="display: none">
+                        If you find Inbox Curator helpful, you can optionally
+                        support the developer via the external Ko-fi widget.
+                    </p>
+
+                    <iframe
+                        id="kofiframe"
+                        src="https://ko-fi.com/kzyiym/?hidefeed=true&widget=true&embed=true&preview=true"
+                        style="
+                            border: none;
+                            width: 100%;
+                            padding: 4px;
+                            background: var(--card-bg);
+                            border-radius: 12px;
+                        "
+                        height="450"
+                        title="Kazuya Iyama (antidot) - Support Development via Ko-fi"
+                    ></iframe>
+
+                    <a
+                        href="https://ko-fi.com/kzyiym"
+                        target="_blank" rel="noopener noreferrer"
+                        class="iframe-fallback"
+                    >
+                        <span class="lang-ja-inline"
+                            >➔ ウィジェットが表示されない場合はこちら</span
+                        >
+                        <span class="lang-en-inline" style="display: none"
+                            >➔ Direct Support Page Link</span
+                        >
+                    </a>
+                </section>
+            </section>
+
+            <!-- Bottom Meta, Links & Privacy info -->
+            <div class="footer-meta">
+                <section aria-labelledby="privacyTitle">
+                    <h2 id="privacyTitle">
+                        <span class="lang-ja-inline"
+                            >プライバシー & セキュリティ</span
+                        >
+                        <span class="lang-en-inline" style="display: none"
+                            >Privacy & Security</span
+                        >
+                    </h2>
+                    <p class="lang-ja-inline">
+                        <strong>100% テレメトリフリー。</strong
+                        >プラグイン本体は利用状況の自動送信を行いません。AIプロバイダAPIへはノート内容・Base64画像・PDF抽出テキストが直接送信され、中継サーバーは介在しません。URLのみのノートは対象WebサイトへHTML取得リクエストが発生します。APIキーは
+                        SecretStorage（安全な暗号化ストレージ）に保存され、不可環境ではセッション中のメモリのみに保持されます。Vault外のファイルにはアクセスしません。
+                    </p>
+                    <p class="lang-en-inline" style="display: none">
+                        <strong>100% telemetry-free.</strong> The plugin core
+                        never sends usage data. Note contents, Base64-encoded
+                        images, and extracted PDF text are sent directly from
+                        your device to your configured AI provider — no
+                        intermediary servers. URL-only notes may trigger HTML
+                        fetch requests to target websites. API keys are stored
+                        via Obsidian's SecretStorage (secure encrypted storage);
+                        on platforms where SecretStorage is unavailable, keys
+                        persist in session memory only. The plugin never
+                        accesses files outside your Obsidian Vault.
+                    </p>
+
+                    <!-- Google Analytics Consent Toggle Switch -->
+                    <label
+                        style="
+                            display: flex;
+                            align-items: center;
+                            gap: 0.5rem;
+                            margin-top: 0.8rem;
+                            font-weight: 600;
+                            cursor: pointer;
+                        "
+                    >
+                        <input
+                            type="checkbox"
+                            id="gaConsentToggle"
+                            aria-describedby="gaConsentDesc"
+                        />
+                        <span class="lang-ja-inline"
+                            >Google Analytics の追跡を許可する</span
+                        >
+                        <span class="lang-en-inline" style="display: none"
+                            >Allow Google Analytics tracking</span
+                        >
+                    </label>
+                    <div
+                        id="gaConsentDesc"
+                        style="
+                            font-size: 0.72rem;
+                            margin-top: 0.2rem;
+                            color: var(--text-muted);
+                        "
+                    >
+                        <span class="lang-ja-inline"
+                            >※チェックを入れると、このFAQページでのアクセス解析を有効にします。デフォルトは無効です。</span
+                        >
+                        <span class="lang-en-inline" style="display: none"
+                            >*Checking this enables anonymous analytics tracking
+                            on this FAQ page. Disabled by default.</span
+                        >
+                    </div>
+                </section>
+
+                <section aria-labelledby="linksTitle">
+                    <h2 id="linksTitle">
+                        <span class="lang-ja-inline"
+                            >リンク & お問い合わせ</span
+                        >
+                        <span class="lang-en-inline" style="display: none"
+                            >Support Links</span
+                        >
+                    </h2>
+                    <ul class="links-list">
+                        <li>
+                            <a
+                                href="https://github.com/kzyiym/inbox-curator/issues"
+                                target="_blank" rel="noopener noreferrer"
+                                >GitHub Issues (バグ報告/ご要望)</a
+                            >
+                        </li>
+                        <li>
+                            <a href="https://tally.so/r/lbzMMW" target="_blank" rel="noopener noreferrer"
+                                >バグ報告/ご要望フォーム (Tally)</a
+                            >
+                        </li>
+                        <li>
+                            <a href="https://antidot.jp" target="_blank" rel="noopener noreferrer"
+                                >Kazuya Iyama / antidot (作者サイト)</a
+                            >
+                        </li>
+                    </ul>
+                </section>
+            </div>
+
+            <!-- Footer -->
+            <footer>
+                <p>
+                    © 2026
+                    <a href="https://antidot.jp" target="_blank" rel="noopener noreferrer"
+                        >Kazuya Iyama</a
+                    >
+                    (antidot). All rights reserved.
+                </p>
+            </footer>
+        </div>
+
+        <script>
+            // FAQ Data Array (35 items)
+            const FAQ_DATA = [
+                {
+                    id: "what-is-plugin",
+                    category: "beginner",
+                    question: {
+                        ja: "そもそもこのプラグインは何をしてくれるものですか？",
+                        en: "What does this plugin actually do?",
+                    },
+                    answer: {
+                        ja: "<strong>AIがインボックスのメモを要約し、スコア付けや移動先の自動提案を行うプラグインです。</strong><br><br>インボックス（一時的なメモ、Webクリップ、AIのチャットログなど）に溜まりがちなノートをAIが自動で読み取り、重要度のスコアリング、3つの重要な要約ポイント、推奨される次のアクション（アーカイブやタスク化など）を記載した「レビュー用ノート（別ファイル）」を自動で生成し、フォルダの整理をサポートします。",
+                        en: "<strong>AI summarizes inbox notes and suggests scores or folder moves.</strong><br><br>It leverages AI to automatically read messy notes in your inbox (such as rough drafts, web clippings, and AI chat logs), rate their reading/saving value, generate a 3-point summary, and propose the next action (like archiving or turning into a task) in a separate review note, helping you keep your inbox clean.",
+                    },
+                },
+                {
+                    id: "requirements",
+                    category: "beginner",
+                    question: {
+                        ja: "使うために何が必要ですか？無料ですか？",
+                        en: "What is required to use it? Is it free?",
+                    },
+                    answer: {
+                        ja: "<strong>プラグイン自体は無料ですが、AIを利用するためのAPIキー（外部AIサービスを利用するためのパスワードのようなもの）が必要です。</strong><br><br>プラグイン自体は無料でオープンソースですが、AIを利用するために OpenAI, Gemini, または Anthropic のAPIキーが必要です。各AIサービスへの登録と、利用に応じたAPI使用料（従量課金）が必要となります。",
+                        en: "<strong>The plugin is free, but requires an API Key (a developer password to access AI services).</strong><br><br>The plugin itself is free and open-source. However, to analyze notes, you need an API key from OpenAI, Gemini, or Anthropic. This requires creating a developer account with those providers and paying for your API usage (pay-as-you-go).",
+                    },
+                },
+                {
+                    id: "get-api-key",
+                    category: "beginner",
+                    question: {
+                        ja: "APIキーはどのように取得すればよいですか？",
+                        en: "How do I obtain an API key?",
+                    },
+                    answer: {
+                        ja: "<strong>各AIサービスのアカウントページ（開発者向けコンソール）からキーを生成して取得します。</strong><br><br>利用したいAIのプラットフォーム（例: OpenAI Platform, Google AI Studio, Anthropic Console）でアカウントを作成し、開発者向けコンソールからAPIキー（外部AIサービスを利用するためのパスワードのようなもの）を発行します。発行されたキーを本プラグインの設定画面の対応するプロバイダ欄に入力してください。",
+                        en: "<strong>Generate and retrieve keys from each AI provider's developer console.</strong><br><br>Create an account on your preferred AI platform (OpenAI Platform, Google AI Studio for Gemini, or Anthropic Console) and generate a new API key from their developer console. Paste this key into the corresponding field in this plugin's settings tab.",
+                    },
+                },
+                {
+                    id: "watched-folder",
+                    category: "beginner",
+                    question: {
+                        ja: "設定の「監視フォルダ（Watched Folder）」とは何ですか？どれを指定すればいいですか？",
+                        en: "What is the 'Watched Folder'? Which directory should I select?",
+                    },
+                    answer: {
+                        ja: "<strong>AIレビューを自動的または一括で実行したい「一時的な保管用フォルダ（例: Inbox）」を指定してください。</strong><br><br>プラグインが自動処理や一括処理の対象とするフォルダです。新しく追加された未整理のメモが集まる「Inbox」フォルダなどを指定することをお勧めします。Vault（ヴォルト：Obsidian全体の保管庫フォルダ）のルートフォルダを指定すると、処理対象ノートが多すぎて動作が重くなるため避けてください。",
+                        en: "<strong>Set this to a temporary directory (e.g. Inbox) where you collect new notes to review.</strong><br><br>This is the directory targeted for automatic scanning and batch curation. We highly recommend setting this to your temporary 'Inbox' folder where new clippings and rough notes land. Avoid choosing your entire vault root, as processing thousands of files can impact performance.",
+                    },
+                },
+                {
+                    id: "write-destination",
+                    category: "beginner",
+                    question: {
+                        ja: "AIのレビュー結果（要約や判定）はどこに保存されますか？元のノートは書き換えられますか？",
+                        en: "Where are AI reviews stored? Will my original notes be modified?",
+                    },
+                    answer: {
+                        ja: "<strong>レビュー結果は別ファイルとして保存され、元のノートは書き換えられません。</strong><br><br>レビュー結果は、元のノートとは別の独立したファイル（例: `元のノート名.ai-review.md`）として「レビュー出力フォルダ（Review Output Folder）」に書き込まれます。元のノート自体は一切書き換えられません。ただし、二重処理を防ぐためのハッシュ値（ファイルの目印となる暗号データ）のみがファイルの先頭であるFrontmatter（フロントマター：ノートの先頭にある特別な設定エリア）に自動追記されます。",
+                        en: "<strong>Reviews are saved in a separate file; original notes are not modified.</strong><br><br>Reviews are saved as separate files (e.g., `NoteName.ai-review.md`) inside your configured 'Review Output Folder'. Your original note remains completely intact, except for a secure tracking hash automatically added to its frontmatter (metadata block at the top) to prevent duplicate processing.",
+                    },
+                },
+                {
+                    id: "cost-estimate",
+                    category: "beginner",
+                    question: {
+                        ja: "お金はどれくらいかかりますか？",
+                        en: "How much will the API usage cost?",
+                    },
+                    answer: {
+                        ja: "<strong>文字のみのノートなら1ファイルあたり1円未満と非常に安価です。</strong><br><br>通常のテキストのみのノートをレビューする場合、1ファイルあたり1円未満〜数円程度と非常に安価です。ただし、大容量の画像ファイルを複数送信する画像解析（マルチモーダル：画像とテキストを同時に理解できるAIの機能）を多用する場合は、APIの料金が高くなる可能性があるため、最初は画像オフの設定で試すことをお勧めします。",
+                        en: "<strong>Text-only notes are extremely cheap, costing less than a cent per file.</strong><br><br>For text-only notes, it is extremely cheap (typically less than a fraction of a cent per file). However, if you enable multimodal features to analyze multiple large images, costs can rise depending on the provider. We recommend starting with image features disabled.",
+                    },
+                },
+                {
+                    id: "auto-delete-safety",
+                    category: "beginner",
+                    question: {
+                        ja: "自動でファイルが消えてしまうことはありませんか？",
+                        en: "Is there any risk of files being deleted automatically?",
+                    },
+                    answer: {
+                        ja: "<strong>Inbox Curator はノートを自動削除しません。Delete Candidate は提案のみで、自動移動・自動削除は行われません。</strong><br><br>AIが「削除候補（delete_candidate）」と判定しても、プラグインは提案を行うだけで、ファイルの移動も削除も自動では実行しません。削除候補として提案されたノートをどうするかは、ユーザー自身が手動で判断する必要があります。",
+                        en: "<strong>Inbox Curator never deletes notes automatically. Delete candidates are suggested only — no automatic moving or deletion.</strong><br><br>Even when the AI tags a note as a delete candidate, the plugin only proposes the action. Files are never moved or deleted automatically. Users must manually review and decide what to do with delete candidate suggestions.",
+                    },
+                },
+                {
+                    id: "mobile-support",
+                    category: "beginner",
+                    question: {
+                        ja: "スマートフォンやiPadなどのモバイルアプリでも動きますか？",
+                        en: "Does it work on mobile apps like smartphones or iPads?",
+                    },
+                    answer: {
+                        ja: "<strong>いいえ、本プラグインはデスクトップ専用（isDesktopOnly）です。モバイルアプリでは動作しません。</strong><br><br>Inbox Curator は Obsidian のデスクトップアプリ（Windows / macOS / Linux）でのみ動作するよう設計されています。iOS や Android のモバイルアプリではご利用いただけません。",
+                        en: "<strong>No, this plugin is desktop-only (isDesktopOnly: true). It does not work on mobile apps.</strong><br><br>Inbox Curator is designed exclusively for Obsidian's desktop app (Windows / macOS / Linux). It is not available on iOS or Android mobile apps.",
+                    },
+                },
+                {
+                    id: "prompt-customization",
+                    category: "beginner",
+                    question: {
+                        ja: "要約の書き方やAIへの指示を自分好みにカスタマイズできますか？",
+                        en: "Can I customize the summary format or AI instructions?",
+                    },
+                    answer: {
+                        ja: "<strong>はい、設定画面の「Custom Review Prompt」から指示を細かく指定できます。</strong><br><br>設定画面の「Custom Review Prompt」欄に独自の指示（最大3,000文字）を追記することで、AIの判定基準や要約の観点をカスタマイズできます。また、「Instructions & Output Language」でAIの返答言語を自動判定 / 日本語 / 英語 / ノートと同じ言語から選択できます。",
+                        en: "<strong>Yes, you can set custom instructions via 'Custom Review Prompt'.</strong><br><br>You can input your own guidelines (up to 3,000 characters) in the 'Custom Review Prompt' settings field to change the AI's grading focus. You can also specify the output language via 'Instructions & Output Language' — choose from Auto-detect, Japanese, English, or Same language as the note.",
+                    },
+                },
+                {
+                    id: "doesnt-work-trouble",
+                    category: "beginner",
+                    question: {
+                        ja: "設定を変更したのにうまく動きません。どうすれば良いですか？",
+                        en: "I changed the settings but it doesn't work. What should I do?",
+                    },
+                    answer: {
+                        ja: "<strong>「Test Connection」ボタンを試すか、デベロッパーツールのエラーログを確認してください。</strong><br><br>まず、設定画面の下部にある「Test Connection」ボタンを押し、APIキーと通信設定が正しいかを確認してください。また、Obsidianのデベロッパーツール（Ctrl+Shift+I / Cmd+Opt+I：開発者向けのデバッグ画面）を開き、コンソールタブに出力されているエラーログを確認することで原因を特定できます。",
+                        en: "<strong>Test the connection or inspect Obsidian's developer console logs.</strong><br><br>First, click the 'Test Connection' button in the settings tab to verify your API key and connection parameters. If it fails, open Obsidian's developer console (Ctrl+Shift+I / Cmd+Opt+I) to inspect error details.",
+                    },
+                },
+                {
+                    id: "google-analytics",
+                    category: "beginner",
+                    question: {
+                        ja: "このFAQページではアクセス解析を行っていますか？同意は必須ですか？",
+                        en: "Does this FAQ page perform analytics tracking? Is consent required?",
+                    },
+                    answer: {
+                        ja: "<strong>はい、匿名のアクセス解析を使用していますが、完全なオプトイン（デフォルト無効）であり任意です。</strong><br><br>プラグイン自体のコアコードは100%テレメトリフリー（自動通信なし）です。このFAQページ（`site/index.html`）でのみ、コンテンツ改善を目的に Google Analytics 4 (GA4) を使用しています。<br>・<strong>収集データ</strong>：ページビュー数、表示言語、ライト/ダークテーマ設定などの匿名統計情報（ノート内容やAPIキー等は一切収集しません）。<br>・<strong>影響について</strong>：トラッキングを拒否（オプトアウト）しても、FAQのすべての機能およびプラグインは完全に制限なくご利用いただけます。",
+                        en: "<strong>Yes, anonymous tracking is used, but it is strictly opt-in (disabled by default) and optional.</strong><br><br>The core plugin runtime is 100% telemetry-free. Only this FAQ page (`site/index.html`) uses Google Analytics 4 (GA4) for statistics.<br>• <strong>Collected metrics</strong>: Anonymous page views, language selections, and theme preferences (no note contents, credentials, or personal keys are ever collected).<br>• <strong>No impact on usage</strong>: If you decline tracking, all features of this FAQ page and the plugin core remain 100% available without any limitations.",
+                    },
+                },
+                {
+                    id: "api-key-security",
+                    category: "advanced",
+                    question: {
+                        ja: "APIキーはどこに保存されますか？安全ですか？",
+                        en: "Where is the API key stored? Is it secure?",
+                    },
+                    answer: {
+                        ja: "<strong>Obsidianの安全な暗号化ストレージ（SecretStorage）に保存され、設定ファイル等には出力されません。</strong><br><br>APIキーはObsidianのセキュアなストレージ（`app.secretStorage`：OSの安全なキーチェーン機能と連動する暗号化保存領域）に安全に保存されます。設定ファイルである `data.json`（プレーンテキスト）には保存されず、同期対象にもなりません。`SecretStorage` が利用できない環境では、セッション中のメモリにのみ一時保存されます。",
+                        en: "<strong>Stored in Obsidian's secure storage (SecretStorage) and never exported in plain text.</strong><br><br>API keys are securely persisted using Obsidian's native `app.secretStorage`. They are never written to plain text or synchronization files like `data.json`. On platforms where `SecretStorage` is unavailable, the plugin falls back to session-only memory storage.",
+                    },
+                },
+                {
+                    id: "infinite-loop-prevention",
+                    category: "advanced",
+                    question: {
+                        ja: "レビュー結果が出力された `*.ai-review.md` 自体が、再度AIレビューの対象になりませんか？",
+                        en: "Will the generated `*.ai-review.md` files trigger AI reviews again?",
+                    },
+                    answer: {
+                        ja: "<strong>出力フォルダおよびレビューノートは自動的にスキャン対象から除外されます。</strong><br><br>無限ループを防ぐため、レビュー出力フォルダ（Review Output Folder）および `*.ai-review.md` で終わるファイル名は、自動監視や一括処理のスキャン対象からシステムレベルで強制的に除外される仕様になっています。",
+                        en: "<strong>The review output folder and review files are strictly excluded from sweeps.</strong><br><br>No. To avoid infinite loops, the plugin forces exclusions on the designated review output folder and any file path ending in `.ai-review.md`, ignoring them during both event-based and manual folder runs.",
+                    },
+                },
+                {
+                    id: "queue-persistence",
+                    category: "advanced",
+                    question: {
+                        ja: "レビューキューはプラグイン再起動やアプリ終了時に引き継がれますか？",
+                        en: "Is the review queue persisted across plugin reloads or app restarts?",
+                    },
+                    answer: {
+                        ja: "<strong>キュー自体は引き継がれませんが、 Frontmatter のハッシュ値により二重実行を回避します。</strong><br><br>レビューキューはインメモリ（メモリ上のみ）で管理され、永続化（保存）されません。再起動時は空から開始されます。ただし、処理済みのノートの Frontmatter（フロントマター：ノートの先頭にある特別な設定エリア）には `ai_review_source_hash` が書き込まれているため、再起動後のスキャン時に変更のないノートは瞬時にスキップされます。",
+                        en: "<strong>The queue is cleared, but duplicate execution is prevented via frontmatter hashes.</strong><br><br>No, the review queue is managed in-memory and is not saved to disk. When Obsidian reloads, the queue starts fresh. However, processed notes contain `ai_review_source_hash` in their frontmatter, letting the plugin immediately skip unchanged files on startup sweeps.",
+                    },
+                },
+                {
+                    id: "rate-limit-handling",
+                    category: "advanced",
+                    question: {
+                        ja: "APIのレートリミットエラー（HTTP 429など）が発生した場合はどうなりますか？",
+                        en: "How does the plugin handle API rate limits (e.g., HTTP 429)?",
+                    },
+                    answer: {
+                        ja: "<strong>指数バックオフによる自動リトライ機構と、リクエスト間ディレイ制御で対処します。</strong><br><br>一時的な通信エラーやレート制限エラーの場合、設定されたリトライ上限まで徐々に待機時間を延ばしながら（指数バックオフ：徐々に間隔をあけるリトライ処理）自動試行します。また、設定の「Requests per minute」や「Delay between requests」を調整することで、制限の発生自体を事前に防ぐことができます。",
+                        en: "<strong>Addressed via automatic retries with exponential backoff and request delays.</strong><br><br>The plugin's job queue includes request rate control and an exponential backoff retry mechanism. For temporary connectivity drops or rate limit exceptions, it pauses and retries automatically up to the max retry limit.",
+                    },
+                },
+                {
+                    id: "watch-vs-poll",
+                    category: "advanced",
+                    question: {
+                        ja: "「自動監視（Automatic Watching）」と「ポーリング（Polling fallback）」の違いは何ですか？",
+                        en: "What is the difference between 'Automatic Watching' and 'Polling fallback'?",
+                    },
+                    answer: {
+                        ja: "<strong>自動監視はリアルタイムのイベント検知、ポーリングは漏れを防ぐための定期監視です。</strong><br><br>「自動監視」はObsidianが発火するファイルイベント（作成・変更）を直接監視し、検知後にデバウンス（debounce：処理が連続で重複しないようにする遅延実行制御）を経てキューに追加します。「ポーリング」は、イベント検知漏れに備えて指定秒数ごとに監視フォルダを定期スキャンする補完機能です。",
+                        en: "<strong>Watching reacts in real-time to file events, while polling is a periodic safety net.</strong><br><br>'Automatic Watching' hooks directly into Obsidian's file event API (`create`/`modify`) to register files instantly (after a debounce interval). 'Polling fallback' runs in the background at set intervals, scanning the directory to catch any file events that the system events might have missed.",
+                    },
+                },
+                {
+                    id: "performance-io",
+                    category: "advanced",
+                    question: {
+                        ja: "監視フォルダの自動スキャンは負荷がかかりませんか？",
+                        en: "Does scanning the watched folder consume too much performance?",
+                    },
+                    answer: {
+                        ja: "<strong>キャッシュメタデータのみを比較する二段階チェックで、ディスクI/Oを極小化しています。</strong><br><br>ファイルの更新チェック（`shouldSkipWatchedFile`）には二段階チェックが採用されています。まずObsidianの `metadataCache`（メタデータキャッシュ）からフロントマターのハッシュを取得し、メモリキャッシュの更新時刻（`mtime`）と比較する二段階チェックを行います。変更がない場合はディスク読み込み（`app.vault.read`：ファイルの物理的な読み取り）を行わないため、負荷は極めて軽微です。",
+                        en: "<strong>Employs a two-tier cache check to minimize disk I/O operations.</strong><br><br>The skip logic (`shouldSkipWatchedFile`) uses a two-tier check. It fetches frontmatter hashes from Obsidian's `metadataCache` and compares them against `mtime` in its memory cache. It skips opening files entirely if unchanged, keeping CPU and disk I/O load to a minimum.",
+                    },
+                },
+                {
+                    id: "available-commands",
+                    category: "advanced",
+                    question: {
+                        ja: "Inbox Curatorで利用できるコマンドは何がありますか？",
+                        en: "What commands are registered by Inbox Curator?",
+                    },
+                    answer: {
+                        ja: "<strong>レビュー・一括処理・アクション実行・取り消し・マーカー掃除の5つのコマンドがあります。</strong><br><br>1. `Review current note`: 現在開いているノートを即座にレビューします。\n2. `Process watched folder`: 監視フォルダ内を一括処理し、上限（Max notes per run）までレビューします。\n3. `Execute proposed action for current note`: AIが提案したアクション（移動等）を現在ノートに対して実行します。\n4. `Undo last auto-sort run`: 直近の自動整理（Auto-sort）実行を取り消し、元のフォルダに戻します。\n5. `Clean up processing markers`: 処理済みファイルに残った `🤖 ` プレフィックス（処理中マーカー）を一括除去します。",
+                        en: "<strong>Five commands: review, batch process, execute action, undo, and clean up markers.</strong><br><br>1. `Review current note`: Instantly queue and review the active editor note.\n2. `Process watched folder`: Batch process md files in the watched folder (up to 'Max notes per run').\n3. `Execute proposed action for current note`: Execute the AI-recommended action on the current note.\n4. `Undo last auto-sort run`: Revert the most recent auto-sort run to restore notes to their original folders.\n5. `Clean up processing markers`: Remove stale `🤖 ` prefix markers from reviewed files.",
+                    },
+                },
+                {
+                    id: "recommended-actions-list",
+                    category: "advanced",
+                    question: {
+                        ja: "推奨アクション（Recommended Action）にはどのような種類がありますか？",
+                        en: "What are the possible Recommended Actions?",
+                    },
+                    answer: {
+                        ja: "<strong>`read_later` や `archive` などの整理・分類のための全9つのアクションがあります。</strong><br><br>AIの判定によって以下のアクションが割り当てられます：\n- `read_later` (後で読む)\n- `keep_as_reference` (参考文献)\n- `turn_into_note` (ノート化)\n- `turn_into_task` (タスク化)\n- `needs_verification` (要検証)\n- `research_more` (要再調査)\n- `archive` (アーカイブフォルダに移動)\n- `delete_candidate` (削除候補として提案)\n- `ignore` (無視/スキップ)",
+                        en: "<strong>The AI suggests one of 9 recommended triage actions.</strong><br><br>The AI suggests one of the following 9 recommended actions:\n- `read_later` (Read later)\n- `keep_as_reference` (Keep as reference)\n- `turn_into_note` (Turn into note)\n- `turn_into_task` (Turn into task)\n- `needs_verification` (Needs verification)\n- `research_more` (Research more)\n- `archive` (Archive)\n- `delete_candidate` (Delete candidate — suggested only)\n- `ignore` (Ignore)",
+                    },
+                },
+                {
+                    id: "action-execution-folders",
+                    category: "advanced",
+                    question: {
+                        ja: "アクション実行を手動/自動で行うと、ノートはどこに移動しますか？",
+                        en: "Where are notes moved when an action is executed?",
+                    },
+                    answer: {
+                        ja: "<strong>推奨結果に基づき、設定された対応フォルダへノートを移動します。</strong><br><br>自動実行が有効な場合、`archive` / `read_later` / `turn_into_task` の推奨アクションは、設定された各フォルダ（`Read Later Folder` / `Task Folder`）へ自動移動されます。アーカイブは Medium 以上の信頼度、タスク化は High のみが実行条件です。`delete_candidate` は提案のみで自動移動されません。一部のアクション（`keep_as_reference`など）は移動先フォルダが定義されておらず、手動処理になります。",
+                        en: "<strong>Notes are moved to folders mapping to each recommended action when auto-execution is enabled.</strong><br><br>When auto-execution is enabled, `archive` and `read_later` actions move notes to their respective folders (requires Medium or High confidence). `turn_into_task` requires High confidence. `delete_candidate` is suggested only — never auto-moved. Certain actions (like `keep_as_reference`) lack defined target folders and require manual handling.",
+                    },
+                },
+                {
+                    id: "suggested-folder-logic",
+                    category: "advanced",
+                    question: {
+                        ja: "AIレビューの「推奨フォルダ（Suggested Folder）」機能とは何ですか？どのように動きますか？",
+                        en: "What is the 'Suggested Folder' function and how does it work?",
+                    },
+                    answer: {
+                        ja: "<strong>AIが返した推奨分類フォルダ名に合わせて、親フォルダ配下に自動分類作成する機能です。</strong><br><br>AIが判定結果の中で `suggestedFolder`（例: `Technology/Obsidian`）を返した場合、設定された「Suggested Folder Base Path」と結合し、親フォルダも含めて不足しているフォルダ構造を自動作成した上で、そこにノートを配置します。カテゴリ分けをAIに完全に任せたい場合に有効です。",
+                        en: "<strong>Categorizes notes under dynamically created subdirectories proposed by AI.</strong><br><br>When the AI returns a `suggestedFolder` (e.g. `Technology/Obsidian`) in its JSON output, the plugin combines it with your 'Suggested Folder Base Path', automatically creates the folder structure if missing, and moves the note there. Useful for automated folder categorizations.",
+                    },
+                },
+                {
+                    id: "multimodal-limits",
+                    category: "advanced",
+                    question: {
+                        ja: "ノート内の画像はどのようにAIに送信されますか？制限はありますか？",
+                        en: "How are images in a note sent to the AI? Are there limits?",
+                    },
+                    answer: {
+                        ja: "<strong>画像送信はデフォルトOFFで、有効化時も「最大3枚」「各1MB」に制限されます。</strong><br><br>画像送信（マルチモーダル：画像とテキストを同時に理解できるAIの能力）はデフォルトで `OFF` です。有効にした場合、ノート内の Wikilink や Markdown リンクから画像ファイルを解決し、Base64文字列（バイナリをテキスト化したデータ）に変換してAPIに送信します。料金の抑制とメモリ節約のため、「1ノートあたり最大3枚」「各画像サイズ最大1MB」に送信データサイズが制限されています。",
+                        en: "<strong>Disabled by default; limited to max 3 images and 1MB each when enabled.</strong><br><br>Image analysis is disabled by default. If enabled, the plugin resolves image files referenced via Wikilinks/Markdown links, encodes them as Base64, and sends them to the API. To optimize cost and memory usage, it enforces limits of 'max 3 images per note' and 'max 1MB payload per image'.",
+                    },
+                },
+                {
+                    id: "image-resize-canvas",
+                    category: "advanced",
+                    question: {
+                        ja: "1MBを超える大きな画像が添付されている場合、どうなりますか？",
+                        en: "What happens if an attached image exceeds 1MB?",
+                    },
+                    answer: {
+                        ja: "<strong>元のファイルを書き換えずに、メモリ上で一時的に自動縮小・圧縮して送信します。</strong><br><br>Vault（保管庫）内の元の画像ファイルには影響を与えない形で、一時的にインメモリ（メモリ上のみ）で自動リサイズ・圧縮する処理（`imageOptimization.ts`）が走ります。最大10MBまでのファイルを許容し、アスペクト比を維持しながら1MB以下になるようにブラウザの Canvas API を使用して圧縮して送信されます。",
+                        en: "<strong>Large images are resized in-memory without altering original files.</strong><br><br>If an image is between 1MB and 10MB, the plugin optimizes it in-memory using the browser Canvas API before sending. It reduces the resolution and applies JPEG compression to fit the 1MB payload limit, without modifying your original file.",
+                    },
+                },
+                {
+                    id: "pdf-text-extraction",
+                    category: "advanced",
+                    question: {
+                        ja: "PDFなどのドキュメント添付ファイルは解析されますか？",
+                        en: "Are PDF or other document attachments analyzed?",
+                    },
+                    answer: {
+                        ja: "<strong>PDF.jsを使い最初の5ページ（最大10,000文字）を抽出できます（実験的機能）。</strong><br><br>PDFテキスト抽出は実験的機能（デフォルトOFF）です。有効化すると、Obsidianに組み込まれている `PDF.js` を利用してテキストを読み出します。制限として、先頭2ファイルまで・最初の5ページ・最大10,000文字までが抽出対象となり、画像PDF（OCR：画像内の文字を読み取る処理が必要なもの）や5MBを超える大きなPDFは処理されません。音声や動画ファイルの文字起こし機能はありません。",
+                        en: "<strong>Reads up to 5 pages (10k chars) via PDF.js as an experimental option.</strong><br><br>PDF text extraction is an experimental feature (disabled by default). When enabled, it extracts text using Obsidian's built-in `PDF.js`. Limits: up to 2 PDF files per note, first 5 pages each, and 10,000 characters max. OCR (scanned PDFs), PDFs over 5MB, and audio/video files are not supported.",
+                    },
+                },
+                {
+                    id: "url-scraping-logic",
+                    category: "advanced",
+                    question: {
+                        ja: "URLのみが書かれたノートはどのように処理されますか？",
+                        en: "How are URL-only notes handled?",
+                    },
+                    answer: {
+                        ja: "<strong>外部WebサイトのHTMLをフェッチし、メタデータと本文を抽出してAIに送ります。</strong><br><br>ノート本文がURLのみで構成されている場合、外部のWebページから HTML メタデータ（og:tags等：Webサイトの属性データ）および本文テキスト（Readability風の簡易アルゴリズムによる本文切り出し）を直接フェッチ（取得）してAIに入力します。ただし、SPA（シングルページアプリケーション：JavaScriptを駆使して動的に描画されるモダンなWebサイト）は本文を抽出できず、メタデータのみになる場合があります。",
+                        en: "<strong>Fetches webpage HTML to extract metadata and main body contents for AI.</strong><br><br>For notes consisting only of a URL, the plugin fetches the raw HTML and extracts metadata (like OpenGraph tags) and main text (using a Readability-style parser) to feed to the LLM. Single Page Applications (SPAs) requiring JS execution might return only metadata.",
+                    },
+                },
+                {
+                    id: "max-extracted-characters",
+                    category: "advanced",
+                    question: {
+                        ja: "URL抽出時、テキストの文字数制限はありますか？",
+                        en: "Is there a character limit when extracting content from URLs?",
+                    },
+                    answer: {
+                        ja: "<strong>はい、「Max extracted characters」設定でトークン肥大化を防止します。</strong><br><br>設定画面の「Max extracted characters」で上限（文字数）を指定できます。これにより、意図せず何十万文字もの長いWebドキュメントを読み込んでしまい、LLM（大規模言語モデル）への送信トークン（AIが一度に処理する最小文字単位）消費（＝API料金）が急増するのを防ぎます。",
+                        en: "<strong>Controlled via the 'Max extracted characters' setting to save API costs.</strong><br><br>Yes. The 'Max extracted characters' setting controls the upper limit. This prevents massive web pages from inflating your API request token counts and raising usage costs.",
+                    },
+                },
+                {
+                    id: "error-log-location",
+                    category: "advanced",
+                    question: {
+                        ja: "プラグインの実行中にエラーが発生した場合、どこでログを確認できますか？",
+                        en: "Where can I view error logs if the plugin fails?",
+                    },
+                    answer: {
+                        ja: "<strong>デベロッパーツールのコンソールの他、Vault内のログフォルダで安全にマスクされたログファイルを確認できます。</strong><br><br>Obsidianのデベロッパーツールコンソールに加え、エラー発生時には自動的に `.inbox-curator/logs/errors-YYYY-MM-DD.log` に日次ローテーション形式でログが出力されます。操作ログ（Operationsモード時）は同フォルダにJSONL形式で保存されます。ログ内の機密情報（APIキーやBase64画像データ）は自動でマスク（黒塗りにして隠す処理）され、安全に保存されます。",
+                        en: "<strong>Inspect developer console or masked log files inside the vault's log folder.</strong><br><br>In addition to Obsidian's developer tools console, error logs are written to `.inbox-curator/logs/errors-YYYY-MM-DD.log` with daily rotation. Operation logs (when Operations level is enabled) are stored as JSONL files in the same folder. Sensitive data like API keys and Base64 images are automatically masked.",
+                    },
+                },
+                {
+                    id: "custom-prompt-examples",
+                    category: "advanced",
+                    question: {
+                        ja: "カスタムプロンプト（Custom Review Prompt）の活用例を教えてください",
+                        en: "What are some examples of using a Custom Review Prompt?",
+                    },
+                    answer: {
+                        ja: '<strong>目的に応じた独自のルールや出力形式を追加できます。</strong><br><br>設定画面からカスタムプロンプトを設定することで、AIの判定基準を微調整できます。<br><br>【例1：判定基準の厳格化】<div class="code-block">スコアは通常より厳しく評価し、真に価値のある情報のみ80点以上としてください。</div><br>【例2：タスク化の条件指定】<div class="code-block">ノート内に「TODO」や「確認」という言葉が含まれる場合、必ず『タスク化』を提案し、サマリーの最初に「#urgent」とタグ付けしてください。</div><br>【例3：特定の情報の抽出】<div class="code-block">このノートが技術記事である場合、本文から『使用されているプログラミング言語やツール名』をリストアップしてサマリーの最後に追加してください。</div>',
+                        en: "<strong>You can add your own rules and output formats depending on your goals.</strong><br><br>By setting a custom prompt in the settings, you can fine-tune how AI reviews your notes.<br><br><b>Example 1: Stricter scoring</b><div class=\"code-block\">Be extremely strict with scoring. Only assign a score above 80 if the information is truly highly valuable.</div><br><b>Example 2: Specific task conditions</b><div class=\"code-block\">If the note contains the words 'TODO' or 'verify', always propose 'Turn into Task' and tag the summary with '#urgent'.</div><br><b>Example 3: Extracting specific info</b><div class=\"code-block\">If this is a technical article, extract a list of programming languages or tools mentioned in the text and append it to the end of the summary.</div>",
+                    },
+                },
+                {
+                    id: "ideal-workflow",
+                    category: "beginner",
+                    question: {
+                        ja: "Obsidian Web Clipper と組み合わせた理想的なワークフローを教えてください",
+                        en: "What is the ideal workflow with Obsidian Web Clipper?",
+                    },
+                    answer: {
+                        ja: "<strong>ブラウザでクリップ → 自動レビュー → 自動整理、の流れでInboxをゼロ運用できます。</strong><br><br>1. <strong>クリップ</strong>: ブラウザの Obsidian Web Clipper 拡張機能で記事をクリップし、Inboxフォルダへ保存します。<br>2. <strong>自動レビュー</strong>: Automatic Watching と Auto-review on Create を有効にしておくと、Inboxに保存された瞬間にAIレビューが自動で実行されます。<br>3. <strong>自動整理</strong>: Auto-sort Actions（Archive / Read Later / Tasks）を有効にすれば、レビュー完了後に自動的に各フォルダへ整理されます。<br><br>初回は1〜2件のノートでテストしてから本番運用することを推奨します。",
+                        en: "<strong>Clip from browser → auto-review → auto-organize. Keep your Inbox at zero effortlessly.</strong><br><br>1. <strong>Clip</strong>: Use Obsidian Web Clipper in your browser to save articles directly to your Inbox folder.<br>2. <strong>Auto-review</strong>: Enable Automatic Watching and Auto-review on Create — every clipped note is reviewed the moment it lands in your Inbox.<br>3. <strong>Auto-organize</strong>: Enable Auto-sort Actions (Archive / Read Later / Tasks) to automatically move reviewed notes to their appropriate folders.<br><br>We recommend testing with 1–2 notes before going fully automated.",
+                    },
+                },
+                {
+                    id: "undo-auto-sort",
+                    category: "beginner",
+                    question: {
+                        ja: "Auto-sort（自動整理）は取り消せますか？",
+                        en: "Can I undo auto-sorting?",
+                    },
+                    answer: {
+                        ja: "<strong>はい、直近のAuto-sort実行は「Undo last auto-sort run」コマンドで取り消せます。</strong><br><br>自動整理の実行履歴は `.inbox-curator/auto-sort-history.json` に記録されています。`Inbox Curator: Undo last auto-sort run` コマンドを実行すると、直近のAuto-sort実行が取り消され、ノートが元のフォルダに戻ります。",
+                        en: "<strong>Yes. Use the 'Undo last auto-sort run' command to revert the most recent auto-sort.</strong><br><br>Auto-sort action history is recorded in `.inbox-curator/auto-sort-history.json`. Running the `Inbox Curator: Undo last auto-sort run` command reverts the most recent auto-sort run, moving notes back to their original folders.",
+                    },
+                },
+                {
+                    id: "auto-sort-conditions",
+                    category: "advanced",
+                    question: {
+                        ja: "Auto-sort はどのような条件で各アクションを実行しますか？",
+                        en: "Under what conditions does auto-sort execute each action?",
+                    },
+                    answer: {
+                        ja: "<strong>アクションの種類によって必要なAI信頼度（Confidence）が異なります。</strong><br><br>• <strong>Archive / Read Later</strong>: Medium または High の信頼度で実行されます（低リスクの整理アクションのため）。<br>• <strong>Tasks（タスク化）</strong>: High 信頼度のみ実行されます（ユーザーの行動に影響を与えるため、より慎重です）。<br>• <strong>Delete Candidates</strong>: 提案のみ。自動実行は行われません。<br><br>これらの条件は設定画面の「Auto-sort Actions」セクションで確認・変更できます。",
+                        en: "<strong>Each action type requires a different AI confidence level.</strong><br><br>• <strong>Archive / Read Later</strong>: Executed when confidence is Medium or High (low-risk organizational actions).<br>• <strong>Tasks</strong>: Executed only when confidence is High (higher bar because tasks influence your behavior).<br>• <strong>Delete Candidates</strong>: Suggested only — never auto-executed.<br><br>These conditions can be reviewed in the Auto-sort Actions section of the settings.",
+                    },
+                },
+                {
+                    id: "prompt-injection-safety",
+                    category: "advanced",
+                    question: {
+                        ja: "プロンプトインジェクションが疑われるノートはどう扱われますか？",
+                        en: "How are notes with suspected prompt injection handled?",
+                    },
+                    answer: {
+                        ja: "<strong>Task（タスク化）の自動実行はブロックされますが、Archive / Read Later は条件を満たせば実行可能です。</strong><br><br>プロンプトインジェクション（悪意ある指示の埋め込み）のシグナルが検出された場合、タスクの自動実行はブロックされ、安全性が確保されます。一方、Archive や Read Later は比較的低リスクな整理アクションであるため、設定された信頼度条件と安全条件を満たせば自動実行が可能です。",
+                        en: "<strong>Task auto-execution is blocked, but Archive and Read Later may still proceed when safety conditions are met.</strong><br><br>When prompt injection signals are detected in note content, task auto-execution is blocked for safety. Archive and Read Later are lower-risk actions and may still auto-execute when their configured confidence and safety conditions are satisfied.",
+                    },
+                },
+                {
+                    id: "review-only-mode",
+                    category: "beginner",
+                    question: {
+                        ja: "より安全に使うにはどうすればよいですか？",
+                        en: "How can I use the plugin more safely?",
+                    },
+                    answer: {
+                        ja: "<strong>Review Mode を「Review only」に設定すると、すべての自動整理アクションが無効化され、レビュー（要約・スコア判定）のみを行います。</strong><br><br>設定 → Review Behavior → Review mode から「Review only」を選択すると、AIレビューは実行されますが、Auto-sort Actions（自動整理）は一切実行されません。ノートの自動移動を完全にオフにして、レビュー結果だけを確認したい場合に適しています。",
+                        en: "<strong>Set Review Mode to 'Review only' to disable all auto-sort actions while still performing AI reviews.</strong><br><br>Go to Settings → Review Behavior → Review mode and select 'Review only'. AI reviews will still generate summaries and scores, but no auto-sort actions (archive, read later, tasks, etc.) will be executed. This is the safest mode for users who want full manual control.",
+                    },
+                },
+                {
+                    id: "context-budget-setting",
+                    category: "advanced",
+                    question: {
+                        ja: "「Context Budget（コンテキスト予算）」とは何ですか？",
+                        en: "What is the Context Budget setting?",
+                    },
+                    answer: {
+                        ja: "<strong>AIに送信するコンテキスト量を制御する設定です。small / standard / large / custom から選択できます。</strong><br><br>プリセットごとの制限値は以下の通りです：<br>• <strong>small</strong>: 最大8Kトークン（入力5K / 出力1K / 安全マージン1K）<br>• <strong>standard</strong>: 最大32Kトークン（入力20K / 出力4K / 安全マージン3K）<br>• <strong>large</strong>: 最大64Kトークン（入力40K / 出力4K / 安全マージン6K）<br>• <strong>custom</strong>: 最大コンテキスト・入力・出力・安全マージンを個別に設定<br><br>予算超過時は出力ではなく入力側が削減されます。",
+                        en: "<strong>Controls the amount of context sent to the AI. Choose from small / standard / large / custom presets.</strong><br><br>Preset limits:<br>• <strong>small</strong>: 8K max context (5K input / 1K output / 1K safety margin)<br>• <strong>standard</strong>: 32K max context (20K input / 4K output / 3K safety margin)<br>• <strong>large</strong>: 64K max context (40K input / 4K output / 6K safety margin)<br>• <strong>custom</strong>: Custom max context, input, output, and safety margin tokens<br><br>When the budget is exceeded, input content is trimmed — not output.",
+                    },
+                },
+                {
+                    id: "logging-options",
+                    category: "advanced",
+                    question: {
+                        ja: "ログ出力レベルは変更できますか？",
+                        en: "Can I change the logging level?",
+                    },
+                    answer: {
+                        ja: "<strong>はい。「Off / Errors only / Operations」の3段階から選択できます。</strong><br><br>• <strong>Off</strong>: ログを出力しません。<br>• <strong>Errors only</strong>: エラー発生時のみログを記録します（デフォルト）。<br>• <strong>Operations</strong>: 構造化されたJSONL形式で操作ログを記録します。運用状況の詳細な確認やトラブルシューティングに役立ちます。<br><br>ログファイルは `.inbox-curator/logs/` 配下に日次ローテーションで保存されます。",
+                        en: "<strong>Yes. Choose from Off, Errors only, or Operations (structured JSONL).</strong><br><br>• <strong>Off</strong>: No log output.<br>• <strong>Errors only</strong>: Logs only when errors occur (default).<br>• <strong>Operations</strong>: Logs all operations in structured JSONL format for detailed monitoring and troubleshooting.<br><br>Log files are stored in `.inbox-curator/logs/` with daily rotation.",
+                    },
+                },
+                {
+                    id: "processing-marker",
+                    category: "advanced",
+                    question: {
+                        ja: "ファイル名の先頭に付く「🤖 」マークは何ですか？",
+                        en: "What is the '🤖 ' prefix that appears on filenames?",
+                    },
+                    answer: {
+                        ja: "<strong>「Show Processing Marker」設定を有効にすると、処理中のファイル名に一時的に `🤖 ` プレフィックスが付与されます。</strong><br><br>このマーカーは処理中であることを視覚的に示すためのものです。処理が完了しても稀にマーカーが残ることがあります。その場合は `Inbox Curator: Clean up processing markers` コマンドを実行して、残ったマーカーを一括除去できます。",
+                        en: "<strong>When 'Show Processing Marker' is enabled, a temporary `🤖 ` prefix is added to filenames during processing.</strong><br><br>This marker provides visual feedback that a file is being processed. In rare cases, stale markers may remain after processing. Use the `Inbox Curator: Clean up processing markers` command to remove them in bulk.",
+                    },
+                },
+                {
+                    id: "collection-review-what",
+                    category: "collection-review",
+                    question: {
+                        ja: "複数のノートをまとめてレビューできますか？（Collection Review）",
+                        en: "Can I review multiple notes together? (Collection Review)",
+                    },
+                    answer: {
+                        ja: "<strong>はい。Collection Review を使うと、選択した複数のMarkdownノート、またはフォルダ内のノートをまとめてAIが分析し、1つのレビュー用ノートに整理できます。</strong><br><br>通常のAIレビューが「1つのノート」を対象にするのに対し、Collection Review は「複数ノートのまとまり」を対象にします。<br><br>出力される Collection Review ノートには、主に以下の内容が含まれます。<br>• ノート群全体の要約<br>• AI視点での総評<br>• 主要テーマ<br>• 重要ノート<br>• 関連リンク候補<br>• 知識マップ / MOC候補<br>• 繰り返し現れるテーマやモチーフ<br>• 重複・重なり候補<br>• 矛盾や視点の変化<br>• 次のアクション<br><br><strong>使い方（複数ノート）</strong><br>1. Obsidian のファイルエクスプローラーで複数のMarkdownノートを選択<br>2. コマンドパレットから <code>Inbox Curator: Review selected notes as a collection</code> を実行<br><br><strong>使い方（フォルダ）</strong><br>1. 対象フォルダ内のノートを開く、または watched folder を設定<br>2. <code>Inbox Curator: Review folder as a collection</code> を実行<br><br><strong>重要なポイント：Collection Review は提案のみを行い、元のノートを一切変更しません。</strong>リンク追加・タグ追加・MOC自動作成・マージ・削除は実行されません。",
+                        en: "<strong>Yes. With Collection Review, Inbox Curator can analyze multiple Markdown notes as a group and create a single review note that summarizes the collection.</strong><br><br>A normal AI review focuses on one note. Collection Review focuses on a group of notes.<br><br>The generated Collection Review note may include:<br>• A summary of the whole collection<br>• An AI perspective on the group<br>• Main themes<br>• Key notes<br>• Suggested related links<br>• Suggested knowledge map / MOC<br>• Recurring themes or motifs<br>• Duplicate or overlapping notes<br>• Contradictions, tensions, or shifts in perspective<br>• Suggested next actions<br><br><strong>How to review selected notes</strong><br>1. Select multiple Markdown notes in Obsidian's file explorer<br>2. Run <code>Inbox Curator: Review selected notes as a collection</code> from the command palette<br><br><strong>How to review a folder</strong><br>1. Open a note in the target folder, or configure your watched folder<br>2. Run <code>Inbox Curator: Review folder as a collection</code><br><br><strong>Key point: Collection Review only creates suggestions. It does not modify your original notes.</strong> No links, tags, MOCs, merges, or deletions are performed automatically.",
+                    },
+                },
+                {
+                    id: "collection-review-vs-normal",
+                    category: "collection-review",
+                    question: {
+                        ja: "Collection Review と通常のAIレビューは何が違いますか？",
+                        en: "How is Collection Review different from a normal AI review?",
+                    },
+                    answer: {
+                        ja: "<strong>通常のAIレビューは1つのノートを対象にし、Collection Review は複数のノートをまとめて対象にします。</strong><br><br>通常レビューは、個別ノートの要約・重要度・信頼性・推奨アクションなどを出力します。<br><br>Collection Review は、ノート群全体の傾向や関連性を見つけるための機能です。たとえば以下のような確認に向いています。<br>• このフォルダ全体は何についてのノート群か<br>• どのノート同士が関連しているか<br>• 似たテーマが繰り返し出ているか<br>• MOCやインデックスノートを作るなら、どんな構成がよいか<br>• 次に読む・整理する・深掘りするノートはどれか<br><br>通常レビューは「個別ノートのレビュー」、Collection Review は「ノート群の俯瞰レビュー」と考えると分かりやすいです。",
+                        en: "<strong>A normal AI review analyzes one note. Collection Review analyzes multiple notes as a group.</strong><br><br>A normal review returns a summary, importance, credibility, and recommended action for a single note.<br><br>Collection Review helps you understand patterns, relationships, and structure across a set of notes. It is useful when you want to know:<br>• What this folder or group of notes is mainly about<br>• Which notes are related<br>• Which themes appear repeatedly<br>• What kind of MOC or index note could be created<br>• Which notes should be read, organized, or explored next<br><br>In short, a normal review is for one note. Collection Review is for understanding a group of notes.",
+                    },
+                },
+                {
+                    id: "collection-review-safety",
+                    category: "collection-review",
+                    question: {
+                        ja: "Collection Review は元のノートを変更しますか？",
+                        en: "Does Collection Review modify my original notes?",
+                    },
+                    answer: {
+                        ja: "<strong>いいえ。Collection Review は元のノートを変更しません。作成されるのは、新しい Collection Review ノートだけです。</strong><br><br>以下の操作は自動では行われません。<br>• 元ノート本文の変更<br>• リンクの自動追加<br>• タグの自動追加<br>• MOCノートの自動作成<br>• ノートのマージ<br>• ノートの移動<br>• ノートの削除<br><br>そのため、安心して複数ノートの振り返りに使えます。提案を見ながら、必要なものだけをユーザー自身で反映できます。",
+                        en: "<strong>No. Collection Review does not modify your original notes. It only creates a new Collection Review note.</strong><br><br>It does not automatically:<br>• Change source note content<br>• Add links to source notes<br>• Add tags<br>• Create MOC notes<br>• Merge notes<br>• Move notes<br>• Delete notes<br><br>This makes it safe to use for reviewing a group of notes. You can review the suggestions and apply only the ones you find useful.",
+                    },
+                },
+                {
+                    id: "collection-review-use-cases",
+                    category: "collection-review",
+                    question: {
+                        ja: "どんなノートに Collection Review は向いていますか？",
+                        en: "What kinds of notes work well with Collection Review?",
+                    },
+                    answer: {
+                        ja: "<strong>Collection Review は、複数のノートをまとめて見直したいときに向いています。</strong><br><br>たとえば、以下のような使い方ができます。<br>• Webクリップした記事を週ごとに振り返る<br>• 技術調査メモの論点を整理する<br>• AIチャットログから重要なアイデアを見つける<br>• 創作メモから繰り返し出てくるテーマを見つける<br>• プロジェクトメモから未決事項や次のアクションを洗い出す<br>• フォルダ内のノートからMOCやインデックスノートの候補を考える<br><br>単にノートを整理するだけでなく、過去のノートを読み返し、関心の変化や繰り返し出てくるテーマを見つける用途にも向いています。",
+                        en: "<strong>Collection Review is useful when you want to review multiple notes together.</strong><br><br>For example, you can use it to:<br>• Review web-clipped articles weekly<br>• Summarize technical research notes<br>• Find important ideas from AI chat logs<br>• Discover recurring themes in creative notes<br>• Identify open questions and next actions from project notes<br>• Find candidates for an MOC or index note<br><br>It is not only for organizing notes. It can also help you revisit older notes and notice recurring themes, changing interests, or shifts in perspective over time.",
+                    },
+                },
+                {
+                    id: "collection-review-reuse",
+                    category: "collection-review",
+                    question: {
+                        ja: "既存のAIレビュー結果は再利用されますか？",
+                        en: "Are existing AI review results reused?",
+                    },
+                    answer: {
+                        ja: "<strong>はい。設定で有効になっている場合、Collection Review は既存のAIレビュー結果（<code>*.ai-review.md</code>）を優先して利用します。</strong><br><br>これにより、ノート本文を毎回すべてAIに送るのではなく、既存の要約やレビュー結果を使って、複数ノートの全体像を分析できます。<br><br>メリットは以下です。<br>• APIコストを抑えやすい<br>• 処理が軽くなりやすい<br>• すでにレビュー済みの情報を再利用できる<br><br>既存レビューがないノートについては、ノート本文の一部が抜粋として使われます。設定の <code>Max excerpt characters per note</code> で抜粋サイズを調整できます。",
+                        en: "<strong>Yes. When enabled in settings, Collection Review uses existing AI review results (<code>*.ai-review.md</code>) first.</strong><br><br>Instead of sending the full content of every note each time, it can reuse existing summaries and review results to analyze the collection.<br><br>This helps:<br>• Reduce API costs<br>• Make processing lighter<br>• Reuse information from notes that were already reviewed<br><br>For notes without existing reviews, Inbox Curator uses a limited excerpt from the note content. You can adjust the excerpt size in settings under <code>Max excerpt characters per note</code>.",
+                    },
+                },
+                {
+                    id: "collection-review-no-automation",
+                    category: "collection-review",
+                    question: {
+                        ja: "MOCやリンクは自動で作成されますか？",
+                        en: "Are MOCs and links created automatically?",
+                    },
+                    answer: {
+                        ja: "<strong>いいえ。現在の Collection Review は、MOC候補や関連リンク候補を提案するだけです。</strong><br><br>以下は自動では行われません。<br>• MOCノートの作成<br>• 元ノートへのリンク追加<br>• タグ追加<br>• ノートの統合やマージ<br>• 元ノートの削除<br><br>出力された提案を見ながら、必要なものだけをユーザー自身で反映できます。",
+                        en: "<strong>No. Collection Review currently only suggests MOC candidates and related links.</strong><br><br>It does not automatically:<br>• Create MOC notes<br>• Add links to source notes<br>• Add tags<br>• Merge notes<br>• Delete source notes<br><br>You can review the suggestions and apply only the ones you find useful.",
+                    },
+                },
+                {
+                    id: "collection-review-troubleshooting",
+                    category: "collection-review",
+                    question: {
+                        ja: "Collection Review がうまく実行できない場合は？",
+                        en: "What should I check if Collection Review won't run?",
+                    },
+                    answer: {
+                        ja: "<strong>Collection Review が実行できない場合は、以下を確認してください。</strong><br><br>• 2件以上のMarkdownノートを選択しているか<br>• Markdown以外のファイルだけを選択していないか<br>• <code>*.ai-review.md</code> や <code>collection-review-*.md</code> だけを選択していないか<br>• AIプロバイダーとAPIキーが設定されているか<br>• Collection Review の最大ノート数設定を超えていないか<br>• 出力先フォルダを作成できる状態か<br><br><strong>複数選択レビューの場合</strong>：Obsidian のファイルエクスプローラーでMarkdownノートを複数選択してから、コマンドパレットで <code>Inbox Curator: Review selected notes as a collection</code> を実行してください。<br><br><strong>フォルダレビューの場合</strong>：対象フォルダ内のノートを開いてから <code>Inbox Curator: Review folder as a collection</code> を実行してください。",
+                        en: "<strong>If Collection Review does not run, check the following.</strong><br><br>• You selected at least two Markdown notes<br>• You did not select only non-Markdown files<br>• You did not select only <code>*.ai-review.md</code> or <code>collection-review-*.md</code> files<br>• Your AI provider and API key are configured<br>• You did not exceed the maximum note limit for Collection Review<br>• The output folder can be created<br><br><strong>For selected-note review</strong>: select multiple Markdown notes in Obsidian's file explorer first, then run <code>Inbox Curator: Review selected notes as a collection</code>.<br><br><strong>For folder review</strong>: open a note inside the target folder, then run <code>Inbox Curator: Review folder as a collection</code>.",
+                    },
+                },
+            ];
+
+            // State management
+            const state = {
+                language: "ja",
+                category: "all",
+                searchQuery: "",
+                theme: "light",
+            };
+
+            // DOM Elements
+            const langToggle = document.getElementById("langToggle");
+            const themeToggle = document.getElementById("themeToggle");
+            const searchInput = document.getElementById("searchInput");
+            const searchStatus = document.getElementById("searchStatus");
+            const searchClearBtn = document.getElementById("searchClearBtn");
+            const tabBtns = document.querySelectorAll(".tab-btn");
+            const faqListContainer = document.getElementById("faqList");
+
+            // Floating Mini Controls Elements
+            const miniControls = document.getElementById("miniControls");
+            const miniCategorySelect =
+                document.getElementById("miniCategorySelect");
+            const miniLangToggle = document.getElementById("miniLangToggle");
+            const miniThemeToggle = document.getElementById("miniThemeToggle");
+
+            // Google Analytics Consent Elements
+            const gaConsentToast = document.getElementById("gaConsentToast");
+            const gaAcceptBtn = document.getElementById("gaAcceptBtn");
+            const gaDeclineBtn = document.getElementById("gaDeclineBtn");
+            const gaConsentToggle = document.getElementById("gaConsentToggle");
+
+            // i18n Dictionary
+            const i18n = {
+                ja: {
+                    langLabel: "Englishに切り替え",
+                    themeLabelLight: "ライトモードに切り替え",
+                    themeLabelDark: "ダークモードに切り替え",
+                    searchStatusEmpty: "検索キーワードを入力してください",
+                    searchStatusResults: "{count}件の項目が見つかりました",
+                    searchStatusNone: "該当する質問が見つかりませんでした",
+                },
+                en: {
+                    langLabel: "Switch to Japanese",
+                    themeLabelLight: "Switch to Light Mode",
+                    themeLabelDark: "Switch to Dark Mode",
+                    searchStatusEmpty: "Enter search keywords",
+                    searchStatusResults: "{count} items found",
+                    searchStatusNone: "No matching questions found",
+                },
+            };
+
+            // Update Language UI elements
+            function updateLangUI() {
+                const isJa = state.language === "ja";
+                document.documentElement.lang = state.language;
+
+                document.querySelectorAll(".lang-ja-inline").forEach((el) => {
+                    el.style.display = isJa ? "inline-block" : "none";
+                });
+                document.querySelectorAll(".lang-en-inline").forEach((el) => {
+                    el.style.display = isJa ? "none" : "inline-block";
+                });
+
+                langToggle.textContent = isJa ? "English" : "日本語";
+                langToggle.setAttribute(
+                    "aria-label",
+                    i18n[state.language].langLabel,
+                );
+
+                const isDark = state.theme === "dark";
+                themeToggle.setAttribute(
+                    "aria-label",
+                    isDark
+                        ? i18n[state.language].themeLabelLight
+                        : i18n[state.language].themeLabelDark,
+                );
+
+                // Update mini controls language and option text
+                const currentCategoryVal =
+                    miniCategorySelect.value || state.category;
+                miniCategorySelect.innerHTML = `
+        <option value="all">${isJa ? "すべて" : "All"}</option>
+        <option value="beginner">${isJa ? "🔰 初心者" : "🔰 Beginner"}</option>
+        <option value="collection-review">${isJa ? "📚 コレクションレビュー" : "📚 Collection Review"}</option>
+        <option value="advanced">${isJa ? "⚙️ 技術" : "⚙️ Advanced"}</option>
+      `;
+                miniCategorySelect.value = currentCategoryVal;
+
+                miniLangToggle.textContent = isJa ? "EN" : "JA";
+                miniLangToggle.setAttribute(
+                    "aria-label",
+                    i18n[state.language].langLabel,
+                );
+
+                updateSearchStatus();
+            }
+
+            // Theme logic
+            function initTheme() {
+                const savedTheme = localStorage.getItem("faq-theme");
+                if (savedTheme === "light" || savedTheme === "dark") {
+                    state.theme = savedTheme;
+                } else {
+                    const prefersDark = window.matchMedia(
+                        "(prefers-color-scheme: dark)",
+                    ).matches;
+                    state.theme = prefersDark ? "dark" : "light";
+                }
+                applyTheme();
+            }
+
+            // Apply Theme attributes
+            function applyTheme() {
+                document.documentElement.setAttribute(
+                    "data-theme",
+                    state.theme,
+                );
+                const isDark = state.theme === "dark";
+                themeToggle.setAttribute(
+                    "aria-label",
+                    isDark
+                        ? i18n[state.language].themeLabelLight
+                        : i18n[state.language].themeLabelDark,
+                );
+                miniThemeToggle.setAttribute(
+                    "aria-label",
+                    isDark
+                        ? i18n[state.language].themeLabelLight
+                        : i18n[state.language].themeLabelDark,
+                );
+            }
+
+            // Regexp escape helper
+            function escapeRegExp(string) {
+                return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            }
+
+            // Update WAI-ARIA live region count
+            function updateSearchStatus(count = -1) {
+                if (state.searchQuery.trim() === "") {
+                    searchStatus.textContent = "";
+                    return;
+                }
+
+                if (count === 0) {
+                    searchStatus.textContent =
+                        i18n[state.language].searchStatusNone;
+                } else if (count > 0) {
+                    searchStatus.textContent = i18n[
+                        state.language
+                    ].searchStatusResults.replace("{count}", count);
+                }
+            }
+
+            // Render loop
+            function render() {
+                faqListContainer.innerHTML = "";
+                const isJa = state.language === "ja";
+                const query = state.searchQuery.trim().toLowerCase();
+
+                // Show/Hide search clear button
+                if (query) {
+                    searchClearBtn.removeAttribute("hidden");
+                } else {
+                    searchClearBtn.setAttribute("hidden", "");
+                }
+
+                const filtered = FAQ_DATA.filter((item) => {
+                    if (
+                        state.category !== "all" &&
+                        item.category !== state.category
+                    ) {
+                        return false;
+                    }
+
+                    if (query) {
+                        const qText =
+                            item.question[state.language].toLowerCase();
+                        const aText = item.answer[state.language].toLowerCase();
+                        return qText.includes(query) || aText.includes(query);
+                    }
+
+                    return true;
+                });
+
+                updateSearchStatus(query ? filtered.length : -1);
+
+                if (filtered.length === 0) {
+                    const noResults = document.createElement("div");
+                    noResults.setAttribute("role", "listitem");
+                    noResults.className = "no-results-card";
+
+                    const msg = document.createElement("p");
+                    msg.style.fontWeight = "600";
+                    msg.textContent = isJa
+                        ? "該当する質問が見つかりませんでした。"
+                        : "No matching questions found.";
+
+                    const clearBtn = document.createElement("button");
+                    clearBtn.className = "clear-search-link";
+                    clearBtn.textContent = isJa
+                        ? "➔ 検索キーワードをクリア"
+                        : "➔ Clear search query";
+                    clearBtn.addEventListener("click", () => {
+                        searchInput.value = "";
+                        state.searchQuery = "";
+                        searchClearBtn.setAttribute("hidden", "");
+                        render();
+                        searchInput.focus();
+                    });
+
+                    noResults.appendChild(msg);
+                    noResults.appendChild(clearBtn);
+                    faqListContainer.appendChild(noResults);
+                    // Ensure schema is updated to empty when no results
+                    generateFaqSchema([]);
+                    return;
+                }
+
+                filtered.forEach((item, index) => {
+                    const faqItemDiv = document.createElement("div");
+                    faqItemDiv.className = "faq-item";
+                    faqItemDiv.id = `item-${item.id}`;
+                    faqItemDiv.setAttribute("role", "listitem"); // List item semantic
+
+                    const h3 = document.createElement("h3");
+
+                    const trigger = document.createElement("button");
+                    trigger.className = "faq-trigger";
+                    trigger.id = `q-${item.id}`;
+                    trigger.setAttribute(
+                        "aria-expanded",
+                        query ? "true" : "false",
+                    );
+                    trigger.setAttribute("aria-controls", `a-${item.id}`);
+                    trigger.setAttribute("aria-posinset", index + 1);
+                    trigger.setAttribute("aria-setsize", filtered.length);
+
+                    if (query) {
+                        faqItemDiv.classList.add("open");
+                    }
+
+                    const qText = item.question[state.language];
+                    const aText = item.answer[state.language];
+
+                    const textSpan = document.createElement("span");
+                    if (query) {
+                        const regex = new RegExp(
+                            `(${escapeRegExp(query)})`,
+                            "gi",
+                        );
+                        textSpan.innerHTML = qText.replace(
+                            regex,
+                            "<mark>$1</mark>",
+                        );
+                    } else {
+                        textSpan.textContent = qText;
+                    }
+
+                    const iconSpan = document.createElement("span");
+                    iconSpan.className = "faq-icon";
+                    iconSpan.setAttribute("aria-hidden", "true");
+                    iconSpan.innerHTML =
+                        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+
+                    trigger.appendChild(textSpan);
+                    trigger.appendChild(iconSpan);
+                    h3.appendChild(trigger);
+
+                    const panel = document.createElement("div");
+                    panel.className = "faq-panel";
+                    panel.id = `a-${item.id}`;
+                    panel.setAttribute("role", "region");
+                    panel.setAttribute("aria-labelledby", `q-${item.id}`);
+
+                    const panelContent = document.createElement("div");
+                    panelContent.className = "faq-panel-content";
+
+                    if (query) {
+                        const regex = new RegExp(
+                            `(${escapeRegExp(query)})`,
+                            "gi",
+                        );
+                        panelContent.innerHTML = aText.replace(
+                            regex,
+                            "<mark>$1</mark>",
+                        );
+                    } else {
+                        panelContent.innerHTML = aText;
+                    }
+
+                    panel.appendChild(panelContent);
+                    faqItemDiv.appendChild(h3);
+                    faqItemDiv.appendChild(panel);
+                    faqListContainer.appendChild(faqItemDiv);
+
+                    // Accordion click handler (Pure CSS grid sliding animation via .open toggle)
+                    trigger.addEventListener("click", () => {
+                        const isOpen = faqItemDiv.classList.contains("open");
+                        if (isOpen) {
+                            faqItemDiv.classList.remove("open");
+                            trigger.setAttribute("aria-expanded", "false");
+                        } else {
+                            faqItemDiv.classList.add("open");
+                            trigger.setAttribute("aria-expanded", "true");
+                        }
+                    });
+                });
+
+                // Update FAQPage structured data to match only currently displayed items
+                generateFaqSchema(filtered);
+            }
+
+            // Keyboard tab switching helper (WAI-ARIA Tablist)
+            function setupTabsKeyboard() {
+                const tabs = Array.from(tabBtns);
+                tabs.forEach((tab, index) => {
+                    tab.addEventListener("keydown", (e) => {
+                        let targetIndex = -1;
+
+                        if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                            targetIndex = (index + 1) % tabs.length;
+                        } else if (
+                            e.key === "ArrowLeft" ||
+                            e.key === "ArrowUp"
+                        ) {
+                            targetIndex =
+                                (index - 1 + tabs.length) % tabs.length;
+                        } else if (e.key === "Home") {
+                            targetIndex = 0;
+                        } else if (e.key === "End") {
+                            targetIndex = tabs.length - 1;
+                        }
+
+                        if (targetIndex !== -1) {
+                            e.preventDefault();
+                            tabs[targetIndex].focus();
+                            selectTab(tabs[targetIndex]);
+                        }
+                    });
+
+                    tab.addEventListener("click", () => {
+                        selectTab(tab);
+                    });
+                });
+            }
+
+            function selectTab(selectedTab) {
+                tabBtns.forEach((btn) => {
+                    btn.setAttribute("aria-selected", "false");
+                    btn.setAttribute("tabindex", "-1");
+                });
+
+                selectedTab.setAttribute("aria-selected", "true");
+                selectedTab.setAttribute("tabindex", "0");
+
+                state.category = selectedTab.dataset.category;
+
+                // Sync mini UI select
+                miniCategorySelect.value = state.category;
+
+                render();
+            }
+
+            // Mini Controls Interaction
+            miniCategorySelect.addEventListener("change", (e) => {
+                state.category = e.target.value;
+
+                // Sync main tabs UI
+                tabBtns.forEach((btn) => {
+                    if (btn.dataset.category === state.category) {
+                        btn.setAttribute("aria-selected", "true");
+                        btn.setAttribute("tabindex", "0");
+                    } else {
+                        btn.setAttribute("aria-selected", "false");
+                        btn.setAttribute("tabindex", "-1");
+                    }
+                });
+                render();
+            });
+
+            miniLangToggle.addEventListener("click", () => {
+                const isJa = state.language === "ja";
+                state.language = isJa ? "en" : "ja";
+                langToggle.setAttribute(
+                    "aria-pressed",
+                    isJa ? "true" : "false",
+                );
+                updateLangUI();
+                render();
+            });
+
+            miniThemeToggle.addEventListener("click", () => {
+                state.theme = state.theme === "light" ? "dark" : "light";
+                localStorage.setItem("faq-theme", state.theme);
+                applyTheme();
+            });
+
+            // Scroll trigger for Mini Controls (fade & slide in)
+            window.addEventListener("scroll", () => {
+                if (window.scrollY > 200) {
+                    miniControls.classList.add("visible");
+                } else {
+                    // Accessibility fallback: keep visible if keyboard focus is currently inside mini controls
+                    if (!miniControls.contains(document.activeElement)) {
+                        miniControls.classList.remove("visible");
+                    }
+                }
+            });
+
+            // Handle keyboard accessibility focus within mini controls
+            miniControls.addEventListener("focusin", () => {
+                miniControls.classList.add("visible");
+            });
+
+            miniControls.addEventListener("focusout", () => {
+                if (window.scrollY <= 200) {
+                    miniControls.classList.remove("visible");
+                }
+            });
+
+            // Focus first matching FAQ trigger when pressing Enter on search input
+            searchInput.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    const firstTrigger =
+                        faqListContainer.querySelector(".faq-trigger");
+                    if (firstTrigger) {
+                        firstTrigger.focus();
+                    }
+                }
+            });
+
+            // Clear search query button action
+            searchClearBtn.addEventListener("click", () => {
+                searchInput.value = "";
+                state.searchQuery = "";
+                render();
+                searchInput.focus();
+            });
+
+            langToggle.addEventListener("click", () => {
+                const isJa = state.language === "ja";
+                state.language = isJa ? "en" : "ja";
+                langToggle.setAttribute(
+                    "aria-pressed",
+                    isJa ? "true" : "false",
+                );
+                updateLangUI();
+                render();
+            });
+
+            themeToggle.addEventListener("click", () => {
+                state.theme = state.theme === "light" ? "dark" : "light";
+                localStorage.setItem("faq-theme", state.theme);
+                applyTheme();
+            });
+
+            // Google Analytics Consent / Opt-In logic
+            function hideToast() {
+                gaConsentToast.classList.remove("show");
+                setTimeout(() => {
+                    gaConsentToast.setAttribute("hidden", "");
+                }, 400);
+            }
+
+            gaAcceptBtn.addEventListener("click", () => {
+                localStorage.setItem("ga-consent", "true");
+                gaConsentToggle.checked = true;
+                hideToast();
+                loadGA4();
+            });
+
+            gaDeclineBtn.addEventListener("click", () => {
+                localStorage.setItem("ga-consent", "false");
+                gaConsentToggle.checked = false;
+                hideToast();
+                window["ga-disable-" + GA_ID] = true;
+            });
+
+            gaConsentToggle.addEventListener("change", (e) => {
+                const isChecked = e.target.checked;
+                localStorage.setItem(
+                    "ga-consent",
+                    isChecked ? "true" : "false",
+                );
+                if (isChecked) {
+                    loadGA4();
+                    if (window["ga-disable-" + GA_ID]) {
+                        delete window["ga-disable-" + GA_ID];
+                    }
+                } else {
+                    window["ga-disable-" + GA_ID] = true;
+                }
+            });
+
+            // Check GA consent on load
+            const savedConsent = localStorage.getItem("ga-consent");
+            if (savedConsent === null) {
+                // First visit: show consent toast dialog
+                gaConsentToast.removeAttribute("hidden");
+                gaConsentToast.getBoundingClientRect();
+                gaConsentToast.classList.add("show");
+            } else {
+                gaConsentToggle.checked = savedConsent === "true";
+            }
+
+            searchInput.addEventListener("input", (e) => {
+                state.searchQuery = e.target.value;
+                render();
+            });
+
+            // Generate FAQPage JSON-LD Schema.org structured data from FAQ_DATA
+            function generateFaqSchema(filteredItems) {
+                const schema = {
+                    "@context": "https://schema.org",
+                    "@type": "FAQPage",
+                    mainEntity: filteredItems.map((item) => {
+                        // Merge Japanese and English for maximum search engine indexability
+                        const questionText = `${item.question.ja} / ${item.question.en}`;
+                        // Strip HTML tags for clean schema text
+                        const answerJa = item.answer.ja.replace(/<[^>]*>/g, "");
+                        const answerEn = item.answer.en.replace(/<[^>]*>/g, "");
+                        const answerText = `${answerJa} / ${answerEn}`;
+
+                        return {
+                            "@type": "Question",
+                            name: questionText,
+                            acceptedAnswer: {
+                                "@type": "Answer",
+                                text: answerText,
+                            },
+                        };
+                    }),
+                };
+
+                // Create or update script tag
+                let script = document.getElementById("faq-schema");
+                if (!script) {
+                    script = document.createElement("script");
+                    script.id = "faq-schema";
+                    script.type = "application/ld+json";
+                    document.head.appendChild(script);
+                }
+                script.text = JSON.stringify(schema);
+            }
+
+            // Initial load
+            initTheme();
+            langToggle.setAttribute("aria-pressed", "false");
+            setupTabsKeyboard();
+            updateLangUI();
+            render();
+        </script>
+    </body>
+</html>
