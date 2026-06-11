@@ -9,7 +9,7 @@ vi.mock('../src/utils/imageOptimization', () => ({
   optimizeImageForAi: vi.fn(),
 }));
 
-import { buildReviewModelInputPayload, buildReviewSourceInfo, loadAndConvertImages, sanitizeCustomReviewPrompt, buildAdditionalUserInstructions } from '../src/reviewPipeline';
+import { buildReviewModelInputPayload, buildReviewSourceInfo, loadAndConvertImages, sanitizeCustomReviewPrompt, buildAdditionalUserInstructions, resolvePromptLanguage, buildResponseLanguageDirective, normalizeLocale, getObsidianDisplayLanguage, looksJapanese } from '../src/reviewPipeline';
 import { fetchUrlContext } from '../src/urlExtraction';
 import { optimizeImageForAi } from '../src/utils/imageOptimization';
 
@@ -421,5 +421,159 @@ describe('buildOutputPath truncation', () => {
     const source2 = buildReviewSourceInfo(file2, 'AI Reviews', '# Test\n');
 
     expect(source1.outputPath).not.toBe(source2.outputPath);
+  });
+});
+
+describe('normalizeLocale', () => {
+  it('handles ja-JP', () => {
+    expect(normalizeLocale('ja-JP')).toBe('ja');
+  });
+
+  it('handles uppercase JA', () => {
+    expect(normalizeLocale('JA')).toBe('ja');
+  });
+
+  it('handles plain ja', () => {
+    expect(normalizeLocale('ja')).toBe('ja');
+  });
+
+  it('handles en-US', () => {
+    expect(normalizeLocale('en-US')).toBe('en');
+  });
+
+  it('handles zh-cn', () => {
+    expect(normalizeLocale('zh-cn')).toBe('zh');
+  });
+
+  it('handles empty string', () => {
+    expect(normalizeLocale('')).toBe('');
+  });
+
+  it('handles locale with underscore separator', () => {
+    expect(normalizeLocale('ja_JP')).toBe('ja');
+  });
+});
+
+describe('getObsidianDisplayLanguage', () => {
+  it('returns japanese when localStorage language is ja', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockReturnValue('ja');
+    expect(getObsidianDisplayLanguage()).toBe('japanese');
+  });
+
+  it('returns japanese when localStorage language is ja-JP', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockReturnValue('ja-JP');
+    expect(getObsidianDisplayLanguage()).toBe('japanese');
+  });
+
+  it('returns english when localStorage language is en', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockReturnValue('en');
+    expect(getObsidianDisplayLanguage()).toBe('english');
+  });
+
+  it('returns english when localStorage language is null', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockReturnValue(null);
+    expect(getObsidianDisplayLanguage()).toBe('english');
+  });
+
+  it('returns english when localStorage throws', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('unavailable'); });
+    expect(getObsidianDisplayLanguage()).toBe('english');
+  });
+});
+
+describe('looksJapanese', () => {
+  it('detects Japanese text with sufficient characters', () => {
+    expect(looksJapanese('これは日本語のテストです。十分な文字数があります。')).toBe(true);
+  });
+
+  it('returns false for English text', () => {
+    expect(looksJapanese('This is English text with no Japanese characters.')).toBe(false);
+  });
+
+  it('returns false for fewer than 8 Japanese characters', () => {
+    expect(looksJapanese('日本語')).toBe(false);
+  });
+
+  it('returns false for empty string', () => {
+    expect(looksJapanese('')).toBe(false);
+  });
+});
+
+describe('resolvePromptLanguage', () => {
+  const japaneseNote = 'これは日本語のノートのコンテンツです。十分な文字数があります。';
+  const englishNote = 'This is an English note with sufficient content.';
+
+  it('explicit japanese → japanese', () => {
+    expect(resolvePromptLanguage('japanese', englishNote)).toBe('japanese');
+  });
+
+  it('explicit english → english', () => {
+    expect(resolvePromptLanguage('english', japaneseNote)).toBe('english');
+  });
+
+  it('auto with Japanese content → japanese', () => {
+    expect(resolvePromptLanguage('auto', japaneseNote)).toBe('japanese');
+  });
+
+  it('auto with English content → english', () => {
+    expect(resolvePromptLanguage('auto', englishNote)).toBe('english');
+  });
+
+  it('note-language with Japanese content → japanese', () => {
+    expect(resolvePromptLanguage('note-language', japaneseNote)).toBe('japanese');
+  });
+
+  it('note-language with English content → english', () => {
+    expect(resolvePromptLanguage('note-language', englishNote)).toBe('english');
+  });
+
+  it('match-obsidian with ja locale → japanese', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockReturnValue('ja');
+    expect(resolvePromptLanguage('match-obsidian', englishNote)).toBe('japanese');
+  });
+
+  it('match-obsidian with en locale → english', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockReturnValue('en');
+    expect(resolvePromptLanguage('match-obsidian', englishNote)).toBe('english');
+  });
+
+  it('match-obsidian with ja-JP locale → japanese', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockReturnValue('ja-JP');
+    expect(resolvePromptLanguage('match-obsidian', englishNote)).toBe('japanese');
+  });
+});
+
+describe('buildResponseLanguageDirective', () => {
+  const japaneseNote = 'これは日本語のノートのコンテンツです。十分な文字数があります。';
+  const englishNote = 'This is an English note with sufficient content.';
+
+  it('japanese → 日本語', () => {
+    expect(buildResponseLanguageDirective('japanese', englishNote)).toBe('日本語');
+  });
+
+  it('english → English', () => {
+    expect(buildResponseLanguageDirective('english', japaneseNote)).toBe('English');
+  });
+
+  it('auto with Japanese content → 日本語', () => {
+    expect(buildResponseLanguageDirective('auto', japaneseNote)).toBe('日本語');
+  });
+
+  it('auto with English content → same language as note', () => {
+    expect(buildResponseLanguageDirective('auto', englishNote)).toBe('the same language as the note');
+  });
+
+  it('note-language with any content → same language as note', () => {
+    expect(buildResponseLanguageDirective('note-language', japaneseNote)).toBe('the same language as the note');
+  });
+
+  it('match-obsidian with ja locale → 日本語', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockReturnValue('ja');
+    expect(buildResponseLanguageDirective('match-obsidian', englishNote)).toBe('日本語');
+  });
+
+  it('match-obsidian with en locale → English', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockReturnValue('en');
+    expect(buildResponseLanguageDirective('match-obsidian', englishNote)).toBe('English');
   });
 });

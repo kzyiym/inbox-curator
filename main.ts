@@ -299,7 +299,7 @@ export default class InboxCuratorPlugin extends Plugin {
                     maxExcerptCharsPerNote: this.settings.collectionReviewMaxExcerptCharsPerNote,
                     useExistingReviewsFirst: this.settings.collectionReviewUseExistingReviewsFirst,
                     includeExcerptWhenNeeded: this.settings.collectionReviewIncludeExcerptWhenNeeded,
-                    promptLanguage: this.settings.promptLanguage === 'japanese' ? 'japanese' : 'english',
+                    promptLanguage: this.resolveCollectionReviewPromptLanguage(),
                     requestTimeoutMs: this.settings.requestTimeoutMs,
                     maxOutputTokens: 4096,
                     isUnloaded: () => this.isUnloaded,
@@ -544,6 +544,23 @@ export default class InboxCuratorPlugin extends Plugin {
         buildOpenAiCompatibleTokenLimitDetectionKey(this.settings.endpointUrl, this.settings.model),
       ),
     };
+  }
+
+  private resolveCollectionReviewPromptLanguage(): 'english' | 'japanese' {
+    if (this.settings.promptLanguage === 'japanese') {
+      return 'japanese';
+    }
+    if (this.settings.promptLanguage === 'match-obsidian') {
+      try {
+        const lang = window.localStorage.getItem('language');
+        if (lang && lang.trim().toLowerCase().replace(/[-_].*$/, '') === 'ja') {
+          return 'japanese';
+        }
+      } catch {
+        // localStorage unavailable
+      }
+    }
+    return 'english';
   }
 
   private resolveMarkdownFile(notePath: string): TFile | null {
@@ -1478,7 +1495,7 @@ export default class InboxCuratorPlugin extends Plugin {
       maxExcerptCharsPerNote: this.settings.collectionReviewMaxExcerptCharsPerNote,
       useExistingReviewsFirst: this.settings.collectionReviewUseExistingReviewsFirst,
       includeExcerptWhenNeeded: this.settings.collectionReviewIncludeExcerptWhenNeeded,
-      promptLanguage: this.settings.promptLanguage === 'japanese' ? 'japanese' : 'english',
+      promptLanguage: this.resolveCollectionReviewPromptLanguage(),
       requestTimeoutMs: this.settings.requestTimeoutMs,
       maxOutputTokens: 4096,
       isUnloaded: () => this.isUnloaded,
@@ -1574,7 +1591,7 @@ export default class InboxCuratorPlugin extends Plugin {
     );
 
     const promptLanguage: 'english' | 'japanese' =
-      this.settings.promptLanguage === 'japanese' ? 'japanese' : 'english';
+      this.resolveCollectionReviewPromptLanguage();
 
     if (!this.tryBeginProcessing(t('notice.collectionReview.started', { count: files.length }))) {
       return;

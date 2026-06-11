@@ -46,7 +46,7 @@ export interface ReviewPipelineOptions {
   readVideos: boolean;
   requestTimeoutMs: number;
   reviewMode?: import('./types').ReviewMode;
-  promptLanguage: 'auto' | 'japanese' | 'english' | 'note-language';
+  promptLanguage: 'auto' | 'japanese' | 'english' | 'note-language' | 'match-obsidian';
   customReviewPrompt?: string;
   extractPdfText: boolean;
   isUnloaded?: () => boolean;
@@ -82,7 +82,7 @@ export interface ReviewModelInputPayload {
   inputReductionInfo?: InputContentReductionInfo;
   requestTimeoutMs?: number;
   reviewMode?: import('./types').ReviewMode;
-  promptLanguage: 'auto' | 'japanese' | 'english' | 'note-language';
+  promptLanguage: 'auto' | 'japanese' | 'english' | 'note-language' | 'match-obsidian';
   customReviewPrompt?: string;
   maxOutputTokens: number;
   openAiTokenLimitParam?: 'max_tokens' | 'max_completion_tokens' | 'none';
@@ -282,20 +282,40 @@ function buildNotePreview(noteContent: string, maxLength = 280): string {
   return `${normalized.slice(0, maxLength)}…`;
 }
 
-function looksJapanese(text: string): boolean {
+export function looksJapanese(text: string): boolean {
   const matches = text.match(/[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]/g);
   return Boolean(matches && matches.length >= 8);
 }
 
-function resolvePromptLanguage(promptLanguage: 'auto' | 'japanese' | 'english' | 'note-language', noteContent: string): 'english' | 'japanese' {
+export function getObsidianDisplayLanguage(): 'english' | 'japanese' {
+  try {
+    const lang = window.localStorage.getItem('language');
+    if (lang && normalizeLocale(lang) === 'ja') {
+      return 'japanese';
+    }
+  } catch {
+    // localStorage unavailable
+  }
+  return 'english';
+}
+
+export function normalizeLocale(raw: string): string {
+  const base = raw.trim().toLowerCase().replace(/[-_].*$/, '');
+  return base;
+}
+
+export function resolvePromptLanguage(promptLanguage: 'auto' | 'japanese' | 'english' | 'note-language' | 'match-obsidian', noteContent: string): 'english' | 'japanese' {
   if (promptLanguage === 'japanese') {
     return 'japanese';
   }
   if (promptLanguage === 'english') {
     return 'english';
   }
+  if (promptLanguage === 'match-obsidian') {
+    return getObsidianDisplayLanguage();
+  }
   if (promptLanguage === 'note-language') {
-    return 'english';
+    return looksJapanese(noteContent) ? 'japanese' : 'english';
   }
   if (looksJapanese(noteContent)) {
     return 'japanese';
@@ -303,12 +323,15 @@ function resolvePromptLanguage(promptLanguage: 'auto' | 'japanese' | 'english' |
   return 'english';
 }
 
-function buildResponseLanguageDirective(promptLanguage: 'auto' | 'japanese' | 'english' | 'note-language', noteContent: string): string {
+export function buildResponseLanguageDirective(promptLanguage: 'auto' | 'japanese' | 'english' | 'note-language' | 'match-obsidian', noteContent: string): string {
   if (promptLanguage === 'japanese') {
     return '日本語';
   }
   if (promptLanguage === 'english') {
     return 'English';
+  }
+  if (promptLanguage === 'match-obsidian') {
+    return getObsidianDisplayLanguage() === 'japanese' ? '日本語' : 'English';
   }
   if (promptLanguage === 'auto' && looksJapanese(noteContent)) {
     return '日本語';

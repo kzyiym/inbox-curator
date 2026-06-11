@@ -44,7 +44,7 @@ export interface InboxCuratorSettings {
   taskFolder: string;
   deleteCandidateFolder: string;
   requestTimeoutMs: number;
-  promptLanguage: 'auto' | 'japanese' | 'english' | 'note-language';
+  promptLanguage: 'auto' | 'japanese' | 'english' | 'note-language' | 'match-obsidian';
   customReviewPrompt: string;
   suggestedFolderBasePath: string;
   extractPdfText: boolean;
@@ -108,7 +108,7 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   taskFolder: 'Tasks',
   deleteCandidateFolder: 'Delete Candidates',
   requestTimeoutMs: 60000,
-  promptLanguage: 'auto',
+  promptLanguage: 'match-obsidian',
   customReviewPrompt: '',
   suggestedFolderBasePath: '',
   extractPdfText: false,
@@ -1351,6 +1351,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       .setDesc(t('settings.promptLanguage.desc'))
       .addDropdown((dropdown) =>
         dropdown
+          .addOption('match-obsidian', t('settings.promptLanguage.matchObsidian'))
           .addOption('auto', t('settings.promptLanguage.auto'))
           .addOption('japanese', t('settings.promptLanguage.japanese'))
           .addOption('english', t('settings.promptLanguage.english'))

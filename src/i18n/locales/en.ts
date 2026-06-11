@@ -90,6 +90,7 @@ export const en = {
   'settings.promptLanguage.japanese': 'Japanese',
   'settings.promptLanguage.english': 'English',
   'settings.promptLanguage.noteLanguage': 'Same language as the note',
+  'settings.promptLanguage.matchObsidian': 'Match Obsidian language',
   'settings.reviewMode.label': 'Review mode',
   'settings.reviewMode.desc': 'Controls how AI reviews and processes notes.',
   'settings.reviewMode.standard': 'Advanced',
