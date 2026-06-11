@@ -369,7 +369,10 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    const saved = (await this.loadData()) as Partial<InboxCuratorSettings> | null;
+    const saved = (await this.loadData()) as any;
+    if (saved) {
+      delete saved.autoExecuteDeleteCandidate;
+    }
     this.settings = { ...DEFAULT_SETTINGS, ...(saved ?? {}) };
 
     // Backwards compatibility migration
@@ -428,7 +431,6 @@ export default class InboxCuratorPlugin extends Plugin {
       autoExecuteArchive: this.settings.autoExecuteArchive,
       autoExecuteReadLater: this.settings.autoExecuteReadLater,
       autoExecuteTask: this.settings.autoExecuteTask,
-      autoExecuteDeleteCandidate: this.settings.autoExecuteDeleteCandidate,
       readLaterFolder: this.settings.readLaterFolder,
       taskFolder: this.settings.taskFolder,
       deleteCandidateFolder: this.settings.deleteCandidateFolder,

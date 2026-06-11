@@ -39,7 +39,6 @@ export interface InboxCuratorSettings {
   autoExecuteArchive: boolean;
   autoExecuteReadLater: boolean;
   autoExecuteTask: boolean;
-  autoExecuteDeleteCandidate: boolean;
   readLaterFolder: string;
   taskFolder: string;
   deleteCandidateFolder: string;
@@ -103,7 +102,6 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   autoExecuteArchive: false,
   autoExecuteReadLater: false,
   autoExecuteTask: false,
-  autoExecuteDeleteCandidate: false,
   readLaterFolder: 'Read Later',
   taskFolder: 'Tasks',
   deleteCandidateFolder: 'Delete Candidates',
@@ -791,6 +789,47 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         updateSuggestedFolderStatus();
       });
 
+    let deleteCandidateStatusEl: HTMLElement | null = null;
+    const updateDeleteCandidateStatus = () => {
+      if (!deleteCandidateStatusEl) return;
+      const path = settings.deleteCandidateFolder.trim();
+      if (!path) {
+        deleteCandidateStatusEl.textContent = '';
+        deleteCandidateStatusEl.className = 'inbox-curator-folder-status';
+        return;
+      }
+      const ref = this.app.vault.getAbstractFileByPath(normalizePath(path));
+      if (ref instanceof TFolder) {
+        deleteCandidateStatusEl.textContent = '\u2713';
+        deleteCandidateStatusEl.className = 'inbox-curator-folder-status inbox-curator-folder-status-ok';
+      } else {
+        deleteCandidateStatusEl.textContent = '+';
+        deleteCandidateStatusEl.className = 'inbox-curator-folder-status inbox-curator-folder-status-created';
+      }
+    };
+    const deleteCandidateSetting = new Setting(scopeCard)
+      .setName(t('settings.deleteCandidateFolder.label'))
+      .setDesc(t('settings.deleteCandidateFolder.desc'))
+      .addText((text) => {
+        text
+          .setPlaceholder('Delete Candidates')
+          .setValue(settings.deleteCandidateFolder)
+          .onChange(async (value) => {
+            const result = this.applyFolderValidation(value, DEFAULT_SETTINGS.deleteCandidateFolder);
+            if (result.changed) {
+              text.setValue(result.sanitized);
+            }
+            settings.deleteCandidateFolder = result.sanitized;
+            await this.plugin.saveSettings();
+            updateDeleteCandidateStatus();
+          });
+        text.inputEl.setAttribute('list', datalistId);
+        deleteCandidateStatusEl = text.inputEl.ownerDocument.createElement('span');
+        deleteCandidateStatusEl.className = 'inbox-curator-folder-status';
+        text.inputEl.insertAdjacentElement('afterend', deleteCandidateStatusEl);
+        updateDeleteCandidateStatus();
+      });
+
     // ── 4. Automation ──
     const autoCard = this.createCardContainer(containerEl, '⚡ ' + t('settings.automation.title'), t('settings.automation.desc'));
 
@@ -925,59 +964,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         });
     }
 
-    new Setting(autoCard)
-      .setName(t('settings.autoExecuteDeleteCandidate.label'))
-      .setDesc(t('settings.autoExecuteDeleteCandidate.desc'))
-      .addToggle((toggle) =>
-        toggle.setValue(settings.autoExecuteDeleteCandidate).onChange(async (value) => {
-          settings.autoExecuteDeleteCandidate = value;
-          await this.plugin.saveSettings();
-          this.display();
-        }),
-      );
 
-    if (settings.autoExecuteDeleteCandidate) {
-      let deleteCandidateStatusEl: HTMLElement | null = null;
-      const updateDeleteCandidateStatus = () => {
-        if (!deleteCandidateStatusEl) return;
-        const path = settings.deleteCandidateFolder.trim();
-        if (!path) {
-          deleteCandidateStatusEl.textContent = '';
-          deleteCandidateStatusEl.className = 'inbox-curator-folder-status';
-          return;
-        }
-        const ref = this.app.vault.getAbstractFileByPath(normalizePath(path));
-        if (ref instanceof TFolder) {
-          deleteCandidateStatusEl.textContent = '\u2713';
-          deleteCandidateStatusEl.className = 'inbox-curator-folder-status inbox-curator-folder-status-ok';
-        } else {
-          deleteCandidateStatusEl.textContent = '+';
-          deleteCandidateStatusEl.className = 'inbox-curator-folder-status inbox-curator-folder-status-created';
-        }
-      };
-      new Setting(autoCard)
-        .setName(t('settings.deleteCandidateFolder.label'))
-        .setDesc(t('settings.deleteCandidateFolder.desc'))
-        .addText((text) => {
-          text
-            .setPlaceholder('Delete Candidates')
-            .setValue(settings.deleteCandidateFolder)
-            .onChange(async (value) => {
-              const result = this.applyFolderValidation(value, DEFAULT_SETTINGS.deleteCandidateFolder);
-              if (result.changed) {
-                text.setValue(result.sanitized);
-              }
-              settings.deleteCandidateFolder = result.sanitized;
-              await this.plugin.saveSettings();
-              updateDeleteCandidateStatus();
-            });
-          text.inputEl.setAttribute('list', datalistId);
-          deleteCandidateStatusEl = text.inputEl.ownerDocument.createElement('span');
-          deleteCandidateStatusEl.className = 'inbox-curator-folder-status';
-          text.inputEl.insertAdjacentElement('afterend', deleteCandidateStatusEl);
-          updateDeleteCandidateStatus();
-        });
-    }
 
     autoCard.createEl('p', {
       text: t('settings.safety.note'),

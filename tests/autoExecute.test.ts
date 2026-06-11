@@ -68,7 +68,6 @@ describe('InboxCuratorPlugin Auto-execute', () => {
       autoExecuteArchive: false,
       autoExecuteReadLater: false,
       autoExecuteTask: false,
-      autoExecuteDeleteCandidate: false,
       reviewOutputFolder: 'AI Reviews',
       readLaterFolder: 'Read Later',
       taskFolder: 'Tasks',
@@ -209,9 +208,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
     }, 'english');
   });
 
-  it('skips auto-delete-candidate even when autoExecuteDeleteCandidate is enabled', async () => {
-    plugin.settings.autoExecuteDeleteCandidate = true;
-
+  it('always skips delete_candidate recommended actions during auto-sort', async () => {
     vi.mocked(runReviewPipeline).mockResolvedValue({
       ok: true,
       reviewResult: {
@@ -550,35 +547,6 @@ describe('InboxCuratorPlugin Auto-execute', () => {
       expect(executeProposedAction).not.toHaveBeenCalled();
     });
 
-    it('skips delete_candidate auto-execute when reliabilityLabel is medium', async () => {
-      plugin.settings.autoExecuteDeleteCandidate = true;
-
-      vi.mocked(runReviewPipeline).mockResolvedValue({
-        ok: true,
-        reviewResult: {
-        promptLanguage: 'english',
-          verdict: {
-            recommendedAction: 'delete_candidate',
-            reliabilityLabel: 'medium',
-          },
-        },
-        writeResult: {
-          outputPath: 'AI Reviews/my-note.ai-review.md',
-        },
-      } as any);
-
-      vi.mocked(executeProposedAction).mockResolvedValue({
-        success: true,
-        status: 'executed',
-        actionTaken: 'delete_candidate',
-      });
-
-      const job = createReviewJob('auto-create', 'Inbox/my-note.md', 0);
-      const result = await (plugin as any).runQueuedReviewJob(job);
-
-      expect(result.status).toBe('processed');
-      expect(executeProposedAction).not.toHaveBeenCalled();
-    });
 
     it('skips auto-execute when reliabilityLabel is low', async () => {
       plugin.settings.autoExecuteArchive = true;

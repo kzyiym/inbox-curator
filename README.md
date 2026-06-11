@@ -172,6 +172,7 @@ This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/c
 | Watched Folder | `Inbox` | Folder monitored for curation |
 | Review Output Folder | `AI Reviews` | Target folder for AI review notes |
 | Suggested Folder Base Path | *(empty)* | Parent path for AI-suggested archive paths |
+| Delete Candidate Folder | `Delete Candidates` | Destination folder used when you manually execute a delete_candidate recommendation. Delete candidates are never auto-executed. |
 | Max Notes per Run | `10` | Limits batch run size (1–100) |
 | Max Concurrent Reviews | `1` | Concurrent review jobs (1–8, Advanced) |
 
@@ -206,7 +207,6 @@ This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/c
 |---|---|---|
 | Read Later Folder | `Read Later` | Destination for read_later actions |
 | Task Folder | `Tasks` | Destination for task actions |
-| Delete Candidate Folder | `Delete Candidates` | Quarantine folder for delete candidates |
 
 ### Review Behavior
 | Setting | Default | Description |
@@ -222,6 +222,29 @@ This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/c
 | Custom Max Input Tokens | `20000` | For custom preset — max input content |
 | Custom Max Output Tokens | `4096` | For custom preset — max output tokens |
 | Custom Safety Margin | `3000` | For custom preset — reserved headroom |
+
+### Collection Review
+| Setting | Default | Description |
+|---|---|---|
+| Collection Review Output Folder | `Collection Reviews` | Target folder for collection review notes |
+| Use Existing Reviews First | ON | Reuse existing individual review notes to save API costs |
+| Include Excerpt When Needed | ON | Include note excerpts if no individual review exists |
+| Max Notes | `30` | Maximum number of notes to analyze in a collection (2–100) |
+| Max Excerpt Characters | `2000` | Truncation limit for note excerpts (100–10000) |
+
+### Context Menu
+| Setting | Default | Description |
+|---|---|---|
+| Enable Context Menu | ON | Enable right-click context menu options |
+| Review Current Note | ON | Show "Review current note" |
+| Process Watched Folder | ON | Show "Process watched folder" |
+| Execute Proposed Action | ON | Show "Execute proposed action" on .md files |
+| Review Selected as Collection | ON | Show "Review selected notes as a collection" on multiple selections |
+| Review Folder as Collection | ON | Show "Review folder as a collection" |
+| Execute Selected Actions | ON | Show "Execute selected proposed actions" on multiple selections |
+| Review Each Selected Note | ON | Show "Review each selected note" on multiple selections |
+| Clean Up Processing Markers | OFF | Show "Clean up processing markers" |
+| Undo Last Auto-Sort Run | OFF | Show "Undo last auto-sort run" |
 
 ### Logging
 | Setting | Default | Description |
@@ -249,7 +272,7 @@ This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/c
 | Provider | OpenAI Compatible / Gemini Native / Anthropic Native |
 | Endpoint URL | Customizable for OpenAI-compatible or advanced mode |
 | Model | Model name for the selected provider |
-| Instructions & Output Language | Auto-detect / Japanese / English / Same as note |
+| Instructions & Output Language | Match Obsidian language (Default) / Auto-detect / Japanese / English / Same language as the note |
 | API Key | Managed via SecretStorage (masked input, save/delete buttons) |
 | Test Connection | Validate API key, endpoint, and model availability |
 
@@ -285,11 +308,13 @@ src/
 ├── types.ts                   # Domain model types
 ├── secrets.ts                 # SecretStorage API key management
 ├── reviewPipeline.ts          # Core review orchestration
+├── collectionReview.ts        # Cross-note collection analysis
 ├── reviewResultMapper.ts      # AI response → ReviewResult
 ├── reviewResultValidator.ts   # Schema validation
 ├── reviewNormalizer.ts        # Simple-mode parsing & action normalization
 ├── reviewWriter.ts            # Review note generation
 ├── providerClient.ts          # Provider abstraction layer
+├── providerErrorClassifier.ts # Provider error classification and mapping
 ├── openAiCompatible.ts        # OpenAI-compatible API client
 ├── gemini.ts                  # Google Gemini API client
 ├── anthropic.ts               # Anthropic Claude API client

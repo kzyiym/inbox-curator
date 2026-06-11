@@ -22,7 +22,7 @@ coverage/
 !README.md
 !SECURITY.md
 !CHANGELOG.md
-!LICENSE-AUDIT.md
+!DEPENDENCY-AUDIT.md
 
 docs/
 site/

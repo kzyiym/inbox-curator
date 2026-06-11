@@ -56,7 +56,6 @@ describe('settings migration behavior', () => {
     expect(plugin.settings.autoExecuteArchive).toBe(true);
     expect(plugin.settings.autoExecuteReadLater).toBe(false);
     expect(plugin.settings.autoExecuteTask).toBe(false);
-    expect(plugin.settings.autoExecuteDeleteCandidate).toBe(false);
   });
 
   it('keeps all auto-execute settings false if legacy setting is false', async () => {
@@ -72,6 +71,30 @@ describe('settings migration behavior', () => {
     expect(plugin.settings.autoExecuteArchive).toBe(false);
     expect(plugin.settings.autoExecuteReadLater).toBe(false);
     expect(plugin.settings.autoExecuteTask).toBe(false);
-    expect(plugin.settings.autoExecuteDeleteCandidate).toBe(false);
+  });
+
+  it('removes deprecated autoExecuteDeleteCandidate from persisted settings', async () => {
+    const mockApp: any = {
+      saveData: vi.fn().mockResolvedValue(undefined),
+    };
+    const plugin = new InboxCuratorPlugin(mockApp, {});
+
+    plugin.loadData = vi.fn().mockResolvedValue({
+      autoExecuteDeleteCandidate: true,
+    });
+    plugin.saveData = vi.fn().mockResolvedValue(undefined);
+
+    await plugin.loadSettings();
+
+    // autoExecuteDeleteCandidate should not exist on the plugin settings runtime object
+    expect((plugin.settings as any).autoExecuteDeleteCandidate).toBeUndefined();
+
+    // Verify it is also absent from the saved settings
+    await plugin.saveSettings();
+    expect(plugin.saveData).toHaveBeenCalledWith(
+      expect.not.objectContaining({
+        autoExecuteDeleteCandidate: expect.anything(),
+      })
+    );
   });
 });
