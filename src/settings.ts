@@ -630,10 +630,15 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             const adapter = this.app.vault.adapter as unknown as { getFullPath(path: string): string };
             const fullPath = adapter.getFullPath(normalizePath(logFolder));
             try {
-              if ('showInFolder' in this.app) {
-                (this.app as any).showInFolder(fullPath);
-              } else if ('openWithDefaultApp' in this.app) {
-                (this.app as any).openWithDefaultApp(fullPath);
+                interface DesktopApp {
+                  showInFolder?(path: string): void;
+                  openWithDefaultApp?(path: string): void;
+                }
+                const desktopApp = this.app as unknown as DesktopApp;
+                if (desktopApp.showInFolder) {
+                  desktopApp.showInFolder(fullPath);
+                } else if (desktopApp.openWithDefaultApp) {
+                  desktopApp.openWithDefaultApp(fullPath);
               } else {
                 window.open(`file://${fullPath}`);
               }

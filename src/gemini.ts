@@ -60,7 +60,7 @@ export async function postGeminiChat(request: GeminiChatRequest): Promise<Provid
     }
   });
 
-  const payload: Record<string, any> = {
+  const payload: Record<string, unknown> = {
     contents,
     generationConfig: {
       temperature: request.temperature ?? 0,
@@ -94,8 +94,11 @@ export async function postGeminiChat(request: GeminiChatRequest): Promise<Provid
       };
     }
 
-    const json = JSON.parse(response.text);
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    const json = JSON.parse(response.text) as Record<string, unknown>;
+    const candidatesArr = json.candidates as Array<Record<string, unknown>> | undefined;
+    const partsArr = candidatesArr?.[0]?.content as Record<string, unknown> | undefined;
+    const firstPart = (partsArr?.parts as Array<Record<string, unknown>> | undefined)?.[0];
+    const text = firstPart?.text;
     if (typeof text !== 'string') {
       return {
         ok: false,

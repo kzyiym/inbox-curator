@@ -22,7 +22,7 @@ export async function postAnthropicChat(request: AnthropicChatRequest): Promise<
 
   const systemInstruction = systemMessages.map((m) => typeof m.content === 'string' ? m.content : JSON.stringify(m.content)).join('\n\n');
 
-  const payload: Record<string, any> = {
+  const payload: Record<string, unknown> = {
     model: request.model,
     messages: otherMessages.map((m) => {
       if (typeof m.content === 'string') {
@@ -90,8 +90,9 @@ export async function postAnthropicChat(request: AnthropicChatRequest): Promise<
       };
     }
 
-    const json = JSON.parse(response.text);
-    const text = json.content?.[0]?.text;
+    const json = JSON.parse(response.text) as Record<string, unknown>;
+    const contentArr = json.content as Array<Record<string, unknown>> | undefined;
+    const text = contentArr?.[0]?.text;
     if (typeof text !== 'string') {
       return {
         ok: false,

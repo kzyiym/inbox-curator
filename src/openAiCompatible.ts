@@ -303,7 +303,8 @@ function extractResponseText(payload: unknown): string | null {
     return null;
   }
 
-  const first = choices[0];
+  const choicesArray = choices as Array<unknown>;
+  const first = choicesArray[0];
   if (!first || typeof first !== 'object') {
     return null;
   }

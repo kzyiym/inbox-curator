@@ -391,10 +391,10 @@ export default class InboxCuratorPlugin extends Plugin {
     ];
     let foldersSanitized = false;
     for (const { field, default: def } of folderFields) {
-      const current = (this.settings as any)[field] as string;
+      const current = this.settings[field] as string;
       const result = validateFolderPath(current, def);
       if (result.changed) {
-        (this.settings as any)[field] = result.sanitized;
+        (this.settings as unknown as Record<string, string>)[field] = result.sanitized;
         foldersSanitized = true;
       }
     }
@@ -701,7 +701,7 @@ export default class InboxCuratorPlugin extends Plugin {
       const action = result.reviewResult.verdict.recommendedAction;
       const reviewAction = mapRecommendedActionToReviewAction(action);
       const reliabilityLabel = result.reviewResult.verdict.reliabilityLabel;
-      const confidence: ReviewConfidence | undefined = (result as any).confidence;
+      const confidence: ReviewConfidence | undefined = result.confidence;
       const effectiveConfidence = confidence ||
         (reliabilityLabel === 'high' ? 'high' : reliabilityLabel === 'medium' ? 'medium' : 'low');
       const parseStatus = result.parseStatus || 'parsed';
@@ -1537,14 +1537,23 @@ export default class InboxCuratorPlugin extends Plugin {
 
   private getSelectedMarkdownFiles(): TFile[] {
     const vault = this.app.vault;
-    const fileExplorer = (this.app as any).internalPlugins?.getPluginById?.('file-explorer');
+    const fileExplorer = (this.app as unknown as { internalPlugins?: { getPluginById?: (id: string) => unknown } })
+      .internalPlugins?.getPluginById?.('file-explorer');
     if (!fileExplorer) {
       return [];
     }
 
     try {
       const selectedPaths: string[] = [];
-      const explorerLeaves = (this.app.workspace as any).getLeavesOfType?.('file-explorer');
+      interface FileExplorerLeaf {
+        view?: {
+          tree?: {
+            selectedPaths?: string[];
+          };
+        };
+      }
+      const explorerLeaves = (this.app.workspace as unknown as { getLeavesOfType?: (type: string) => FileExplorerLeaf[] })
+        .getLeavesOfType?.('file-explorer');
       if (explorerLeaves && explorerLeaves.length > 0) {
         const explorerView = explorerLeaves[0]?.view;
         if (explorerView) {

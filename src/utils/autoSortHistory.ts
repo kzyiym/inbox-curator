@@ -44,7 +44,7 @@ export async function loadAutoSortHistory(app: App): Promise<AutoSortHistoryFile
   try {
     if (await adapter.exists(HISTORY_PATH)) {
       const raw = await adapter.read(HISTORY_PATH);
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
       if (parsed && typeof parsed === 'object' && parsed.version === 1 && Array.isArray(parsed.runs)) {
         return parsed as AutoSortHistoryFile;
       }
