@@ -7,7 +7,7 @@ AI-powered note review and auto-sort plugin for Obsidian. Automatically reviews,
 Whether your inbox is filled with saved web articles, raw AI chat logs, rough quick notes, or simple URL links, Inbox Curator helps you process them in bulk — then auto-sorts them into Archive, Read Later, or Tasks.
 
 - **Plugin ID**: `kzyiym-inbox-curator`
-- **Version**: `1.0.0`
+- **Version**: `1.0.1`
 - **Min Obsidian Version**: `1.5.0`
 - **Author**: [kzyiym](https://github.com/kzyiym)
 - **License**: MIT
@@ -470,7 +470,7 @@ We provide a comprehensive, interactive, and multi-language (English/Japanese) F
 
 👉 **[Open FAQ Document](https://inbox-curator.antidot.jp/)** (Supports real-time search, category filtering, theme toggle, and accordion toggles)
 
-*Note: The FAQ document is a supplementary helper document and does not constitute official product support. It is verified for Obsidian v1.0.0+ and Plugin v1.0.0+.*
+*Note: The FAQ document is a supplementary helper document and does not constitute official product support. It is verified for Obsidian v1.5.0+ and Plugin v1.0.1+.*
 
 ---
 
