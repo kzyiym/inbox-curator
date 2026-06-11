@@ -159,6 +159,8 @@ This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/c
 | `execute-proposed-action` | Execute proposed action for current note | Execute the AI-recommended action on the active note |
 | `undo-last-auto-sort` | Undo last auto-sort run | Revert the most recent auto-sort run |
 | `cleanup-processing-markers` | Clean up processing markers | Remove stale 🤖 prefix markers from reviewed files |
+| `review-selected-notes-as-collection` | Review selected notes as a collection | Cross-note analysis of selected notes |
+| `review-folder-as-collection` | Review folder as a collection | Cross-note analysis of a folder's contents |
  
 ---
 
