@@ -258,7 +258,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
   private createCardContainer(containerEl: HTMLElement, title: string, description?: string): HTMLDivElement {
     const card = containerEl.createDiv({ cls: 'inbox-curator-settings-card' });
-    card.createEl('h4', { text: title, cls: 'inbox-curator-section-header' });
+    new Setting(card).setName(title).setHeading();
     if (description) {
       card.createEl('p', { text: description, cls: 'inbox-curator-section-desc' });
     }
@@ -782,7 +782,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         }),
       );
 
-    autoCard.createEl('h5', { text: t('settings.autoExecute.sectionTitle'), cls: 'inbox-curator-sub-section-header' });
+    new Setting(autoCard).setName(t('settings.autoExecute.sectionTitle')).setHeading();
 
     new Setting(autoCard)
       .setName(t('settings.autoExecuteArchive.label'))
@@ -1384,10 +1384,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       cls: 'inbox-curator-custom-prompt-setting',
     });
 
-    customPromptContainer.createEl('h4', {
-      text: t('settings.customReviewPrompt.label'),
-      cls: 'inbox-curator-custom-prompt-title',
-    });
+    new Setting(customPromptContainer).setName(t('settings.customReviewPrompt.label')).setHeading();
 
     customPromptContainer.createEl('p', {
       text: t('settings.customReviewPrompt.desc'),
@@ -1647,7 +1644,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     const section = containerEl.createDiv({ cls: 'inbox-curator-plugin-info' });
 
-    section.createEl('h4', { text: t('settings.pluginInfo.title') });
+    new Setting(section).setName(t('settings.pluginInfo.title')).setHeading();
 
     section.createDiv({ cls: 'inbox-curator-plugin-info-row', text: `${t('settings.pluginInfo.version')}: ${manifest.version}` });
     section.createDiv({ cls: 'inbox-curator-plugin-info-row', text: `${t('settings.pluginInfo.pluginId')}: ${manifest.id}` });

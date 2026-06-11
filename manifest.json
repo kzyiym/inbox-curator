@@ -1,12 +1,11 @@
 {
   "id": "kzyiym-inbox-curator",
   "name": "Inbox Curator",
-  "version": "1.0.1",
-  "minAppVersion": "1.5.0",
+  "version": "1.0.2",
+  "minAppVersion": "1.11.4",
   "description": "Review, summarize, and organize your inbox notes with AI.",
   "author": "kzyiym",
   "authorUrl": "https://github.com/kzyiym",
   "fundingUrl": "https://ko-fi.com/Q1B120YT32",
-  "icon": "inbox",
   "isDesktopOnly": true
 }
