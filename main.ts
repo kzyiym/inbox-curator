@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, Plugin, TFile, TFolder, normalizePath } from 'obsidian';
+import { getLanguage, MarkdownView, Notice, Plugin, TFile, TFolder, normalizePath } from 'obsidian';
 import { registerInboxCuratorCommands } from './src/commands';
 import { readAiReviewSourceHash } from './src/frontmatter';
 import { ProcessingNoticeManager } from './src/processingNotice';
@@ -552,12 +552,12 @@ export default class InboxCuratorPlugin extends Plugin {
     }
     if (this.settings.promptLanguage === 'match-obsidian') {
       try {
-        const lang = window.localStorage.getItem('language');
+        const lang = getLanguage();
         if (lang && lang.trim().toLowerCase().replace(/[-_].*$/, '') === 'ja') {
           return 'japanese';
         }
       } catch {
-        // localStorage unavailable
+        // getLanguage() unavailable
       }
     }
     return 'english';

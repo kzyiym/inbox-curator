@@ -104,6 +104,21 @@ export function normalizePath(value: string): string {
 
 export const requestUrl = vi.fn();
 
+export function getLanguage(): string {
+  try {
+    const stored = window.localStorage.getItem('language');
+    if (stored) {
+      return stored;
+    }
+  } catch {
+    // localStorage unavailable
+  }
+  return 'en';
+}
+
+// Provide Obsidian's global activeDocument for test environment
+(globalThis as Record<string, unknown>).activeDocument = document;
+
 export const apiVersion = '1.0.0';
 
 // Mock Obsidian Element extensions for jsdom environment

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3
+
+- Replace `localStorage.getItem("language")` with Obsidian `getLanguage()` API.
+- Add GitHub artifact attestations to release workflow for supply-chain transparency.
+- Replace deprecated `setWarning()` with `setDestructive()` in settings.
+- Fix Promise-returned-where-void-expected in `onClick` handlers; add missing error handling.
+- Add missing i18n keys for API key deletion and log clear failures.
+
 ## 1.0.2
 
 - Add `match-obsidian` prompt language option (follow Obsidian UI language).

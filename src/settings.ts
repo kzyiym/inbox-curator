@@ -466,7 +466,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
     });
 
     apiKeySetting.addButton((button) =>
-      button.setButtonText(t('settings.apiKey.button.save')).onClick(async () => {
+      button.setButtonText(t('settings.apiKey.button.save')).onClick(() => { void (async () => {
         if (!hasEditedApiKey || !draftValue || isMaskedApiKeyValue(draftValue)) {
           new Notice(t('settings.apiKey.noKey'));
           return;
@@ -484,24 +484,32 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             error: error instanceof Error ? error.message : 'Unknown error',
           });
         }
-      }),
+      })(); }),
     );
 
     apiKeySetting.addButton((button) =>
-      button.setButtonText(t('settings.apiKey.button.delete')).setWarning().onClick(async () => {
-        await deleteApiKey(this.app, settings.provider);
-        draftValue = '';
-        hasEditedApiKey = false;
-        this.display();
-        new Notice(t('settings.apiKey.deletedNotice'));
-      }),
+      button.setButtonText(t('settings.apiKey.button.delete')).setDestructive().onClick(() => { void (async () => {
+        try {
+          await deleteApiKey(this.app, settings.provider);
+          draftValue = '';
+          hasEditedApiKey = false;
+          this.display();
+          new Notice(t('settings.apiKey.deletedNotice'));
+        } catch (error) {
+          new Notice(t('notice.apiKeyDeleteFailed'));
+          void logError(this.app, 'ERROR', 'Inbox Curator API key delete failed', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      })(); }),
     );
 
     new Setting(apiCard)
       .setName(t('settings.connectionTest.label'))
       .setDesc(t('settings.connectionTest.desc'))
       .addButton((button) =>
-        button.setButtonText(t('settings.connectionTest.button')).onClick(async () => {
+        button.setButtonText(t('settings.connectionTest.button')).onClick(() => { void (async () => {
+        try {
           const defaultEndpoints: Record<InboxCuratorProvider, string> = {
             'openai-compatible': 'https://api.openai.com/v1',
             'gemini-native': 'https://generativelanguage.googleapis.com',
@@ -578,7 +586,15 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             });
           }
           this.display();
-        }),
+        } catch (error) {
+          this.lastConnectionStatus = { ok: false, model: settings.model, time: new Date().toISOString() };
+          new Notice(t('settings.connectionTest.failedGeneric', { error: error instanceof Error ? error.message : 'Unknown error' }));
+          void logError(this.app, 'ERROR', 'Inbox Curator connection test failed', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+          this.display();
+        }
+      })(); }),
       );
 
     const lastStatusText = this.lastConnectionStatus
@@ -610,7 +626,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
     logSetting.settingEl.addClass('inbox-curator-error-log-setting');
     logSetting
       .addButton((button) =>
-        button.setButtonText(t('settings.logs.openButton')).onClick(async () => {
+        button.setButtonText(t('settings.logs.openButton')).onClick(() => { void (async () => {
           const logFolder = getErrorLogFolderPath();
           const adapter = this.app.vault.adapter as unknown as { getFullPath(path: string): string };
           const fullPath = adapter.getFullPath(normalizePath(logFolder));
@@ -620,15 +636,22 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           } catch {
             new Notice(`Log folder: ${fullPath}`);
           }
-        }),
+        })(); }),
       )
       .addButton((button) =>
-        button.setButtonText(t('settings.logs.clearButton')).onClick(async () => {
-          await clearErrorLogs(this.app);
-          await clearOperationLogs(this.app);
-          new Notice(t('settings.logs.clearedNotice'));
-          this.display();
-        }),
+        button.setButtonText(t('settings.logs.clearButton')).onClick(() => { void (async () => {
+          try {
+            await clearErrorLogs(this.app);
+            await clearOperationLogs(this.app);
+            new Notice(t('settings.logs.clearedNotice'));
+            this.display();
+          } catch (error) {
+            new Notice(t('settings.logs.clearFailedNotice'));
+            void logError(this.app, 'ERROR', 'Inbox Curator log clear failed', {
+              error: error instanceof Error ? error.message : 'Unknown error',
+            });
+          }
+        })(); }),
       );
 
     void getErrorLogStats(this.app).then(async (stats) => {

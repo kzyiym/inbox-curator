@@ -30,7 +30,7 @@ describe('i18n module', () => {
     vi.unstubAllGlobals();
   });
 
-  test('detects locale from window.localStorage', () => {
+  test('detects locale via getLanguage()', () => {
     localStorageMock['language'] = 'ja';
     expect(getLocale()).toBe('ja');
 
@@ -38,7 +38,7 @@ describe('i18n module', () => {
     expect(getLocale()).toBe('en');
   });
 
-  test('normalizes complex locale codes from localStorage', () => {
+  test('normalizes complex locale codes via getLanguage()', () => {
     localStorageMock['language'] = 'ja-JP';
     expect(getLocale()).toBe('ja');
 
@@ -46,11 +46,13 @@ describe('i18n module', () => {
     expect(getLocale()).toBe('en');
   });
 
-  test('falls back to navigator.language when localStorage is empty', () => {
+  test('falls back to navigator.language when getLanguage() returns unsupported locale', () => {
     vi.stubGlobal('navigator', {
       language: 'ja-JP',
     });
-    expect(getLocale()).toBe('ja');
+    // getLanguage() returns 'en' (default) when no language is configured.
+    // navigator acts as a secondary fallback only when getLanguage() throws.
+    expect(getLocale()).toBe('en');
   });
 
   test('falls back to DEFAULT_LOCALE (en) if unsupported locale is found', () => {

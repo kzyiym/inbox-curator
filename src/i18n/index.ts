@@ -1,3 +1,4 @@
+import { getLanguage } from 'obsidian';
 import { en } from './locales/en';
 import { ja } from './locales/ja';
 
@@ -14,19 +15,15 @@ const locales: Record<SupportedLocale, typeof en> = {
 export type TranslationKey = keyof typeof en;
 
 export function getLocale(): SupportedLocale {
-  // 1. Obsidian localStorage language setting
-  let obsidianLang: string | null = null;
+  // 1. Obsidian language setting via official API
   try {
-    obsidianLang = window.localStorage.getItem('language');
-  } catch {
-    // Ignore potential localStorage access errors
-  }
-
-  if (obsidianLang) {
-    const normalized = normalizeLocale(obsidianLang);
+    const lang = getLanguage();
+    const normalized = normalizeLocale(lang);
     if (normalized) {
       return normalized;
     }
+  } catch {
+    // getLanguage() unavailable
   }
 
   // 2. Navigator language setting

@@ -1,4 +1,4 @@
-import { App, TFile, normalizePath } from 'obsidian';
+import { App, getLanguage, TFile, normalizePath } from 'obsidian';
 import * as yaml from 'js-yaml';
 import { getApiKey } from './secrets';
 import { maskBase64 } from './providerClient';
@@ -289,12 +289,12 @@ export function looksJapanese(text: string): boolean {
 
 export function getObsidianDisplayLanguage(): 'english' | 'japanese' {
   try {
-    const lang = window.localStorage.getItem('language');
+    const lang = getLanguage();
     if (lang && normalizeLocale(lang) === 'ja') {
       return 'japanese';
     }
   } catch {
-    // localStorage unavailable
+    // getLanguage() unavailable
   }
   return 'english';
 }

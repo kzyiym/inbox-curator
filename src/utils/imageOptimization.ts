@@ -106,7 +106,8 @@ export async function optimizeImageForAi(
       }
     }
 
-    // Set up canvas
+    // Set up canvas — using document directly (not activeDocument) because
+    // this is an offscreen canvas for image processing, not UI interaction.
     const canvas = document.createElement('canvas');
     canvas.width = targetWidth;
     canvas.height = targetHeight;
@@ -135,7 +136,7 @@ export async function optimizeImageForAi(
     for (const q of qualities) {
       const b = await new Promise<Blob | null>((resolve) => {
         canvas.toBlob(
-          (result) => resolve(result),
+          (result: Blob | null) => resolve(result),
           preferredMime,
           q,
         );
