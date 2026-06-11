@@ -1,3 +1,5 @@
+![Inbox Curator — Auto-sort your Inbox](Repository%20Social%20Preview.jpg)
+
 # Inbox Curator — Auto-sort your Inbox
 
 AI-powered note review and auto-sort plugin for Obsidian. Automatically reviews, summarizes, and organizes notes in your inbox folder using LLM APIs (OpenAI, Gemini, or Anthropic).
