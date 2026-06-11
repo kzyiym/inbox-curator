@@ -151,15 +151,15 @@ export async function postProviderChat(request: ProviderChatRequest): Promise<Pr
   return maskBase64(result);
 }
 
-export function maskBase64(value: any): any {
+export function maskBase64<T>(value: T): T {
   if (typeof value === 'string') {
-    return value.replace(/(data:image\/[a-zA-Z+.-]+;base64,)[a-zA-Z0-9+/=]+/g, '$1[OMITTED]');
+    return value.replace(/(data:image\/[a-zA-Z+.-]+;base64,)[a-zA-Z0-9+/=]+/g, '$1[OMITTED]') as unknown as T;
   }
   if (Array.isArray(value)) {
-    return value.map(maskBase64);
+    return value.map((v) => maskBase64(v)) as unknown as T;
   }
   if (typeof value === 'object' && value !== null) {
-    const masked: Record<string, any> = {};
+    const masked: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value)) {
       if ((key === 'data' || key === 'url' || key === 'content' || key === 'responseBody' || key === 'error') && typeof val === 'string') {
         if (val.includes('base64,')) {
@@ -173,7 +173,7 @@ export function maskBase64(value: any): any {
         masked[key] = maskBase64(val);
       }
     }
-    return masked;
+    return masked as unknown as T;
   }
   return value;
 }

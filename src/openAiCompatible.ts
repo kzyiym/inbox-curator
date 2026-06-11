@@ -153,7 +153,7 @@ async function sendCapabilityTestRequest(
       }),
       throw: false,
       timeout: timeoutMs ?? 10000,
-    } as any);
+    });
 
     if (response.status >= 200 && response.status < 300) {
       return 'success';
@@ -376,7 +376,7 @@ export async function postOpenAiCompatibleChat(request: OpenAiCompatibleChatRequ
       body: JSON.stringify(body),
       throw: false,
       timeout: request.timeoutMs,
-    } as any);
+    });
 
     if (response.status < 200 || response.status >= 300) {
       return {

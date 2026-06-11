@@ -666,7 +666,7 @@ export default class InboxCuratorPlugin extends Plugin {
         return { status: 'cancelled', error: 'Plugin unloaded' };
       }
       if (result.ok === false) {
-        logError(this.app, 'ERROR', 'Inbox Curator: Review pipeline failed', {
+        void logError(this.app, 'ERROR', 'Inbox Curator: Review pipeline failed', {
           provider: this.settings.provider,
           model: this.settings.model,
           notePath: file.path,
@@ -738,7 +738,7 @@ export default class InboxCuratorPlugin extends Plugin {
           shouldAutoExecute = false;
           autoExecuteSkipReason = `reliabilityLabel is ${reliabilityLabel} for action ${action}`;
           autoExecuteSkipCode = 'reliability_low';
-          logError(this.app, 'WARN', `Inbox Curator: Skipped auto-execute for ${file.path} due to reliability ${reliabilityLabel}`, {
+          void logError(this.app, 'WARN', `Inbox Curator: Skipped auto-execute for ${file.path} due to reliability ${reliabilityLabel}`, {
             actionType: action,
             reliabilityLabel,
           });
@@ -819,7 +819,7 @@ export default class InboxCuratorPlugin extends Plugin {
           }, result.reviewResult.promptLanguage);
         } catch (appendErr) {
           const appendErrorMessage = appendErr instanceof Error ? appendErr.message : String(appendErr);
-          logError(this.app, 'WARN', 'Inbox Curator: Failed to append auto-execute result to review log', {
+          void logError(this.app, 'WARN', 'Inbox Curator: Failed to append auto-execute result to review log', {
             error: appendErrorMessage,
             reviewNotePath: result.writeResult.outputPath,
           });
@@ -835,7 +835,7 @@ export default class InboxCuratorPlugin extends Plugin {
         }
 
         if (!actionResult.success) {
-          logError(this.app, 'ERROR', `Inbox Curator: Auto-execute failed for ${file.path}`, {
+          void logError(this.app, 'ERROR', `Inbox Curator: Auto-execute failed for ${file.path}`, {
             error: actionResult.error,
           });
           void logOperation(this.app, {
@@ -889,7 +889,7 @@ export default class InboxCuratorPlugin extends Plugin {
           confidence: effectiveConfidence,
           reliabilityLabel: reliabilityLabel,
         }).catch((err) => {
-          logError(this.app, 'WARN', 'Inbox Curator: Failed to save auto-sort history', {
+          void logError(this.app, 'WARN', 'Inbox Curator: Failed to save auto-sort history', {
             error: err instanceof Error ? err.message : String(err),
           });
         });
@@ -915,7 +915,7 @@ export default class InboxCuratorPlugin extends Plugin {
       });
       return { status: 'processed' };
     } catch (error) {
-      logError(this.app, 'ERROR', 'Inbox Curator: Review job crashed', {
+      void logError(this.app, 'ERROR', 'Inbox Curator: Review job crashed', {
         provider: this.settings.provider,
         model: this.settings.model,
         notePath: file.path,
@@ -1054,7 +1054,7 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   private logQueuedReviewFailure(file: TFile, error: string | undefined): void {
-    logError(this.app, 'ERROR', 'Inbox Curator queued review failed', {
+    void logError(this.app, 'ERROR', 'Inbox Curator queued review failed', {
       provider: this.settings.provider,
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
@@ -1064,7 +1064,7 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   private logQueuedReviewRetry(job: ReviewJob, attempt: number, delayMs: number, error: string | undefined): void {
-    logError(this.app, 'WARN', 'Inbox Curator queued review retry scheduled', {
+    void logError(this.app, 'WARN', 'Inbox Curator queued review retry scheduled', {
       provider: this.settings.provider,
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
@@ -1077,7 +1077,7 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   private logAutomaticReviewEnqueueFailure(file: TFile, reason: AutomaticReviewReason, error: string): void {
-    logError(this.app, 'ERROR', 'Inbox Curator automatic review enqueue failed', {
+    void logError(this.app, 'ERROR', 'Inbox Curator automatic review enqueue failed', {
       provider: this.settings.provider,
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
@@ -1324,7 +1324,7 @@ export default class InboxCuratorPlugin extends Plugin {
       const result = await queued.promise;
 
       if (result.status !== 'processed') {
-        logError(this.app, 'ERROR', 'Inbox Curator: Note review failed', {
+        void logError(this.app, 'ERROR', 'Inbox Curator: Note review failed', {
           notePath: file.path,
           error: result.error ?? 'Review did not complete',
         });
@@ -1334,7 +1334,7 @@ export default class InboxCuratorPlugin extends Plugin {
 
       new Notice(t('notice.reviewCompleted'));
     } catch (error) {
-      logError(this.app, 'ERROR', 'Inbox Curator: Note review crashed', {
+      void logError(this.app, 'ERROR', 'Inbox Curator: Note review crashed', {
         notePath: file.path,
         error: error instanceof Error ? error.message : 'Unknown error',
       });
@@ -1407,7 +1407,7 @@ export default class InboxCuratorPlugin extends Plugin {
           queuedReviewCount += 1;
         } catch (error) {
           summary.failed += 1;
-          logError(this.app, 'ERROR', 'Inbox Curator watched folder processing crashed', {
+          void logError(this.app, 'ERROR', 'Inbox Curator watched folder processing crashed', {
             provider: this.settings.provider,
             endpointUrl: this.settings.endpointUrl,
             model: this.settings.model,
@@ -1686,7 +1686,7 @@ export default class InboxCuratorPlugin extends Plugin {
 
       new Notice(t('notice.batchReviewCompleted', { processed, skipped, failed, total: files.length }));
     } catch (error) {
-      logError(this.app, 'ERROR', 'Inbox Curator: batch review failed', {
+      void logError(this.app, 'ERROR', 'Inbox Curator: batch review failed', {
         error: error instanceof Error ? error.message : 'Unknown error',
       });
       new Notice(t('notice.reviewFailed'));

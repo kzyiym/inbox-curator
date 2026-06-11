@@ -13,5 +13,6 @@ declare module 'obsidian' {
 
   interface RequestUrlParam {
     timeout?: number;
+    throw?: boolean;
   }
 }

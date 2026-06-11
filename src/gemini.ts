@@ -83,7 +83,7 @@ export async function postGeminiChat(request: GeminiChatRequest): Promise<Provid
       },
       body: JSON.stringify(payload),
       timeout: request.timeoutMs,
-    } as any);
+    });
 
     if (response.status !== 200) {
       return {

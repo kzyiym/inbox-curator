@@ -949,13 +949,7 @@ function tryParseJsonObject(text: string): ReviewRawResponse | null {
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunk = 8192;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    // Convert chunks of bytes to characters safely to avoid stack overflow
-    const sub = bytes.subarray(i, i + chunk);
-    binary += String.fromCharCode.apply(null, sub as any);
-  }
+  const binary = new TextDecoder('iso-8859-1').decode(bytes);
   return window.btoa(binary);
 }
 
@@ -1154,7 +1148,7 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
       message: response.error,
       errorKind: retryHint.retryable ? 'retryable' : 'fatal',
     });
-    logError(app, 'ERROR', 'Inbox Curator review request failed', maskBase64({
+    void logError(app, 'ERROR', 'Inbox Curator review request failed', maskBase64({
       provider: modelInput.provider,
       endpointUrl: modelInput.endpointUrl,
       model: modelInput.model,
@@ -1192,7 +1186,7 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
 
   const parsed = tryParseJsonObject(response.content);
   if (!parsed) {
-    logError(app, 'ERROR', 'Inbox Curator review response JSON parse failed', {
+    void logError(app, 'ERROR', 'Inbox Curator review response JSON parse failed', {
       provider: modelInput.provider,
       endpointUrl: modelInput.endpointUrl,
       model: modelInput.model,
@@ -1254,7 +1248,7 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
       parseStatus = parsed.parseStatus;
 
       if (parsed.parseStatus === 'failed') {
-        logError(app, 'ERROR', 'Inbox Curator simple/safe review response parse failed', {
+        void logError(app, 'ERROR', 'Inbox Curator simple/safe review response parse failed', {
           provider: modelInput.provider,
           model: modelInput.model,
           contentLength: rawReview._rawText.length,

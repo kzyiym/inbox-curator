@@ -209,12 +209,12 @@ function extractReadableText(html: string, maxCharacters: number, url?: string):
   method: string;
 } {
   const parser = new DOMParser();
-  const document = parser.parseFromString(html, 'text/html');
-  const title = document.title?.trim() || undefined;
+  const parsedDoc = parser.parseFromString(html, 'text/html');
+  const title = parsedDoc.title?.trim() || undefined;
 
-  removeNonContentElements(document);
+  removeNonContentElements(parsedDoc);
 
-  const candidates = Array.from(document.querySelectorAll('article, main, section, div, body'));
+  const candidates = Array.from(parsedDoc.querySelectorAll('article, main, section, div, body'));
   let bestCandidate: Element | null = null;
   let bestScore = -Infinity;
 
@@ -226,7 +226,7 @@ function extractReadableText(html: string, maxCharacters: number, url?: string):
     }
   }
 
-  const rawText = bestCandidate?.textContent ?? document.body?.textContent ?? '';
+  const rawText = bestCandidate?.textContent ?? parsedDoc.body?.textContent ?? '';
   const extractedText = normalizeExtractedText(rawText, maxCharacters);
 
   // Quality check metrics
@@ -337,7 +337,7 @@ export async function fetchUrlContext(url: string, notePath: string, options: Ur
         Accept: 'text/html,application/xhtml+xml,application/pdf',
       },
       timeout: options.timeoutMs,
-    } as any);
+    });
 
     if (response.status < 200 || response.status >= 300) {
       console.warn('Inbox Curator URL fetch failed', {

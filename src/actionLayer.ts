@@ -224,7 +224,7 @@ export async function executeProposedAction(
         `Are you sure you want to move the note "${file.path}" to the trash? This action was recommended by AI review.`,
         async () => {
           try {
-            await app.vault.trash(file, true);
+            await app.fileManager.trashFile(file);
             resolved = true;
             resolve({
               success: true,

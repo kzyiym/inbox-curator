@@ -11,6 +11,8 @@ export interface AnthropicChatRequest {
   maxOutputTokens?: number;
 }
 
+type AnthropicImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+
 export async function postAnthropicChat(request: AnthropicChatRequest): Promise<ProviderChatResult> {
   const base = request.endpointUrl.replace(/\/$/, '');
   const url = `${base}/v1/messages`;
@@ -38,12 +40,12 @@ export async function postAnthropicChat(request: AnthropicChatRequest): Promise<
           } else {
             const match = part.image_url.url.match(/^data:(image\/[a-zA-Z+.-]+);base64,(.+)$/);
             if (match) {
-              const [, media_type, data] = match;
+              const [, mediaType, data] = match;
               return {
                 type: 'image' as const,
                 source: {
                   type: 'base64' as const,
-                  media_type: media_type as any,
+                  media_type: mediaType as AnthropicImageMediaType,
                   data,
                 },
               };
@@ -77,7 +79,7 @@ export async function postAnthropicChat(request: AnthropicChatRequest): Promise<
       },
       body: JSON.stringify(payload),
       timeout: request.timeoutMs,
-    } as any);
+    });
 
     if (response.status !== 200) {
       return {

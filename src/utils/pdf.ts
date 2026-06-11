@@ -1,5 +1,22 @@
 import { App, TFile } from 'obsidian';
 
+interface PdfTextItem {
+  str: string;
+}
+
+interface PdfJsLib {
+  getDocument: (options: { data: ArrayBuffer }) => { promise: Promise<PdfJsPdfDocument> };
+}
+
+interface PdfJsPdfDocument {
+  numPages: number;
+  getPage: (page: number) => Promise<PdfJsPage>;
+}
+
+interface PdfJsPage {
+  getTextContent: () => Promise<{ items: PdfTextItem[] }>;
+}
+
 export async function extractPdfText(
   app: App,
   file: TFile,
@@ -22,7 +39,7 @@ export async function extractPdfText(
     };
   }
 
-  const pdfjsLib = (window as any).pdfjsLib;
+  const pdfjsLib = (window as unknown as { pdfjsLib?: PdfJsLib }).pdfjsLib;
   if (!pdfjsLib) {
     return {
       ok: false,
@@ -43,7 +60,7 @@ export async function extractPdfText(
     for (let i = 1; i <= pagesToRead; i++) {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
-      const pageText = textContent.items.map((item: any) => item.str).join(' ');
+      const pageText = textContent.items.map((item: PdfTextItem) => item.str).join(' ');
 
       if (text.length + pageText.length > maxChars) {
         const remaining = maxChars - text.length;

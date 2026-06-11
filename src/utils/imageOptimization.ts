@@ -209,11 +209,6 @@ export async function optimizeImageForAi(
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunk = 8192;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    const sub = bytes.subarray(i, i + chunk);
-    binary += String.fromCharCode.apply(null, sub as any);
-  }
+  const binary = new TextDecoder('iso-8859-1').decode(bytes);
   return window.btoa(binary);
 }

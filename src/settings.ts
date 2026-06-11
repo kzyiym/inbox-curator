@@ -279,19 +279,20 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
     const visibility = getSettingsUiVisibility(settings);
     containerEl.empty();
 
-    containerEl.createEl('h2', { text: t('settings.title') });
+    new Setting(containerEl).setName(t('settings.title')).setHeading();
 
     const folders = getVaultFolders(this.app);
     const datalistId = 'inbox-curator-folders-list';
-    let datalist = document.getElementById(datalistId) as HTMLDataListElement | null;
+    const ownerDoc = containerEl.ownerDocument;
+    let datalist = ownerDoc.getElementById(datalistId) as HTMLDataListElement | null;
     if (!datalist) {
-      datalist = document.createElement('datalist');
+      datalist = ownerDoc.createElement('datalist');
       datalist.id = datalistId;
-      document.body.appendChild(datalist);
+      ownerDoc.body.appendChild(datalist);
     }
     datalist.empty();
     for (const folder of folders) {
-      const option = document.createElement('option');
+      const option = ownerDoc.createElement('option');
       option.value = folder;
       datalist.appendChild(option);
     }
@@ -479,7 +480,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           new Notice(t('settings.apiKey.savedNotice'));
         } catch (error) {
           new Notice(t('notice.apiKeySaveFailed'));
-          logError(this.app, 'ERROR', 'Inbox Curator API key save failed', {
+          void logError(this.app, 'ERROR', 'Inbox Curator API key save failed', {
             error: error instanceof Error ? error.message : 'Unknown error',
           });
         }
@@ -567,7 +568,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
               statusCode: result.status,
               message: result.error,
             });
-            logError(this.app, 'ERROR', 'Inbox Curator connection test failed', {
+            void logError(this.app, 'ERROR', 'Inbox Curator connection test failed', {
               provider: settings.provider,
               endpointUrl: settings.endpointUrl,
               model: settings.model,
@@ -611,7 +612,8 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       .addButton((button) =>
         button.setButtonText(t('settings.logs.openButton')).onClick(async () => {
           const logFolder = getErrorLogFolderPath();
-          const fullPath = (this.app.vault.adapter as any).getFullPath(normalizePath(logFolder));
+          const adapter = this.app.vault.adapter as unknown as { getFullPath(path: string): string };
+          const fullPath = adapter.getFullPath(normalizePath(logFolder));
           try {
             const { shell } = require('electron');
             shell.openPath(fullPath);
@@ -1358,7 +1360,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           .addOption('note-language', t('settings.promptLanguage.noteLanguage'))
           .setValue(settings.promptLanguage)
           .onChange(async (value) => {
-            settings.promptLanguage = value as any;
+            settings.promptLanguage = value as InboxCuratorSettings['promptLanguage'];
             await this.plugin.saveSettings();
           }),
       );
