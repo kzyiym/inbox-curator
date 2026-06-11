@@ -198,7 +198,16 @@ function detectUrlOnlyBody(body: string): UrlOnlyDetectionResult {
 }
 
 function buildOutputPath(file: TFile, outputFolder: string): string {
-  return normalizePath(`${outputFolder}/${file.basename}.ai-review.md`);
+  const maxBasenameLen = 72;
+  let basename = file.basename;
+
+  if (basename.length > maxBasenameLen) {
+    const chars = Array.from(basename);
+    const shortHash = hashString(basename).slice(0, 8);
+    basename = chars.slice(0, maxBasenameLen).join('') + '-' + shortHash;
+  }
+
+  return normalizePath(`${outputFolder}/${basename}.ai-review.md`);
 }
 
 function hashString(value: string): string {

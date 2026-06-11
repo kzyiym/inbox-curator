@@ -1,4 +1,4 @@
-import { Notice } from 'obsidian';
+import { Notice, TFile } from 'obsidian';
 import type InboxCuratorPlugin from '../main';
 import { t } from './i18n';
 import { undoLastAutoSortRun } from './undoAutoSort';
@@ -7,8 +7,16 @@ export function registerInboxCuratorCommands(plugin: InboxCuratorPlugin): void {
   plugin.addCommand({
     id: 'review-current-note',
     name: t('commands.reviewCurrentNote'),
-    callback: async () => {
-      await plugin.reviewActiveFile();
+    editorCheckCallback: (checking, _editor, view) => {
+      const file = view?.file;
+      if (checking) {
+        return file instanceof TFile && file.extension === 'md' && !file.path.endsWith('.ai-review.md');
+      }
+      if (!(file instanceof TFile) || file.extension !== 'md') {
+        new Notice(t('notice.openMarkdownNoteFirst'));
+        return;
+      }
+      void plugin.reviewFile(file);
     },
   });
 
@@ -23,8 +31,16 @@ export function registerInboxCuratorCommands(plugin: InboxCuratorPlugin): void {
   plugin.addCommand({
     id: 'execute-proposed-action',
     name: t('commands.executeProposedAction'),
-    callback: async () => {
-      await plugin.executeProposedActionForActiveFile();
+    editorCheckCallback: (checking, _editor, view) => {
+      const file = view?.file;
+      if (checking) {
+        return file instanceof TFile && file.extension === 'md' && !file.path.endsWith('.ai-review.md');
+      }
+      if (!(file instanceof TFile) || file.extension !== 'md') {
+        new Notice(t('notice.openMarkdownNoteFirst'));
+        return;
+      }
+      void plugin.executeProposedActionForFile(file);
     },
   });
 
@@ -56,8 +72,14 @@ export function registerInboxCuratorCommands(plugin: InboxCuratorPlugin): void {
   plugin.addCommand({
     id: 'review-folder-as-collection',
     name: t('commands.reviewFolderAsCollection'),
-    callback: async () => {
-      await plugin.reviewFolderAsCollection();
+    editorCheckCallback: (checking, _editor, view) => {
+      if (checking) {
+        return true;
+      }
+      const activeFile = view?.file instanceof TFile && view.file.extension === 'md'
+        ? view.file
+        : undefined;
+      void plugin.reviewFolderAsCollection(activeFile);
     },
   });
 }

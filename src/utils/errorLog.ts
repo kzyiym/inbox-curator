@@ -1,5 +1,5 @@
-import { App, normalizePath, TFile } from 'obsidian';
-import { ensureFolder } from './folder';
+import { App, normalizePath } from 'obsidian';
+import { ensureDotFolder } from './folder';
 import { isErrorLoggingEnabled } from './logFiles';
 
 const LOG_FOLDER = normalizePath('.inbox-curator/logs');
@@ -44,19 +44,18 @@ export async function logError(
   console.warn(message, details);
 
   try {
-    await ensureFolder(app, LOG_FOLDER);
+    await ensureDotFolder(app, LOG_FOLDER);
     const path = getLogFilePath();
-    const existing = app.vault.getAbstractFileByPath(path);
+    const adapter = app.vault.adapter;
+    const normalized = normalizePath(path);
     let content = '';
-    if (existing instanceof TFile) {
-      content = await app.vault.read(existing);
+    try {
+      content = await adapter.read(normalized);
+    } catch {
+      /* file doesn't exist yet */
     }
     content += formatEntry(timestamp, level, message, details);
-    if (existing instanceof TFile) {
-      await app.vault.modify(existing, content);
-    } else {
-      await app.vault.create(path, content);
-    }
+    await adapter.write(normalized, content);
   } catch (e) {
     console.error('Inbox Curator: Failed to write error log file', e);
   }

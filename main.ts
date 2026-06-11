@@ -16,10 +16,12 @@ import { clearSessionApiKeys, getApiKey, hasApiKey } from './src/secrets';
 import { logError } from './src/utils/errorLog';
 import { logOperation } from './src/utils/operationLog';
 import { appendAutoSortActionRecord, type AutoSortActionRecord } from './src/utils/autoSortHistory';
+import { undoLastAutoSortRun } from './src/undoAutoSort';
 import { setLogLevelGetter } from './src/utils/logFiles';
 import { resolveReviewContextBudget } from './src/utils/contentFilter';
 import { resolveEffectiveOpenAiTokenLimitParam, buildOpenAiCompatibleTokenLimitDetectionKey } from './src/openAiCompatible';
 import { getFolderMarkdownFilesForCollectionReview, runCollectionReviewPipeline } from './src/collectionReview';
+import { validateFolderPath } from './src/utils/folder';
 
 type AutomaticReviewReason = 'create' | 'modify' | 'poll';
 
@@ -199,6 +201,153 @@ export default class InboxCuratorPlugin extends Plugin {
 
     this.addSettingTab(new InboxCuratorSettingTab(this.app, this));
     registerInboxCuratorCommands(this);
+
+    this.registerEvent(
+      this.app.workspace.on('files-menu', (menu, files) => {
+        if (!this.settings.enableContextMenu) return;
+        const mdFiles = files.filter((f): f is TFile => f instanceof TFile && f.extension === 'md');
+
+        if (mdFiles.length === 0) return;
+
+        if (mdFiles.length >= 2 && this.settings.contextMenuReviewSelectedAsCollection) {
+          menu.addItem((item) => {
+            item
+              .setTitle(t('fileMenu.reviewSelectedAsCollection'))
+              .setIcon('folder-sync')
+              .onClick(async () => {
+                await this.runCollectionReviewFlow(mdFiles, 'selected_notes', '');
+              });
+          });
+        }
+
+        if (this.settings.contextMenuReviewSelected && mdFiles.length >= 1) {
+          menu.addItem((item) => {
+            item
+              .setTitle(t('fileMenu.reviewEachSelected'))
+              .setIcon('file')
+              .onClick(async () => {
+                await this.reviewMultipleFiles(mdFiles);
+              });
+          });
+        }
+
+        if (this.settings.contextMenuExecuteSelectedActions && mdFiles.length >= 1) {
+          menu.addItem((item) => {
+            item
+              .setTitle(t('fileMenu.executeSelectedActions'))
+              .setIcon('checkmark')
+              .onClick(async () => {
+                await this.executeProposedActionsForFiles(mdFiles);
+              });
+          });
+        }
+
+        if (this.settings.contextMenuCleanupMarkers && mdFiles.length >= 1) {
+          menu.addItem((item) => {
+            item
+              .setTitle(t('fileMenu.cleanupMarkers'))
+              .setIcon('trash')
+              .onClick(async () => {
+                await this.cleanupMarkersForFiles(mdFiles);
+              });
+          });
+        }
+      })
+    );
+
+    this.registerEvent(
+      this.app.workspace.on('file-menu', (menu, file) => {
+        if (!this.settings.enableContextMenu) return;
+
+        if (file instanceof TFile && file.extension === 'md') {
+          if (this.settings.contextMenuReviewCurrentNote) {
+            menu.addItem((item) => {
+              item
+                .setTitle(t('fileMenu.reviewCurrentNote'))
+                .setIcon('file')
+                .onClick(async () => {
+                  await this.reviewFile(file);
+                });
+            });
+          }
+          if (this.settings.contextMenuExecuteProposedAction) {
+            menu.addItem((item) => {
+              item
+                .setTitle(t('fileMenu.executeProposedAction'))
+                .setIcon('checkmark')
+                .onClick(async () => {
+                  await this.executeProposedActionForFile(file);
+                });
+            });
+          }
+        }
+
+        if (file instanceof TFolder) {
+          if (this.settings.contextMenuReviewFolderAsCollection) {
+            menu.addItem((item) => {
+              item
+                .setTitle(t('fileMenu.reviewFolderAsCollection'))
+                .setIcon('folder-sync')
+                .onClick(async () => {
+                  const crFiles = await getFolderMarkdownFilesForCollectionReview(this.app, file.path, {
+                    outputFolder: this.settings.collectionReviewOutputFolder,
+                    provider: this.settings.provider,
+                    endpointUrl: this.settings.endpointUrl,
+                    model: this.settings.model,
+                    apiKey: '',
+                    maxNotes: this.settings.collectionReviewMaxNotes,
+                    maxExcerptCharsPerNote: this.settings.collectionReviewMaxExcerptCharsPerNote,
+                    useExistingReviewsFirst: this.settings.collectionReviewUseExistingReviewsFirst,
+                    includeExcerptWhenNeeded: this.settings.collectionReviewIncludeExcerptWhenNeeded,
+                    promptLanguage: this.settings.promptLanguage === 'japanese' ? 'japanese' : 'english',
+                    requestTimeoutMs: this.settings.requestTimeoutMs,
+                    maxOutputTokens: 4096,
+                    isUnloaded: () => this.isUnloaded,
+                  });
+                  if (crFiles.length >= 2) {
+                    await this.runCollectionReviewFlow(crFiles, 'folder', file.path);
+                  } else {
+                    new Notice(t('notice.collectionReview.tooFew'));
+                  }
+                });
+            });
+          }
+          if (this.settings.contextMenuProcessWatchedFolder) {
+            menu.addItem((item) => {
+              item
+                .setTitle(t('fileMenu.processWatchedFolder'))
+                .setIcon('play')
+                .onClick(async () => {
+                  await this.processWatchedFolder();
+                });
+            });
+          }
+        }
+
+        if (this.settings.contextMenuCleanupMarkers) {
+          menu.addItem((item) => {
+            item
+              .setTitle(t('fileMenu.cleanupMarkers'))
+              .setIcon('trash')
+              .onClick(async () => {
+                await this.cleanupEmojiPrefixFiles();
+                new Notice(t('notice.cleanupMarkersNone'));
+              });
+          });
+        }
+
+        if (this.settings.contextMenuUndoAutoSort) {
+          menu.addItem((item) => {
+            item
+              .setTitle(t('fileMenu.undoAutoSort'))
+              .setIcon('undo')
+              .onClick(async () => {
+                await undoLastAutoSortRun(this.app);
+              });
+          });
+        }
+      })
+    );
     
     const statusBarEl = this.addStatusBarItem();
     this.processingNotice.setStatusBarElement(statusBarEl);
@@ -226,6 +375,28 @@ export default class InboxCuratorPlugin extends Plugin {
     // Backwards compatibility migration
     if (saved && saved.autoExecuteProposedActions === true && saved.autoExecuteArchive === undefined) {
       this.settings.autoExecuteArchive = true;
+    }
+
+    // Sanitize folder paths (reject dot-prefix from manual data.json edits)
+    const folderFields: { field: keyof InboxCuratorSettings; default: string }[] = [
+      { field: 'watchedFolder', default: DEFAULT_SETTINGS.watchedFolder },
+      { field: 'reviewOutputFolder', default: DEFAULT_SETTINGS.reviewOutputFolder },
+      { field: 'collectionReviewOutputFolder', default: DEFAULT_SETTINGS.collectionReviewOutputFolder },
+      { field: 'readLaterFolder', default: DEFAULT_SETTINGS.readLaterFolder },
+      { field: 'taskFolder', default: DEFAULT_SETTINGS.taskFolder },
+      { field: 'deleteCandidateFolder', default: DEFAULT_SETTINGS.deleteCandidateFolder },
+    ];
+    let foldersSanitized = false;
+    for (const { field, default: def } of folderFields) {
+      const current = (this.settings as any)[field] as string;
+      const result = validateFolderPath(current, def);
+      if (result.changed) {
+        (this.settings as any)[field] = result.sanitized;
+        foldersSanitized = true;
+      }
+    }
+    if (foldersSanitized) {
+      await this.saveSettings();
     }
   }
 
@@ -282,6 +453,16 @@ export default class InboxCuratorPlugin extends Plugin {
       collectionReviewIncludeExcerptWhenNeeded: this.settings.collectionReviewIncludeExcerptWhenNeeded,
       collectionReviewMaxNotes: this.settings.collectionReviewMaxNotes,
       collectionReviewMaxExcerptCharsPerNote: this.settings.collectionReviewMaxExcerptCharsPerNote,
+      enableContextMenu: this.settings.enableContextMenu,
+      contextMenuReviewCurrentNote: this.settings.contextMenuReviewCurrentNote,
+      contextMenuExecuteProposedAction: this.settings.contextMenuExecuteProposedAction,
+      contextMenuCleanupMarkers: this.settings.contextMenuCleanupMarkers,
+      contextMenuUndoAutoSort: this.settings.contextMenuUndoAutoSort,
+      contextMenuReviewFolderAsCollection: this.settings.contextMenuReviewFolderAsCollection,
+      contextMenuProcessWatchedFolder: this.settings.contextMenuProcessWatchedFolder,
+      contextMenuReviewSelectedAsCollection: this.settings.contextMenuReviewSelectedAsCollection,
+      contextMenuExecuteSelectedActions: this.settings.contextMenuExecuteSelectedActions,
+      contextMenuReviewSelected: this.settings.contextMenuReviewSelected,
       logLevel: this.settings.logLevel,
     });
  
@@ -620,8 +801,19 @@ export default class InboxCuratorPlugin extends Plugin {
             error: actionResult.success ? undefined : actionResult.error,
           }, result.reviewResult.promptLanguage);
         } catch (appendErr) {
+          const appendErrorMessage = appendErr instanceof Error ? appendErr.message : String(appendErr);
           logError(this.app, 'WARN', 'Inbox Curator: Failed to append auto-execute result to review log', {
-            error: appendErr instanceof Error ? appendErr.message : String(appendErr),
+            error: appendErrorMessage,
+            reviewNotePath: result.writeResult.outputPath,
+          });
+          void logOperation(this.app, {
+            timestamp: new Date().toISOString(),
+            level: 'WARN',
+            event: 'auto_execute_result_append_failed',
+            operationId: job.operationId,
+            notePath: file.path,
+            reviewNotePath: result.writeResult.outputPath,
+            message: appendErrorMessage,
           });
         }
 
@@ -1098,6 +1290,11 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   async reviewFile(file: TFile): Promise<void> {
+    if (file.path.endsWith('.ai-review.md')) {
+      new Notice(t('notice.cannotReviewAiReview'));
+      return;
+    }
+
     if (!this.tryBeginProcessing(t('notice.reviewingCurrentNote'))) {
       return;
     }
@@ -1245,19 +1442,24 @@ export default class InboxCuratorPlugin extends Plugin {
     await this.runCollectionReviewFlow(files, 'selected_notes', '');
   }
 
-  async reviewFolderAsCollection(): Promise<void> {
-    const activeFile = this.getActiveMarkdownFile();
+  async reviewFolderAsCollection(activeFile?: TFile | null): Promise<void> {
     let folderPath: string;
-    if (activeFile) {
+    if (activeFile instanceof TFile) {
       const parent = activeFile.parent;
       folderPath = parent ? parent.path : '';
     } else {
-      const watchedFolder = this.settings.watchedFolder.trim();
-      if (watchedFolder && this.isWatchedFolderValid()) {
-        folderPath = watchedFolder;
+      const file = this.getActiveMarkdownFile();
+      if (file) {
+        const parent = file.parent;
+        folderPath = parent ? parent.path : '';
       } else {
-        new Notice(t('notice.collectionReview.noNotes'));
-        return;
+        const watchedFolder = this.settings.watchedFolder.trim();
+        if (watchedFolder && this.isWatchedFolderValid()) {
+          folderPath = watchedFolder;
+        } else {
+          new Notice(t('notice.collectionReview.noNotes'));
+          return;
+        }
       }
     }
 
@@ -1276,7 +1478,7 @@ export default class InboxCuratorPlugin extends Plugin {
       maxExcerptCharsPerNote: this.settings.collectionReviewMaxExcerptCharsPerNote,
       useExistingReviewsFirst: this.settings.collectionReviewUseExistingReviewsFirst,
       includeExcerptWhenNeeded: this.settings.collectionReviewIncludeExcerptWhenNeeded,
-      promptLanguage: 'english',
+      promptLanguage: this.settings.promptLanguage === 'japanese' ? 'japanese' : 'english',
       requestTimeoutMs: this.settings.requestTimeoutMs,
       maxOutputTokens: 4096,
       isUnloaded: () => this.isUnloaded,
@@ -1430,13 +1632,122 @@ export default class InboxCuratorPlugin extends Plugin {
     }
   }
 
+  async reviewMultipleFiles(files: TFile[]): Promise<void> {
+    if (!this.tryBeginProcessing(t('notice.reviewingProgress', { current: 0, total: files.length }))) {
+      return;
+    }
+
+    try {
+      let processed = 0;
+      let failed = 0;
+      let skipped = 0;
+      const queuedTasks: QueuedReviewTask[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        this.updateProcessingStatus(t('notice.reviewingProgress', { current: i + 1, total: files.length }));
+        const job = createReviewJob('manual-current', file.path);
+        const queued = this.reviewQueue.enqueue(job);
+        if (!queued.accepted) {
+          failed++;
+          continue;
+        }
+        queuedTasks.push({ file, resultPromise: queued.promise });
+      }
+
+      for (let i = 0; i < queuedTasks.length; i++) {
+        this.updateProcessingStatus(t('notice.reviewingProgress', { current: i + 1, total: queuedTasks.length }));
+        const result = await queuedTasks[i].resultPromise;
+        if (result.status === 'processed') {
+          processed++;
+        } else if (result.status === 'skipped') {
+          skipped++;
+        } else {
+          failed++;
+        }
+      }
+
+      new Notice(t('notice.batchReviewCompleted', { processed, skipped, failed, total: files.length }));
+    } catch (error) {
+      logError(this.app, 'ERROR', 'Inbox Curator: batch review failed', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      new Notice(t('notice.reviewFailed'));
+    } finally {
+      this.finishProcessing();
+    }
+  }
+
+  async executeProposedActionsForFiles(files: TFile[]): Promise<void> {
+    let executed = 0;
+    let skipped = 0;
+    let failed = 0;
+    const results: string[] = [];
+
+    for (const file of files) {
+      const result = await executeProposedAction(this.app, file, {
+        outputFolder: this.settings.reviewOutputFolder,
+        readLaterFolder: this.settings.readLaterFolder,
+        taskFolder: this.settings.taskFolder,
+        deleteCandidateFolder: this.settings.deleteCandidateFolder,
+        suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
+        skipConfirmation: true,
+      });
+
+      if (result.success) {
+        if (result.actionTaken === 'archive' || result.actionTaken === 'read_later' ||
+            result.actionTaken === 'task' || result.actionTaken === 'delete_candidate') {
+          executed++;
+          if (result.actionTaken) results.push(result.actionTaken);
+        } else {
+          skipped++;
+        }
+      } else {
+        failed++;
+      }
+    }
+
+    new Notice(t('notice.batchActionsCompleted', { executed, skipped, failed }));
+  }
+
+  async cleanupMarkersForFiles(files: TFile[]): Promise<void> {
+    let count = 0;
+    const marker = InboxCuratorPlugin.PROCESSING_FILE_MARKER;
+
+    for (const file of files) {
+      if (!this.hasProcessingFileMarker(file.name)) continue;
+      const cleanPath = file.path.replace(
+        new RegExp(`/${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g'),
+        '/',
+      );
+      if (this.app.vault.getAbstractFileByPath(cleanPath) instanceof TFile) continue;
+      try {
+        this.processingMarkerRenameSkipCache.add(file.path);
+        this.processingMarkerRenameSkipCache.add(cleanPath);
+        await this.app.fileManager.renameFile(file, cleanPath);
+        count++;
+      } catch {
+        // skip single file
+      }
+    }
+
+    if (count > 0) {
+      new Notice(t('notice.cleanupMarkers', { count }));
+    } else {
+      new Notice(t('notice.cleanupMarkersNone'));
+    }
+  }
+
   async executeProposedActionForActiveFile(): Promise<void> {
     const file = this.getActiveMarkdownFile();
     if (!file) {
       new Notice(t('notice.openMarkdownNoteFirst'));
       return;
     }
+    await this.executeProposedActionForFile(file);
+  }
 
+  async executeProposedActionForFile(file: TFile): Promise<void> {
     const result = await executeProposedAction(this.app, file, {
       outputFolder: this.settings.reviewOutputFolder,
       readLaterFolder: this.settings.readLaterFolder,

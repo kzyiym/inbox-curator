@@ -37,6 +37,9 @@ describe('InboxCuratorPlugin Polling I/O Cache', () => {
       metadataCache: {
         getFileCache: vi.fn(),
       },
+      workspace: {
+        on: vi.fn().mockReturnValue({ off: vi.fn() }),
+      },
     };
 
     plugin = new InboxCuratorPlugin(mockApp, {});

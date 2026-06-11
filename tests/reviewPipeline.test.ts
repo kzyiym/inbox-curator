@@ -369,3 +369,57 @@ describe('content filter integration in buildReviewModelInputPayload', () => {
     expect(result.inputReductionInfo!.removedLineCount).toBe(0);
   });
 });
+
+describe('buildOutputPath truncation', () => {
+  it('keeps short basenames unchanged', () => {
+    const file = createTFile('Inbox/short-note.md');
+    const noteContent = '# Test\n';
+    const source = buildReviewSourceInfo(file, 'AI Reviews', noteContent);
+    expect(source.outputPath).toBe('AI Reviews/short-note.ai-review.md');
+  });
+
+  it('keeps basename at exactly 72 chars unchanged', () => {
+    const basename72 = 'a'.repeat(72);
+    const file = createTFile(`Inbox/${basename72}.md`);
+    const noteContent = '# Test\n';
+    const source = buildReviewSourceInfo(file, 'AI Reviews', noteContent);
+    expect(source.outputPath).toBe(`AI Reviews/${basename72}.ai-review.md`);
+  });
+
+  it('truncates basename > 72 chars with 8-char hash suffix', () => {
+    const longName = 'a'.repeat(120);
+    const file = createTFile(`Inbox/${longName}.md`);
+    const noteContent = '# Test\n';
+    const source = buildReviewSourceInfo(file, 'AI Reviews', noteContent);
+
+    const basename = source.outputPath.replace('AI Reviews/', '').replace('.ai-review.md', '');
+    // truncated to 72 + '-' + 8 hex chars = 81
+    expect(basename.length).toBe(81);
+    expect(basename.slice(0, 72)).toBe(longName.slice(0, 72));
+    expect(basename[72]).toBe('-');
+    expect(/^[0-9a-f]{8}$/.test(basename.slice(73))).toBe(true);
+  });
+
+  it('produces stable output for same long basename', () => {
+    const longName = 'とても長い日本語のファイル名で、これはWindowsのパス制限を超える可能性があるものです。実際にこのような長いファイル名が生成されることがあります。';
+    const file1 = createTFile(`Inbox/${longName}.md`);
+    const file2 = createTFile(`Inbox/${longName}.md`);
+
+    const source1 = buildReviewSourceInfo(file1, 'AI Reviews', '# Content 1\n');
+    const source2 = buildReviewSourceInfo(file2, 'AI Reviews', '# Content 2\n');
+
+    expect(source1.outputPath).toBe(source2.outputPath);
+  });
+
+  it('different long basenames produce different truncated paths', () => {
+    const name1 = 'a'.repeat(120);
+    const name2 = 'b'.repeat(120);
+    const file1 = createTFile(`Inbox/${name1}.md`);
+    const file2 = createTFile(`Inbox/${name2}.md`);
+
+    const source1 = buildReviewSourceInfo(file1, 'AI Reviews', '# Test\n');
+    const source2 = buildReviewSourceInfo(file2, 'AI Reviews', '# Test\n');
+
+    expect(source1.outputPath).not.toBe(source2.outputPath);
+  });
+});

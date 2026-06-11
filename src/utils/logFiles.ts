@@ -1,5 +1,5 @@
-import { App, normalizePath, TFile } from 'obsidian';
-import { ensureFolder } from './folder';
+import { App, normalizePath } from 'obsidian';
+import { ensureDotFolder } from './folder';
 
 export type LogLevel = 'off' | 'errors' | 'operations';
 
@@ -45,24 +45,17 @@ export function parseLogFileDate(fileName: string): Date | null {
 }
 
 export async function ensureLogFolder(app: App): Promise<void> {
-  await ensureFolder(app, LOG_FOLDER);
+  await ensureDotFolder(app, LOG_FOLDER);
 }
 
 export async function appendToFile(app: App, path: string, content: string): Promise<void> {
-  const existing = app.vault.getAbstractFileByPath(path);
-  if (existing instanceof TFile) {
-    await app.vault.process(existing, (data) => data + content);
-  } else {
-    try {
-      await app.vault.create(path, content);
-    } catch {
-      const retryFile = app.vault.getAbstractFileByPath(path);
-      if (retryFile instanceof TFile) {
-        await app.vault.process(retryFile, (data) => data + content);
-      } else {
-        throw new Error(`Failed to create log file: ${path}`);
-      }
-    }
+  const adapter = app.vault.adapter;
+  const normalized = normalizePath(path);
+  try {
+    const existing = await adapter.read(normalized);
+    await adapter.write(normalized, existing + content);
+  } catch {
+    await adapter.write(normalized, content);
   }
 }
 

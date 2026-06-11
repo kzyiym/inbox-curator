@@ -34,6 +34,7 @@ function createMockApp() {
     read: vi.fn(async (path: string) => files.get(path) ?? ''),
     write: vi.fn(async (path: string, data: string) => { files.set(path, data); }),
     remove: vi.fn(async (path: string) => { files.delete(path); }),
+    mkdir: vi.fn(async (path: string) => { files.set(path, ''); }),
   };
   const vault = {
     adapter,
@@ -66,6 +67,9 @@ describe('autoSortHistory', () => {
   it('saves and loads history correctly', async () => {
     const history: AutoSortHistoryFile = { version: 1, runs: [] };
     await saveAutoSortHistory(app, history);
+    // Must not use Vault API for dot-folder
+    expect(app.vault.createFolder).not.toHaveBeenCalled();
+    expect(app.vault.getAbstractFileByPath).not.toHaveBeenCalled();
     const loaded = await loadAutoSortHistory(app);
     expect(loaded.version).toBe(1);
     expect(loaded.runs).toEqual([]);

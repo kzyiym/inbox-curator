@@ -1,6 +1,28 @@
 import { App, normalizePath } from 'obsidian';
 
 /**
+ * Creates a dot-prefixed internal folder (e.g. `.inbox-curator/`) using the adapter.
+ * The Obsidian Vault API does not track dot-folders, so we bypass it entirely.
+ */
+export async function ensureDotFolder(app: App, folderPath: string): Promise<void> {
+  const adapter = app.vault.adapter;
+  const normalized = normalizePath(folderPath);
+  if (!normalized || normalized === '.') {
+    return;
+  }
+
+  const parts = normalized.split('/');
+  let current = '';
+
+  for (const part of parts) {
+    current = current ? `${current}/${part}` : part;
+    if (!(await adapter.exists(current))) {
+      await adapter.mkdir(current);
+    }
+  }
+}
+
+/**
  * Ensures that the specified folder path exists in the vault.
  * If any parent folders do not exist, they are created automatically.
  * Safe against concurrent creation race conditions.
@@ -21,10 +43,16 @@ export async function ensureFolder(app: App, folderPath: string): Promise<void> 
       try {
         await app.vault.createFolder(current);
       } catch (error) {
+        if (error instanceof Error && error.message.includes('already exists')) {
+          continue;
+        }
         const checkExisting = app.vault.getAbstractFileByPath(current);
         if (!checkExisting) {
-          console.error('Inbox Curator: Failed to create folder', current, error);
-          throw error;
+          const existsOnDisk = await app.vault.adapter.exists(current);
+          if (!existsOnDisk) {
+            console.error('Inbox Curator: Failed to create folder', current, error);
+            throw error;
+          }
         }
       }
     }
@@ -118,4 +146,32 @@ export function resolveSafeSuggestedPath(suggestedFolder: string, basePath?: str
   }
 
   return finalPath;
+}
+
+export type FolderPathValidationReason = 'empty' | 'dot_prefix';
+
+export interface FolderPathValidationResult {
+  sanitized: string;
+  changed: boolean;
+  reason?: FolderPathValidationReason;
+}
+
+/**
+ * Validates a user-configurable folder path. Dot-prefixed components
+ * (e.g. `.inbox-curator`) are rejected because the Obsidian Vault API
+ * cannot interact with hidden folders.
+ */
+export function validateFolderPath(value: string, defaultValue: string): FolderPathValidationResult {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { sanitized: defaultValue, changed: true, reason: 'empty' };
+  }
+
+  const sanitized = trimmed.replace(/\\/g, '/');
+  const parts = sanitized.split('/').filter((p) => p.length > 0);
+  if (parts.some((p) => p.startsWith('.'))) {
+    return { sanitized: defaultValue, changed: true, reason: 'dot_prefix' };
+  }
+
+  return { sanitized, changed: false };
 }

@@ -1,5 +1,5 @@
 import { App, normalizePath } from 'obsidian';
-import { ensureFolder } from './folder';
+import { ensureDotFolder } from './folder';
 import type { ReviewMode, ReviewReliabilityLabel } from '../types';
 import type { ReviewJobSource } from '../queue/queueTypes';
 import type { ReviewParseStatus, ReviewConfidence } from '../reviewNormalizer';
@@ -58,7 +58,7 @@ export async function loadAutoSortHistory(app: App): Promise<AutoSortHistoryFile
 export async function saveAutoSortHistory(app: App, history: AutoSortHistoryFile): Promise<void> {
   const adapter = app.vault.adapter;
   if (!adapter) return;
-  await ensureFolder(app, normalizePath('.inbox-curator'));
+  await ensureDotFolder(app, normalizePath('.inbox-curator'));
   await adapter.write(HISTORY_PATH, JSON.stringify(history, null, 2));
 }
 

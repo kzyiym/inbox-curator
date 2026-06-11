@@ -19,6 +19,7 @@ export interface OperationLogEntry {
   operationId?: string;
   notePath?: string;
   filePath?: string;
+  reviewNotePath?: string;
   provider?: string;
   model?: string;
   durationMs?: number;

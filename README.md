@@ -365,9 +365,17 @@ To keep automation reversible:
 
 ## FAQ
 
+### What is Inbox Curator?
+
+Inbox Curator is an Obsidian plugin that uses AI (LLM APIs) to review, summarize, and auto-sort notes in your Inbox folder. It helps you process saved web articles, AI chat logs, quick notes, and URL links in bulk.
+
+### Which AI providers are supported?
+
+OpenAI (and OpenAI-compatible endpoints), Google Gemini (native API), and Anthropic Claude (native API). You need an API key from one of these providers.
+
 ### Will Inbox Curator delete my notes automatically?
 
-No. Inbox Curator never deletes notes automatically. Delete candidates are suggested only.
+No. Inbox Curator never deletes notes automatically. Delete candidates are suggestions only. By default, notes flagged as delete candidates remain in place. You may optionally configure auto-move of high-confidence delete candidates to a quarantine folder (`Delete Candidates`), but this is not permanent deletion.
 
 ### Can I undo auto-sorting?
 
@@ -375,9 +383,82 @@ Yes. Recent auto-sort runs can be undone with the command:
 
 `Inbox Curator: Undo last auto-sort run`
 
+Only move-based actions (Archive, Read Later, Task, suggested folder, Delete Candidates) are undoable. Manual Trash and Permanent Delete cannot be undone by Inbox Curator.
+
 ### Why are Archive and Read Later executed with Medium confidence?
 
-Archive and Read Later are reversible, low-risk organization actions. Tasks require High confidence because they can influence user behavior.
+Archive and Read Later are reversible, low-risk organization actions. Tasks require High confidence because they can influence user behavior and priorities.
+
+### What are the review modes?
+
+- **Standard (Advanced)**: Full structured AI review with scores, summaries, credibility assessments, tags, and action recommendations.
+- **Simple (Auto-sort)**: Lightweight parsing focused on action classification only — ideal for auto-sorting.
+- **Safe (Review only)**: Generates review output but disables all auto-sort actions entirely. Use this when you want to manually review AI suggestions before acting.
+
+### How are API keys stored?
+
+API keys are stored securely using Obsidian's native `SecretStorage` API. They are never written to `data.json` or synced. If `SecretStorage` is unavailable, keys are kept in-memory for the session only.
+
+### Does the plugin collect telemetry?
+
+No. The plugin core is 100% telemetry-free. The developer does not collect, monitor, or transmit any usage data, note contents, or error logs. The optional external FAQ page (`https://inbox-curator.antidot.jp/`) uses Google Analytics on an opt-in basis (disabled by default) — see [External Service Disclosures](#external-service-disclosures).
+
+### What does the processing marker (🤖) do?
+
+When enabled in settings, a `🤖` prefix is added to filenames while review is in progress. This is a visual indicator only and is automatically removed when processing completes. It is disabled by default because it may cause sync conflicts in vaults synchronized with third-party services.
+
+### Can I review multiple notes at once?
+
+Yes. You can:
+- Process the entire watched folder with `Inbox Curator: Process watched folder`.
+- Select multiple notes in the file explorer and choose context menu options like "Review selected notes as a collection" or "Review each selected note".
+
+Collection review sends summaries of multiple notes to the AI together for cross-note analysis. Individual note review processes each note separately.
+
+### Can I review images and attachments?
+
+Yes, when image reading is enabled (`Settings → Attachments`). The plugin can send up to 3 images (max 1 MB each) to multimodal AI models for visual review. Optional in-memory image optimization accepts source images up to 10 MB and temporarily compresses them for AI review without modifying your original files. PDF text extraction is also available (experimental, first 5 pages, up to 10,000 characters).
+
+### What happens with URL-only notes?
+
+When a note contains only a URL, the plugin fetches the page's metadata (title, description, OG tags) and optionally extracts the readable article text. This works best with static HTML pages. Single-page applications (SPAs) that require JavaScript may yield incomplete results.
+
+### What is prompt injection detection?
+
+The plugin automatically scans note content for signals that attempt to manipulate the AI review prompt (prompt injection). When detected:
+- Task auto-execution is blocked.
+- Archive and Read Later may still auto-execute if their confidence and safety conditions are met.
+- Review output includes a warning.
+
+You can use Safe mode (Review only) for maximum protection.
+
+### How does rate limiting work?
+
+You can configure `Requests per minute` and `Delay between requests` in settings to control API usage. Combined with `Max notes per run` (1-100) and `Max concurrent reviews` (1-8), this prevents API rate-limit errors and manages costs.
+
+### Does the plugin work on mobile?
+
+No. Inbox Curator is desktop-only. The plugin manifest specifies `isDesktopOnly: true`.
+
+### What is collection review?
+
+Collection review analyzes a group of notes together, identifying themes, patterns, and relationships across notes. It can use existing individual reviews first (configurable) and include note excerpts when needed. Collection review output is saved to a separate configurable folder.
+
+### Can I customize the review prompt?
+
+Yes. You can add up to 3,000 characters of custom instructions in `Settings → Review Behavior → Additional Review Instructions`. This lets you tailor the AI review to your specific needs (e.g., focus on technical accuracy, prioritize certain topics, add domain-specific criteria).
+
+### How does deduplication work?
+
+After a review, the plugin writes an `ai_review_source_hash` to the note's frontmatter. On subsequent scans, if the note content hasn't changed (hash matches), the note is skipped. This prevents re-reviewing unchanged notes.
+
+### What happens if a review fails?
+
+Failed reviews are logged to rotating error log files in `.inbox-curator/logs/`. The queue continues processing remaining notes. You can configure log levels (`off`, `errors`, `operations`) in settings. Operation logs provide detailed execution traces for debugging.
+
+### Are my notes sent to the developer?
+
+No. Note content, images, and PDF text are sent directly from your device to your configured AI provider (OpenAI, Gemini, or Anthropic). No intermediary servers are involved. The developer cannot access your notes or API keys.
 
 ---
 

@@ -5,6 +5,7 @@ import { executeProposedAction } from '../src/actionLayer';
 import { runReviewPipeline } from '../src/reviewPipeline';
 import { appendAutoExecuteResult } from '../src/reviewWriter';
 import { createReviewJob } from '../src/queue/job';
+import { logOperation } from '../src/utils/operationLog';
 
 vi.mock('../src/utils/errorLog', () => ({
   logError: vi.fn(),
@@ -384,18 +385,20 @@ describe('InboxCuratorPlugin Auto-execute', () => {
   it('continues queue even if appendAutoExecuteResult fails (non-blocking)', async () => {
     plugin.settings.autoExecuteArchive = true;
 
-    vi.mocked(runReviewPipeline).mockResolvedValue({
+    vi.mocked(runReviewPipeline).mockReset();
+    vi.mocked(runReviewPipeline).mockImplementation(async () => ({
       ok: true,
       reviewResult: {
         promptLanguage: 'english',
         verdict: {
           recommendedAction: 'archive',
+          reliabilityLabel: 'high',
         },
       },
       writeResult: {
         outputPath: 'AI Reviews/my-note.ai-review.md',
       },
-    } as any);
+    }));
 
     vi.mocked(executeProposedAction).mockResolvedValue({
       success: true,
@@ -413,6 +416,17 @@ describe('InboxCuratorPlugin Auto-execute', () => {
     // Queue continues and the job succeeds since main pipeline and action succeeded
     expect(result.status).toBe('processed');
     expect(plugin.reviewQueue.pause).not.toHaveBeenCalled();
+
+    // Structured WARN is logged for append failure
+    expect(logOperation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        event: 'auto_execute_result_append_failed',
+        level: 'WARN',
+        reviewNotePath: 'AI Reviews/my-note.ai-review.md',
+        message: 'Disk write error',
+      }),
+    );
   });
 
   describe('reliability gate (#5)', () => {
@@ -602,7 +616,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
       vi.mocked(runReviewPipeline).mockResolvedValue({
         ok: true,
         reviewResult: {
-        promptLanguage: 'english',
+          promptLanguage: 'english',
           verdict: {
             recommendedAction: 'archive',
           },

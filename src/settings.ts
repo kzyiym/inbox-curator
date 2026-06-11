@@ -9,6 +9,7 @@ import type { LogLevel } from './utils/logFiles';
 import type { ContextBudgetPreset } from './utils/contentFilter';
 import type { OpenAiCompatibleTokenLimitParam, DetectedOpenAiCompatibleTokenLimitParam } from './openAiCompatible';
 import { buildOpenAiCompatibleTokenLimitDetectionKey } from './openAiCompatible';
+import { validateFolderPath } from './utils/folder';
 
 export type InboxCuratorProvider = 'openai-compatible' | 'gemini-native' | 'anthropic-native';
 
@@ -63,6 +64,16 @@ export interface InboxCuratorSettings {
   collectionReviewIncludeExcerptWhenNeeded: boolean;
   collectionReviewMaxNotes: number;
   collectionReviewMaxExcerptCharsPerNote: number;
+  enableContextMenu: boolean;
+  contextMenuReviewCurrentNote: boolean;
+  contextMenuExecuteProposedAction: boolean;
+  contextMenuCleanupMarkers: boolean;
+  contextMenuUndoAutoSort: boolean;
+  contextMenuReviewFolderAsCollection: boolean;
+  contextMenuProcessWatchedFolder: boolean;
+  contextMenuReviewSelectedAsCollection: boolean;
+  contextMenuExecuteSelectedActions: boolean;
+  contextMenuReviewSelected: boolean;
   logLevel: LogLevel;
 }
 
@@ -119,6 +130,16 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   collectionReviewIncludeExcerptWhenNeeded: true,
   collectionReviewMaxNotes: 30,
   collectionReviewMaxExcerptCharsPerNote: 2000,
+  enableContextMenu: true,
+  contextMenuReviewCurrentNote: true,
+  contextMenuExecuteProposedAction: true,
+  contextMenuCleanupMarkers: false,
+  contextMenuUndoAutoSort: false,
+  contextMenuReviewFolderAsCollection: true,
+  contextMenuProcessWatchedFolder: true,
+  contextMenuReviewSelectedAsCollection: true,
+  contextMenuExecuteSelectedActions: true,
+  contextMenuReviewSelected: true,
   logLevel: 'errors',
 };
 
@@ -242,6 +263,14 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       card.createEl('p', { text: description, cls: 'inbox-curator-section-desc' });
     }
     return card;
+  }
+
+  private applyFolderValidation(value: string, defaultValue: string): { sanitized: string; changed: boolean } {
+    const result = validateFolderPath(value, defaultValue);
+    if (result.changed && result.reason === 'dot_prefix') {
+      new Notice(t('settings.validation.dotPrefix'));
+    }
+    return { sanitized: result.sanitized, changed: result.changed };
   }
 
   display(): void {
@@ -644,7 +673,11 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           .setPlaceholder(t('settings.watchedFolder.placeholder'))
           .setValue(settings.watchedFolder)
           .onChange(async (value) => {
-            settings.watchedFolder = value.trim();
+            const result = this.applyFolderValidation(value, DEFAULT_SETTINGS.watchedFolder);
+            if (result.changed) {
+              text.setValue(result.sanitized);
+            }
+            settings.watchedFolder = result.sanitized;
             await this.plugin.saveSettings();
             updateWatchedFolderStatus();
           });
@@ -681,7 +714,11 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           .setPlaceholder(t('settings.reviewOutputFolder.placeholder'))
           .setValue(settings.reviewOutputFolder)
           .onChange(async (value) => {
-            settings.reviewOutputFolder = value.trim() || DEFAULT_SETTINGS.reviewOutputFolder;
+            const result = this.applyFolderValidation(value, DEFAULT_SETTINGS.reviewOutputFolder);
+            if (result.changed) {
+              text.setValue(result.sanitized);
+            }
+            settings.reviewOutputFolder = result.sanitized;
             await this.plugin.saveSettings();
             updateReviewOutputStatus();
           });
@@ -793,7 +830,11 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             .setPlaceholder('Read Later')
             .setValue(settings.readLaterFolder)
             .onChange(async (value) => {
-              settings.readLaterFolder = value.trim() || 'Read Later';
+              const result = this.applyFolderValidation(value, DEFAULT_SETTINGS.readLaterFolder);
+              if (result.changed) {
+                text.setValue(result.sanitized);
+              }
+              settings.readLaterFolder = result.sanitized;
               await this.plugin.saveSettings();
               updateReadLaterStatus();
             });
@@ -843,7 +884,11 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             .setPlaceholder('Tasks')
             .setValue(settings.taskFolder)
             .onChange(async (value) => {
-              settings.taskFolder = value.trim() || 'Tasks';
+              const result = this.applyFolderValidation(value, DEFAULT_SETTINGS.taskFolder);
+              if (result.changed) {
+                text.setValue(result.sanitized);
+              }
+              settings.taskFolder = result.sanitized;
               await this.plugin.saveSettings();
               updateTaskFolderStatus();
             });
@@ -857,7 +902,57 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     new Setting(autoCard)
       .setName(t('settings.autoExecuteDeleteCandidate.label'))
-      .setDesc(t('settings.autoExecuteDeleteCandidate.desc'));
+      .setDesc(t('settings.autoExecuteDeleteCandidate.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.autoExecuteDeleteCandidate).onChange(async (value) => {
+          settings.autoExecuteDeleteCandidate = value;
+          await this.plugin.saveSettings();
+          this.display();
+        }),
+      );
+
+    if (settings.autoExecuteDeleteCandidate) {
+      let deleteCandidateStatusEl: HTMLElement | null = null;
+      const updateDeleteCandidateStatus = () => {
+        if (!deleteCandidateStatusEl) return;
+        const path = settings.deleteCandidateFolder.trim();
+        if (!path) {
+          deleteCandidateStatusEl.textContent = '';
+          deleteCandidateStatusEl.className = 'inbox-curator-folder-status';
+          return;
+        }
+        const ref = this.app.vault.getAbstractFileByPath(normalizePath(path));
+        if (ref instanceof TFolder) {
+          deleteCandidateStatusEl.textContent = '\u2713';
+          deleteCandidateStatusEl.className = 'inbox-curator-folder-status inbox-curator-folder-status-ok';
+        } else {
+          deleteCandidateStatusEl.textContent = '+';
+          deleteCandidateStatusEl.className = 'inbox-curator-folder-status inbox-curator-folder-status-created';
+        }
+      };
+      new Setting(autoCard)
+        .setName(t('settings.deleteCandidateFolder.label'))
+        .setDesc(t('settings.deleteCandidateFolder.desc'))
+        .addText((text) => {
+          text
+            .setPlaceholder('Delete Candidates')
+            .setValue(settings.deleteCandidateFolder)
+            .onChange(async (value) => {
+              const result = this.applyFolderValidation(value, DEFAULT_SETTINGS.deleteCandidateFolder);
+              if (result.changed) {
+                text.setValue(result.sanitized);
+              }
+              settings.deleteCandidateFolder = result.sanitized;
+              await this.plugin.saveSettings();
+              updateDeleteCandidateStatus();
+            });
+          text.inputEl.setAttribute('list', datalistId);
+          deleteCandidateStatusEl = text.inputEl.ownerDocument.createElement('span');
+          deleteCandidateStatusEl.className = 'inbox-curator-folder-status';
+          text.inputEl.insertAdjacentElement('afterend', deleteCandidateStatusEl);
+          updateDeleteCandidateStatus();
+        });
+    }
 
     autoCard.createEl('p', {
       text: t('settings.safety.note'),
@@ -1068,7 +1163,11 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           .setPlaceholder('Collection Reviews')
           .setValue(settings.collectionReviewOutputFolder)
           .onChange(async (value) => {
-            settings.collectionReviewOutputFolder = value.trim() || DEFAULT_SETTINGS.collectionReviewOutputFolder;
+            const result = this.applyFolderValidation(value, DEFAULT_SETTINGS.collectionReviewOutputFolder);
+            if (result.changed) {
+              text.setValue(result.sanitized);
+            }
+            settings.collectionReviewOutputFolder = result.sanitized;
             await this.plugin.saveSettings();
             updateCollectionOutputStatus();
           });
@@ -1129,7 +1228,122 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         });
       });
 
-    // ── 8. Review Behavior ──
+    // ── 8. Context Menu ──
+    const contextCard = this.createCardContainer(containerEl, '🖱️ ' + t('settings.contextMenu.title'), t('settings.contextMenu.desc'));
+
+    new Setting(contextCard)
+      .setName(t('settings.contextMenu.enable.label'))
+      .setDesc(t('settings.contextMenu.enable.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.enableContextMenu).onChange(async (value) => {
+          settings.enableContextMenu = value;
+          await this.plugin.saveSettings();
+          this.display();
+        }),
+      );
+
+    const ctxVisible = settings.enableContextMenu;
+
+    new Setting(contextCard)
+      .setName(t('settings.contextMenu.reviewCurrentNote.label'))
+      .setDesc(t('settings.contextMenu.reviewCurrentNote.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.contextMenuReviewCurrentNote).onChange(async (value) => {
+          settings.contextMenuReviewCurrentNote = value;
+          await this.plugin.saveSettings();
+        }),
+      )
+      .setDisabled(!ctxVisible);
+
+    new Setting(contextCard)
+      .setName(t('settings.contextMenu.executeProposedAction.label'))
+      .setDesc(t('settings.contextMenu.executeProposedAction.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.contextMenuExecuteProposedAction).onChange(async (value) => {
+          settings.contextMenuExecuteProposedAction = value;
+          await this.plugin.saveSettings();
+        }),
+      )
+      .setDisabled(!ctxVisible);
+
+    new Setting(contextCard)
+      .setName(t('settings.contextMenu.cleanupMarkers.label'))
+      .setDesc(t('settings.contextMenu.cleanupMarkers.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.contextMenuCleanupMarkers).onChange(async (value) => {
+          settings.contextMenuCleanupMarkers = value;
+          await this.plugin.saveSettings();
+        }),
+      )
+      .setDisabled(!ctxVisible);
+
+    new Setting(contextCard)
+      .setName(t('settings.contextMenu.undoAutoSort.label'))
+      .setDesc(t('settings.contextMenu.undoAutoSort.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.contextMenuUndoAutoSort).onChange(async (value) => {
+          settings.contextMenuUndoAutoSort = value;
+          await this.plugin.saveSettings();
+        }),
+      )
+      .setDisabled(!ctxVisible);
+
+    new Setting(contextCard)
+      .setName(t('settings.contextMenu.reviewFolderAsCollection.label'))
+      .setDesc(t('settings.contextMenu.reviewFolderAsCollection.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.contextMenuReviewFolderAsCollection).onChange(async (value) => {
+          settings.contextMenuReviewFolderAsCollection = value;
+          await this.plugin.saveSettings();
+        }),
+      )
+      .setDisabled(!ctxVisible);
+
+    new Setting(contextCard)
+      .setName(t('settings.contextMenu.processWatchedFolder.label'))
+      .setDesc(t('settings.contextMenu.processWatchedFolder.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.contextMenuProcessWatchedFolder).onChange(async (value) => {
+          settings.contextMenuProcessWatchedFolder = value;
+          await this.plugin.saveSettings();
+        }),
+      )
+      .setDisabled(!ctxVisible);
+
+    new Setting(contextCard)
+      .setName(t('settings.contextMenu.reviewSelectedAsCollection.label'))
+      .setDesc(t('settings.contextMenu.reviewSelectedAsCollection.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.contextMenuReviewSelectedAsCollection).onChange(async (value) => {
+          settings.contextMenuReviewSelectedAsCollection = value;
+          await this.plugin.saveSettings();
+        }),
+      )
+      .setDisabled(!ctxVisible);
+
+    new Setting(contextCard)
+      .setName(t('settings.contextMenu.reviewSelected.label'))
+      .setDesc(t('settings.contextMenu.reviewSelected.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.contextMenuReviewSelected).onChange(async (value) => {
+          settings.contextMenuReviewSelected = value;
+          await this.plugin.saveSettings();
+        }),
+      )
+      .setDisabled(!ctxVisible);
+
+    new Setting(contextCard)
+      .setName(t('settings.contextMenu.executeSelectedActions.label'))
+      .setDesc(t('settings.contextMenu.executeSelectedActions.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.contextMenuExecuteSelectedActions).onChange(async (value) => {
+          settings.contextMenuExecuteSelectedActions = value;
+          await this.plugin.saveSettings();
+        }),
+      )
+      .setDisabled(!ctxVisible);
+
+    // ── 9. Review Behavior ──
     const behaviorCard = this.createCardContainer(containerEl, '🧠 ' + t('settings.behavior.title'), t('settings.behavior.desc'));
 
     new Setting(behaviorCard)
