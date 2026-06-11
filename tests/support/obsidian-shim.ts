@@ -129,3 +129,50 @@ if (typeof window !== 'undefined' && window.HTMLElement) {
     return this;
   };
 }
+
+export function parseYaml(source: string): unknown {
+  const obj: Record<string, unknown> = {};
+  const lines = source.split('\n');
+  
+  let currentArrayKey: string | null = null;
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    
+    if (trimmed.startsWith('- ')) {
+      if (currentArrayKey) {
+        let val: unknown = trimmed.slice(2).trim();
+        if (typeof val === 'string' && val.startsWith('"') && val.endsWith('"')) {
+          try { val = JSON.parse(val); } catch { /* ignore */ }
+        }
+        (obj[currentArrayKey] as unknown[]).push(val);
+      }
+      continue;
+    }
+    
+    currentArrayKey = null;
+    const colon = line.indexOf(':');
+    if (colon > 0) {
+      const key = line.slice(0, colon).trim();
+      let val: unknown = line.slice(colon + 1).trim();
+      
+      if (val === '') {
+        currentArrayKey = key;
+        obj[key] = [];
+      } else {
+        if (val === 'true') obj[key] = true;
+        else if (val === 'false') obj[key] = false;
+        else if (val === 'null') obj[key] = null;
+        else if (!isNaN(Number(val))) obj[key] = Number(val);
+        else {
+          if (typeof val === 'string' && val.startsWith('"') && val.endsWith('"')) {
+             try { val = JSON.parse(val); } catch { /* ignore */ }
+          }
+          obj[key] = val;
+        }
+      }
+    }
+  }
+  return obj;
+}

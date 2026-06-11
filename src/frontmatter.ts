@@ -1,5 +1,5 @@
 import { App, TFile } from 'obsidian';
-import * as yaml from 'js-yaml';
+import { parseYamlRecord, stringifyYamlRecord } from './utils/yaml';
 import type { ReviewResult } from './types';
 
 const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n?/;
@@ -11,18 +11,13 @@ function parseDocument(content: string): { frontmatter: Record<string, unknown>;
   }
 
   const rawFrontmatter = match[1];
-  const parsed = yaml.load(rawFrontmatter);
-  const frontmatter = parsed && typeof parsed === 'object' ? { ...(parsed as Record<string, unknown>) } : {};
+  const frontmatter = parseYamlRecord(rawFrontmatter);
   const body = content.slice(match[0].length);
   return { frontmatter, body };
 }
 
 function stringifyDocument(frontmatter: Record<string, unknown>, body: string): string {
-  const frontmatterYaml = yaml.dump(frontmatter, {
-    lineWidth: -1,
-    noRefs: true,
-    quotingType: '"',
-  }).trimEnd();
+  const frontmatterYaml = stringifyYamlRecord(frontmatter);
 
   return `---\n${frontmatterYaml}\n---\n${body}`;
 }

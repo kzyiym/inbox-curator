@@ -1,5 +1,5 @@
 import { App, getLanguage, TFile, normalizePath } from 'obsidian';
-import * as yaml from 'js-yaml';
+import { parseYamlRecord, stringifyYamlRecord } from './utils/yaml';
 import { arrayBufferToBase64 } from './utils/base64';
 import { getApiKey } from './secrets';
 import { maskBase64 } from './providerClient';
@@ -156,8 +156,7 @@ function parseDocument(content: string): ParsedDocument {
     return { frontmatter: {}, body: content };
   }
 
-  const parsed = yaml.load(match[1]);
-  const frontmatter = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? { ...(parsed as Record<string, unknown>) } : {};
+  const frontmatter = parseYamlRecord(match[1]);
   const body = content.slice(match[0].length);
   return { frontmatter, body };
 }
@@ -228,23 +227,17 @@ function buildHashSourceContent(noteContent: string): string {
     return noteContent;
   }
 
-  const parsed = yaml.load(match[1]);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+  const frontmatter = parseYamlRecord(match[1]);
+  if (Object.keys(frontmatter).length === 0) {
     return noteContent;
   }
-
-  const frontmatter = { ...(parsed as Record<string, unknown>) };
   for (const key of Object.keys(frontmatter)) {
     if (key.startsWith('ai_review_')) {
       delete frontmatter[key];
     }
   }
 
-  const cleanedFrontmatter = yaml.dump(frontmatter, {
-    lineWidth: -1,
-    noRefs: true,
-    quotingType: '"',
-  }).trimEnd();
+  const cleanedFrontmatter = stringifyYamlRecord(frontmatter);
   const body = noteContent.slice(match[0].length);
 
   return cleanedFrontmatter ? `---\n${cleanedFrontmatter}\n---\n${body}` : body;

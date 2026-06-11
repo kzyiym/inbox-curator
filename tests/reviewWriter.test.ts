@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseYamlRecord } from '../src/utils/yaml';
 import { buildReviewContent, sanitizeAiContent, appendAutoExecuteResult } from '../src/reviewWriter';
 import { TFile } from 'obsidian';
 import type { ReviewResult } from '../src/types';
@@ -614,11 +615,10 @@ describe('YAML frontmatter safety', () => {
   it('handles noteTitle with special YAML characters gracefully (colon is safe in double-quoted)', () => {
     const result = mockBaseResult();
     result.source.noteTitle = 'My: Note';
-    const yaml = require('js-yaml');
     const output = buildReviewContent(result);
     const fmMatch = output.match(fmPattern);
     expect(fmMatch).not.toBeNull();
-    const parsed = yaml.load(fmMatch![1]);
+    const parsed = parseYamlRecord(fmMatch![1]);
     expect(parsed).not.toBeNull();
     expect(typeof parsed).toBe('object');
   });
@@ -626,11 +626,10 @@ describe('YAML frontmatter safety', () => {
   it('handles notePath with Unicode characters', () => {
     const result = mockBaseResult();
     result.source.notePath = 'Inbox/ファイル.md';
-    const yaml = require('js-yaml');
     const output = buildReviewContent(result);
     const fmMatch = output.match(fmPattern);
     expect(fmMatch).not.toBeNull();
-    const parsed = yaml.load(fmMatch![1]);
+    const parsed = parseYamlRecord(fmMatch![1]);
     expect(parsed).not.toBeNull();
     expect(typeof parsed).toBe('object');
   });
@@ -660,8 +659,7 @@ describe('YAML frontmatter safety', () => {
     const output = buildReviewContent(testResult);
     const fmMatch = output.match(fmPattern);
     expect(fmMatch).not.toBeNull();
-    const yaml = require('js-yaml');
-    const parsed = yaml.load(fmMatch![1]);
+    const parsed = parseYamlRecord(fmMatch![1]);
     expect(parsed).not.toBeNull();
     expect(typeof parsed).toBe('object');
   });

@@ -1,5 +1,5 @@
 import { App, TFolder, TFile, normalizePath, Notice } from 'obsidian';
-import * as yaml from 'js-yaml';
+import { parseYamlRecord } from './utils/yaml';
 import { ActionConfirmationModal } from './actionConfirmationModal';
 import { ensureFolder, resolveSafeSuggestedPath } from './utils/folder';
 
@@ -11,7 +11,7 @@ function parseDocument(content: string): Record<string, unknown> {
     return {};
   }
   try {
-    const parsed = yaml.load(match[1]);
+    const parsed = parseYamlRecord(match[1]);
     return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
   } catch {
     return {};

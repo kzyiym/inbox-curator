@@ -94,7 +94,7 @@ describe('upsertReviewFrontmatter', () => {
     expect(content).toContain('category: inbox');
     expect(content).toContain('ai_review_attachment_count: 3');
     expect(content).toContain('ai_review_unresolved_attachment_count: 1');
-    expect(content).toContain('ai_review_source_url: https://example.com/article');
+    expect(content).toContain('ai_review_source_url: "https://example.com/article"');
   });
 
   it('removes stale attachment counts and stale source url when absent in the new result', async () => {
