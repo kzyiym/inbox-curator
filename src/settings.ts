@@ -488,7 +488,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
     );
 
     apiKeySetting.addButton((button) =>
-      button.setButtonText(t('settings.apiKey.button.delete')).setDestructive().onClick(() => { void (async () => {
+      button.setButtonText(t('settings.apiKey.button.delete')).setWarning().onClick(() => { void (async () => {
         try {
           await deleteApiKey(this.app, settings.provider);
           draftValue = '';
