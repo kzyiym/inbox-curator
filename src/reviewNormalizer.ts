@@ -152,7 +152,7 @@ export function parseReviewResponse(text: string): SimpleReviewParseResult {
     for (const line of lines) {
       let trimmed = line.trim();
       // Strip markdown markers from start and end
-      trimmed = trimmed.replace(/^[#*\-]\s*/, "").replace(/^\*+\s*/, "");
+      trimmed = trimmed.replace(/^[#*-]\s*/, "").replace(/^\*+\s*/, "");
       trimmed = trimmed.replace(/\*+/g, "").trim();
 
       if (!summary) {

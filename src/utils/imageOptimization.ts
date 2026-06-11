@@ -109,7 +109,7 @@ export async function optimizeImageForAi(
     }
 
     // Set up canvas — using activeDocument to support popout windows
-    const doc = typeof activeDocument !== 'undefined' ? activeDocument : document;
+    const doc = typeof activeDocument !== 'undefined' ? activeDocument : window.document;
     const canvas = doc.createElement('canvas');
     canvas.width = targetWidth;
     canvas.height = targetHeight;

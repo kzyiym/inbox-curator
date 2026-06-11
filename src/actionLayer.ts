@@ -262,25 +262,29 @@ export async function executeProposedAction(
       const modal = new ActionConfirmationModal(
         app,
         `Are you sure you want to move the note "${file.path}" to the delete candidate folder "${destFolder}"? This action was recommended by AI review.`,
-        async () => {
-          try {
-            await ensureFolder(app, destFolder);
-            await app.fileManager.renameFile(file, destPath);
-            resolved = true;
-            resolve({
-              success: true,
-              status: 'executed',
-              actionTaken: 'delete_candidate',
-              destinationPath: destPath,
-            });
-          } catch (err) {
-            resolved = true;
-            resolve({
-              success: false,
-              status: 'failed',
-              error: err instanceof Error ? err.message : 'Failed to move to delete candidate folder',
-            });
-          }
+        () => {
+          Promise.resolve().then(async () => {
+            try {
+              await ensureFolder(app, destFolder);
+              await app.fileManager.renameFile(file, destPath);
+              resolved = true;
+              resolve({
+                success: true,
+                status: 'executed',
+                actionTaken: 'delete_candidate',
+                destinationPath: destPath,
+              });
+            } catch (err) {
+              resolved = true;
+              resolve({
+                success: false,
+                status: 'failed',
+                error: err instanceof Error ? err.message : 'Failed to move to delete candidate folder',
+              });
+            }
+          }).catch((err) => {
+            console.error('Inbox Curator: Unexpected error in delete candidate modal', err);
+          });
         },
       );
 

@@ -624,32 +624,41 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
     logSetting.settingEl.addClass('inbox-curator-error-log-setting');
     logSetting
       .addButton((button) =>
-        button.setButtonText(t('settings.logs.openButton')).onClick(() => { void (async () => {
-          const logFolder = getErrorLogFolderPath();
-          const adapter = this.app.vault.adapter as unknown as { getFullPath(path: string): string };
-          const fullPath = adapter.getFullPath(normalizePath(logFolder));
-          try {
-            const { shell } = require('electron');
-            shell.openPath(fullPath);
-          } catch {
-            new Notice(`Log folder: ${fullPath}`);
-          }
-        })(); }),
+        button.setButtonText(t('settings.logs.openButton')).onClick(() => {
+          Promise.resolve().then(async () => {
+            const logFolder = getErrorLogFolderPath();
+            const adapter = this.app.vault.adapter as unknown as { getFullPath(path: string): string };
+            const fullPath = adapter.getFullPath(normalizePath(logFolder));
+            try {
+              if ('showInFolder' in this.app) {
+                (this.app as any).showInFolder(fullPath);
+              } else if ('openWithDefaultApp' in this.app) {
+                (this.app as any).openWithDefaultApp(fullPath);
+              } else {
+                window.open(`file://${fullPath}`);
+              }
+            } catch {
+              new Notice(`Log folder: ${fullPath}`);
+            }
+          }).catch(console.error);
+        }),
       )
       .addButton((button) =>
-        button.setButtonText(t('settings.logs.clearButton')).onClick(() => { void (async () => {
-          try {
-            await clearErrorLogs(this.app);
-            await clearOperationLogs(this.app);
-            new Notice(t('settings.logs.clearedNotice'));
-            this.display();
-          } catch (error) {
-            new Notice(t('settings.logs.clearFailedNotice'));
-            void logError(this.app, 'ERROR', 'Inbox Curator log clear failed', {
-              error: error instanceof Error ? error.message : 'Unknown error',
-            });
-          }
-        })(); }),
+        button.setButtonText(t('settings.logs.clearButton')).onClick(() => {
+          Promise.resolve().then(async () => {
+            try {
+              await clearErrorLogs(this.app);
+              await clearOperationLogs(this.app);
+              new Notice(t('settings.logs.clearedNotice'));
+              this.display();
+            } catch (error) {
+              new Notice(t('settings.logs.clearFailedNotice'));
+              void logError(this.app, 'ERROR', 'Inbox Curator log clear failed', {
+                error: error instanceof Error ? error.message : 'Unknown error',
+              });
+            }
+          }).catch(console.error);
+        }),
       );
 
     void getErrorLogStats(this.app).then(async (stats) => {
@@ -1449,29 +1458,32 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     updateCounter();
 
-    textArea.addEventListener('input', async () => {
-      let value = textArea.value;
-      let trimmed = false;
 
-      if (value.length > MAX_CUSTOM_REVIEW_PROMPT_LENGTH) {
-        value = value.slice(0, MAX_CUSTOM_REVIEW_PROMPT_LENGTH);
-        textArea.value = value;
-        trimmed = true;
-      }
+    textArea.addEventListener('input', () => {
+      Promise.resolve().then(async () => {
+        let value = textArea.value;
+        let trimmed = false;
 
-      settings.customReviewPrompt = value;
-      await this.plugin.saveSettings();
-      updateCounter();
-
-      if (trimmed) {
-        if (!this.customPromptNoticeDebounce) {
-          new Notice(t('settings.customReviewPrompt.truncated', { maxLength: MAX_CUSTOM_REVIEW_PROMPT_LENGTH }));
-          this.customPromptNoticeDebounce = true;
-          window.setTimeout(() => {
-            this.customPromptNoticeDebounce = false;
-          }, 3000);
+        if (value.length > MAX_CUSTOM_REVIEW_PROMPT_LENGTH) {
+          value = value.slice(0, MAX_CUSTOM_REVIEW_PROMPT_LENGTH);
+          textArea.value = value;
+          trimmed = true;
         }
-      }
+
+        settings.customReviewPrompt = value;
+        await this.plugin.saveSettings();
+        updateCounter();
+
+        if (trimmed) {
+          if (!this.customPromptNoticeDebounce) {
+            new Notice(t('settings.customReviewPrompt.truncated', { maxLength: MAX_CUSTOM_REVIEW_PROMPT_LENGTH }));
+            this.customPromptNoticeDebounce = true;
+            window.setTimeout(() => {
+              this.customPromptNoticeDebounce = false;
+            }, 3000);
+          }
+        }
+      }).catch(console.error);
     });
 
     // ── 9. AI Context Size ──

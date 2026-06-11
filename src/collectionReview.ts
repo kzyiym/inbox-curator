@@ -460,11 +460,7 @@ export async function runCollectionReviewPipeline(
       temperature: 0.3,
       timeoutMs: options.requestTimeoutMs,
       maxOutputTokens: options.maxOutputTokens,
-      openAiTokenLimitParam: options.openAiTokenLimitParam as
-        | 'max_tokens'
-        | 'max_completion_tokens'
-        | 'none'
-        | undefined,
+      openAiTokenLimitParam: options.openAiTokenLimitParam,
     });
 
     if (!apiResult.ok) {

@@ -369,7 +369,7 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    const saved = (await this.loadData()) as any;
+    const saved = await this.loadData();
     if (saved) {
       delete saved.autoExecuteDeleteCandidate;
     }
@@ -1548,7 +1548,7 @@ export default class InboxCuratorPlugin extends Plugin {
       if (explorerLeaves && explorerLeaves.length > 0) {
         const explorerView = explorerLeaves[0]?.view;
         if (explorerView) {
-          const tree = (explorerView as any).tree;
+          const tree = explorerView.tree;
           if (tree && tree.selectedPaths) {
             const paths = tree.selectedPaths;
             if (Array.isArray(paths)) {
