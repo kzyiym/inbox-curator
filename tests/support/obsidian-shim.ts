@@ -118,6 +118,7 @@ export function getLanguage(): string {
 
 // Provide Obsidian's global activeDocument for test environment
 (globalThis as Record<string, unknown>).activeDocument = document;
+export const activeDocument = typeof document !== 'undefined' ? document : undefined as any;
 
 export const apiVersion = '1.0.0';
 

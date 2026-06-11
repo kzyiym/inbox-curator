@@ -100,7 +100,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
     vi.mocked(executeProposedAction).mockResolvedValue({
       success: true,
-      status: 'success',
+      status: 'executed',
       actionTaken: 'archive',
       destinationPath: 'References/Archive/my-note.md',
     });
@@ -122,7 +122,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
     expect(appendAutoExecuteResult).toHaveBeenCalledWith(mockApp, 'AI Reviews/my-note.ai-review.md', {
       recommendedAction: 'archive',
       executed: true,
-      status: 'success',
+      status: 'executed',
       sourcePath: 'Inbox/my-note.md',
       destinationPath: 'References/Archive/my-note.md',
       error: undefined,
@@ -148,7 +148,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
     vi.mocked(executeProposedAction).mockResolvedValue({
       success: true,
-      status: 'success',
+      status: 'executed',
       actionTaken: 'read_later',
       destinationPath: 'Read Later/my-note.md',
     });
@@ -162,7 +162,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
     expect(appendAutoExecuteResult).toHaveBeenCalledWith(mockApp, 'AI Reviews/my-note.ai-review.md', {
       recommendedAction: 'read_later',
       executed: true,
-      status: 'success',
+      status: 'executed',
       sourcePath: 'Inbox/my-note.md',
       destinationPath: 'Read Later/my-note.md',
       error: undefined,
@@ -188,7 +188,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
     vi.mocked(executeProposedAction).mockResolvedValue({
       success: true,
-      status: 'success',
+      status: 'executed',
       actionTaken: 'task',
       destinationPath: 'Tasks/my-note.md',
     });
@@ -202,7 +202,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
     expect(appendAutoExecuteResult).toHaveBeenCalledWith(mockApp, 'AI Reviews/my-note.ai-review.md', {
       recommendedAction: 'task',
       executed: true,
-      status: 'success',
+      status: 'executed',
       sourcePath: 'Inbox/my-note.md',
       destinationPath: 'Tasks/my-note.md',
       error: undefined,
@@ -369,8 +369,8 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
     const result = await (plugin as any).runQueuedReviewJob(job);
 
-    expect(result.status).toBe('failed');
-    expect(result.error).toContain('Auto-execute action archive failed: Destination file already exists.');
+    expect(result.status).toBe('processed');
+    expect(result.error).toBeUndefined();
     expect(plugin.reviewQueue.pause).not.toHaveBeenCalled();
     expect(appendAutoExecuteResult).toHaveBeenCalledWith(mockApp, 'AI Reviews/my-note.ai-review.md', {
       recommendedAction: 'archive',
@@ -402,7 +402,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
     vi.mocked(executeProposedAction).mockResolvedValue({
       success: true,
-      status: 'success',
+      status: 'executed',
       actionTaken: 'archive',
       destinationPath: 'References/Archive/my-note.md',
     });
@@ -449,7 +449,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
       vi.mocked(executeProposedAction).mockResolvedValue({
         success: true,
-        status: 'success',
+        status: 'executed',
         actionTaken: 'archive',
       });
 
@@ -479,7 +479,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
       vi.mocked(executeProposedAction).mockResolvedValue({
         success: true,
-        status: 'success',
+        status: 'executed',
         actionTaken: 'archive',
       });
 
@@ -509,7 +509,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
       vi.mocked(executeProposedAction).mockResolvedValue({
         success: true,
-        status: 'success',
+        status: 'executed',
         actionTaken: 'read_later',
       });
 
@@ -539,7 +539,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
       vi.mocked(executeProposedAction).mockResolvedValue({
         success: true,
-        status: 'success',
+        status: 'executed',
         actionTaken: 'task',
       });
 
@@ -569,7 +569,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
       vi.mocked(executeProposedAction).mockResolvedValue({
         success: true,
-        status: 'success',
+        status: 'executed',
         actionTaken: 'delete_candidate',
       });
 
@@ -599,7 +599,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
       vi.mocked(executeProposedAction).mockResolvedValue({
         success: true,
-        status: 'success',
+        status: 'executed',
         actionTaken: 'archive',
       });
 
@@ -628,7 +628,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
       vi.mocked(executeProposedAction).mockResolvedValue({
         success: true,
-        status: 'success',
+        status: 'executed',
         actionTaken: 'archive',
       });
 
@@ -660,7 +660,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
         vi.mocked(executeProposedAction).mockResolvedValue({
           success: true,
-          status: 'success',
+          status: 'executed',
           actionTaken: 'task',
         });
 
@@ -691,7 +691,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
         vi.mocked(executeProposedAction).mockResolvedValue({
           success: true,
-          status: 'success',
+          status: 'executed',
           actionTaken: 'archive',
         });
 
@@ -722,7 +722,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
         vi.mocked(executeProposedAction).mockResolvedValue({
           success: true,
-          status: 'success',
+          status: 'executed',
           actionTaken: 'read_later',
         });
 
@@ -753,7 +753,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
 
         vi.mocked(executeProposedAction).mockResolvedValue({
           success: true,
-          status: 'success',
+          status: 'executed',
           actionTaken: 'task',
         });
 

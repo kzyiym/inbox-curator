@@ -811,11 +811,11 @@ export default class InboxCuratorPlugin extends Plugin {
         try {
           await appendAutoExecuteResult(this.app, result.writeResult.outputPath, {
             recommendedAction: action,
-            executed: actionResult.success,
+            executed: actionResult.status === 'executed',
             status: actionResult.status,
             sourcePath: file.path,
             destinationPath: actionResult.destinationPath,
-            error: actionResult.success ? undefined : actionResult.error,
+            error: actionResult.status !== 'executed' ? actionResult.error : undefined,
           }, result.reviewResult.promptLanguage);
         } catch (appendErr) {
           const appendErrorMessage = appendErr instanceof Error ? appendErr.message : String(appendErr);
@@ -834,7 +834,7 @@ export default class InboxCuratorPlugin extends Plugin {
           });
         }
 
-        if (!actionResult.success) {
+        if (actionResult.status === 'failed') {
           void logError(this.app, 'ERROR', `Inbox Curator: Auto-execute failed for ${file.path}`, {
             error: actionResult.error,
           });
@@ -853,6 +853,29 @@ export default class InboxCuratorPlugin extends Plugin {
             status: 'failed',
             error: `Auto-execute action ${action} failed: ${actionResult.error}`,
             retryable: false,
+          };
+        }
+
+        if (actionResult.status === 'skipped') {
+          void logOperation(this.app, {
+            timestamp: new Date().toISOString(),
+            level: 'INFO',
+            event: 'auto_sort_skipped',
+            operationId: job.operationId,
+            notePath: file.path,
+            actionType: action,
+            message: `Auto-sort skipped: ${actionResult.error ?? 'Conflict or not configured'}`,
+            details: {
+              runId: job.runId,
+              action: reviewAction,
+              destinationPath: actionResult.destinationPath ?? null,
+              reasonCode: 'skipped',
+            },
+          });
+          new Notice(t('notice.autoExecuteSkipped', { reason: actionResult.error || 'Conflict' }));
+          
+          return {
+            status: 'processed',
           };
         }
 
@@ -1711,7 +1734,7 @@ export default class InboxCuratorPlugin extends Plugin {
         skipConfirmation: true,
       });
 
-      if (result.success) {
+      if (result.status === 'executed') {
         if (result.actionTaken === 'archive' || result.actionTaken === 'read_later' ||
             result.actionTaken === 'task' || result.actionTaken === 'delete_candidate') {
           executed++;
@@ -1719,6 +1742,8 @@ export default class InboxCuratorPlugin extends Plugin {
         } else {
           skipped++;
         }
+      } else if (result.status === 'skipped') {
+        skipped++;
       } else {
         failed++;
       }
@@ -1773,14 +1798,20 @@ export default class InboxCuratorPlugin extends Plugin {
       suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
     });
 
-    if (result.success) {
+    if (result.status === 'executed') {
       if (result.actionTaken === 'archive') {
         new Notice(t('notice.autoExecutedArchive'));
+      } else if (result.actionTaken === 'read_later') {
+        new Notice(t('notice.autoExecutedReadLater') || 'Note moved to read later.');
+      } else if (result.actionTaken === 'task') {
+        new Notice(t('notice.autoExecutedTask') || 'Note turned into task.');
       } else if (result.actionTaken === 'delete_candidate') {
-        new Notice(t('notice.noteMovedToTrash'));
+        new Notice(t('notice.noteMovedToDeleteCandidateFolder', { path: result.destinationPath || '' }));
       } else if (result.actionTaken === 'none') {
         new Notice(t('notice.manualActionNoAutomatedSteps', { action: result.action || 'unknown' }));
       }
+    } else if (result.status === 'skipped') {
+      new Notice(t('notice.actionSkipped', { reason: result.error || 'Conflict or not configured' }));
     } else {
       if (result.error && !result.error.includes('User cancelled')) {
         new Notice(t('notice.actionFailed', { error: result.error }));

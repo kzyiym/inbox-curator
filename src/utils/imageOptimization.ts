@@ -1,3 +1,5 @@
+import { arrayBufferToBase64 } from './base64';
+
 export interface OptimizedImageResult {
   ok: boolean;
   mimeType?: string;
@@ -106,9 +108,9 @@ export async function optimizeImageForAi(
       }
     }
 
-    // Set up canvas — using document directly (not activeDocument) because
-    // this is an offscreen canvas for image processing, not UI interaction.
-    const canvas = document.createElement('canvas');
+    // Set up canvas — using activeDocument to support popout windows
+    const doc = typeof activeDocument !== 'undefined' ? activeDocument : document;
+    const canvas = doc.createElement('canvas');
     canvas.width = targetWidth;
     canvas.height = targetHeight;
     const ctx = canvas.getContext('2d');
@@ -208,8 +210,4 @@ export async function optimizeImageForAi(
   }
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const binary = new TextDecoder('iso-8859-1').decode(bytes);
-  return window.btoa(binary);
-}
+

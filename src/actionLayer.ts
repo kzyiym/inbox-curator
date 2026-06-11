@@ -20,7 +20,7 @@ function parseDocument(content: string): Record<string, unknown> {
 
 export interface AutoExecuteActionResult {
   success: boolean;
-  status: 'success' | 'skipped' | 'failed';
+  status: 'executed' | 'skipped' | 'failed';
   error?: string;
   actionTaken?: string;
   action?: string;
@@ -102,16 +102,49 @@ export async function executeProposedAction(
       await app.fileManager.renameFile(file, destPath);
       return {
         success: true,
-        status: 'success',
+        status: 'executed',
         actionTaken: 'archive',
         destinationPath: destPath,
       };
     }
 
-    // No viable destination: succeed as no-op (archive is processed, file stays in place)
+    // Check if collision happened
+    let conflictExists = false;
+    let conflictPath = '';
+    if (typeof suggestedFolder === 'string' && suggestedFolder.trim() !== '') {
+      const normalizedFolder = resolveSafeSuggestedPath(suggestedFolder, options.suggestedFolderBasePath);
+      if (normalizedFolder) {
+        const candidate = normalizePath(`${normalizedFolder}/${file.name}`);
+        if (app.vault.getAbstractFileByPath(candidate)) {
+          conflictExists = true;
+          conflictPath = candidate;
+        }
+      }
+    }
+    if (!conflictExists && options.suggestedFolderBasePath && options.suggestedFolderBasePath.trim() !== '') {
+      const baseFolder = normalizePath(options.suggestedFolderBasePath.trim());
+      const candidate = normalizePath(`${baseFolder}/${file.name}`);
+      if (app.vault.getAbstractFileByPath(candidate)) {
+        conflictExists = true;
+        conflictPath = candidate;
+      }
+    }
+
+    if (conflictExists) {
+      return {
+        success: false,
+        status: 'skipped',
+        error: 'Destination file already exists (filename conflict).',
+        destinationPath: conflictPath,
+        actionTaken: 'none',
+        action: 'archive',
+      };
+    }
+
     return {
-      success: true,
-      status: 'success',
+      success: false,
+      status: 'skipped',
+      error: 'No viable destination folder configured or folder does not exist.',
       actionTaken: 'none',
       action: 'archive',
     };
@@ -144,7 +177,7 @@ export async function executeProposedAction(
 
     return {
       success: true,
-      status: 'success',
+      status: 'executed',
       actionTaken: 'read_later',
       destinationPath: destPath,
     };
@@ -177,66 +210,75 @@ export async function executeProposedAction(
 
     return {
       success: true,
-      status: 'success',
+      status: 'executed',
       actionTaken: 'task',
       destinationPath: destPath,
     };
   }
 
   if (normalizedAction === 'delete_candidate') {
+    if (!options.deleteCandidateFolder || options.deleteCandidateFolder.trim() === '') {
+      return {
+        success: false,
+        status: 'failed',
+        error: 'Delete candidate folder is not configured.',
+      };
+    }
+    const destFolder = normalizePath(options.deleteCandidateFolder.trim());
+    const destPath = normalizePath(`${destFolder}/${file.name}`);
+
+    // Collision check
+    const existingDest = app.vault.getAbstractFileByPath(destPath);
+    if (existingDest) {
+      return {
+        success: false,
+        status: 'skipped',
+        error: 'Destination file already exists.',
+        destinationPath: destPath,
+      };
+    }
+
     if (options.skipConfirmation) {
-      if (!options.deleteCandidateFolder || options.deleteCandidateFolder.trim() === '') {
+      try {
+        await ensureFolder(app, destFolder);
+        await app.fileManager.renameFile(file, destPath);
+        return {
+          success: true,
+          status: 'executed',
+          actionTaken: 'delete_candidate',
+          destinationPath: destPath,
+        };
+      } catch (err) {
         return {
           success: false,
           status: 'failed',
-          error: 'Delete candidate folder is not configured.',
+          error: err instanceof Error ? err.message : 'Failed to move to delete candidate folder',
         };
       }
-      const destFolder = normalizePath(options.deleteCandidateFolder.trim());
-      const destPath = normalizePath(`${destFolder}/${file.name}`);
-
-      // Collision check
-      const existingDest = app.vault.getAbstractFileByPath(destPath);
-      if (existingDest) {
-        return {
-          success: false,
-          status: 'skipped',
-          error: 'Destination file already exists.',
-          destinationPath: destPath,
-        };
-      }
-
-      await ensureFolder(app, destFolder);
-      await app.fileManager.renameFile(file, destPath);
-
-      return {
-        success: true,
-        status: 'success',
-        actionTaken: 'delete_candidate',
-        destinationPath: destPath,
-      };
     }
 
     return new Promise((resolve) => {
       let resolved = false;
       const modal = new ActionConfirmationModal(
         app,
-        `Are you sure you want to move the note "${file.path}" to the trash? This action was recommended by AI review.`,
+        `Are you sure you want to move the note "${file.path}" to the delete candidate folder "${destFolder}"? This action was recommended by AI review.`,
         async () => {
           try {
-            await app.fileManager.trashFile(file);
+            await ensureFolder(app, destFolder);
+            await app.fileManager.renameFile(file, destPath);
             resolved = true;
             resolve({
               success: true,
-              status: 'success',
+              status: 'executed',
               actionTaken: 'delete_candidate',
+              destinationPath: destPath,
             });
           } catch (err) {
             resolved = true;
             resolve({
               success: false,
               status: 'failed',
-              error: err instanceof Error ? err.message : 'Failed to move to trash',
+              error: err instanceof Error ? err.message : 'Failed to move to delete candidate folder',
             });
           }
         },
@@ -249,7 +291,7 @@ export async function executeProposedAction(
           resolve({
             success: false,
             status: 'failed',
-            error: 'User cancelled deletion confirmation.',
+            error: 'User cancelled action execution.',
           });
         }
       };
@@ -266,7 +308,7 @@ export async function executeProposedAction(
   if (validNoopActions.includes(normalizedAction)) {
     return {
       success: true,
-      status: 'success',
+      status: 'executed',
       actionTaken: 'none',
       action: normalizedAction,
     };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildReviewContent, sanitizeAiContent } from '../src/reviewWriter';
+import { buildReviewContent, sanitizeAiContent, appendAutoExecuteResult } from '../src/reviewWriter';
+import { TFile } from 'obsidian';
 import type { ReviewResult } from '../src/types';
 
 const mockBaseResult = (): ReviewResult => ({
@@ -665,3 +666,192 @@ describe('YAML frontmatter safety', () => {
     expect(typeof parsed).toBe('object');
   });
 });
+
+describe('appendAutoExecuteResult', () => {
+  const createMockAppForWriter = (fileContentMap: Map<string, string>) => {
+    const modifiedContents = new Map<string, string>();
+    const app = {
+      vault: {
+        getAbstractFileByPath: (path: string) => {
+          if (fileContentMap.has(path)) {
+            const file = new TFile();
+            file.path = path;
+            return file;
+          }
+          return null;
+        },
+        read: async (file: TFile) => {
+          return fileContentMap.get(file.path) || '';
+        },
+        modify: async (file: TFile, content: string) => {
+          modifiedContents.set(file.path, content);
+        },
+      },
+    };
+    return { app: app as any, modifiedContents };
+  };
+
+  it('appends new result with markers when neither markers nor old headers exist', async () => {
+    const originalContent = '# Review Note\nSome content';
+    const files = new Map<string, string>([['AI Reviews/note.md', originalContent]]);
+    const { app, modifiedContents } = createMockAppForWriter(files);
+
+    await appendAutoExecuteResult(app, 'AI Reviews/note.md', {
+      recommendedAction: 'archive',
+      executed: true,
+      status: 'executed',
+      sourcePath: 'Inbox/my-note.md',
+      destinationPath: 'References/Archive/my-note.md',
+    }, 'english');
+
+    const result = modifiedContents.get('AI Reviews/note.md');
+    expect(result).toBeDefined();
+    expect(result).toContain('<!-- inbox-curator:auto-execute-result:start -->');
+    expect(result).toContain('<!-- inbox-curator:auto-execute-result:end -->');
+    expect(result).toContain('## Auto-execute Result');
+    expect(result).toContain('- Status: executed');
+    expect(result).toContain('- Recommended action: archive');
+    expect(result).toContain(originalContent);
+  });
+
+  it('replaces result between markers when markers already exist', async () => {
+    const originalContent = '# Review Note\nSome content\n<!-- inbox-curator:auto-execute-result:start -->\n## Auto-execute Result\n- **Status**: Skipped\n<!-- inbox-curator:auto-execute-result:end -->\nFooter content';
+    const files = new Map<string, string>([['AI Reviews/note.md', originalContent]]);
+    const { app, modifiedContents } = createMockAppForWriter(files);
+
+    await appendAutoExecuteResult(app, 'AI Reviews/note.md', {
+      recommendedAction: 'archive',
+      executed: true,
+      status: 'executed',
+      sourcePath: 'Inbox/my-note.md',
+      destinationPath: 'References/Archive/my-note.md',
+    }, 'english');
+
+    const result = modifiedContents.get('AI Reviews/note.md');
+    expect(result).toBeDefined();
+    expect(result).toContain('Footer content');
+    expect(result).toContain('- Status: executed');
+    expect(result).not.toContain('- **Status**: Skipped');
+  });
+
+  it('replaces old header and content when old header exists and looks like a legacy section', async () => {
+    const originalContent = '# Review Note\nSome content\n## Auto-execute Result\n- Action: archive\n- Status: skipped\n- Reason: conflict\n## Another Section\nMore footer';
+    const files = new Map<string, string>([['AI Reviews/note.md', originalContent]]);
+    const { app, modifiedContents } = createMockAppForWriter(files);
+
+    await appendAutoExecuteResult(app, 'AI Reviews/note.md', {
+      recommendedAction: 'archive',
+      executed: true,
+      status: 'executed',
+      sourcePath: 'Inbox/my-note.md',
+      destinationPath: 'References/Archive/my-note.md',
+    }, 'english');
+
+    const result = modifiedContents.get('AI Reviews/note.md');
+    expect(result).toBeDefined();
+    expect(result).toContain('## Another Section');
+    expect(result).toContain('- Status: executed');
+    expect(result).not.toContain('- Action: archive');
+  });
+
+  it('does not replace old header but appends at the end if it does not look like a legacy section', async () => {
+    // Contains "## Auto-execute Result" but no colons or label lists in the next 800 chars
+    const originalContent = '# Review Note\nSome content\n## Auto-execute Result\nThis is AI generated text discussing how the system will show the auto-execute result, but contains no actual action log labels.';
+    const files = new Map<string, string>([['AI Reviews/note.md', originalContent]]);
+    const { app, modifiedContents } = createMockAppForWriter(files);
+
+    await appendAutoExecuteResult(app, 'AI Reviews/note.md', {
+      recommendedAction: 'archive',
+      executed: true,
+      status: 'executed',
+      sourcePath: 'Inbox/my-note.md',
+      destinationPath: 'References/Archive/my-note.md',
+    }, 'english');
+
+    const result = modifiedContents.get('AI Reviews/note.md');
+    expect(result).toBeDefined();
+    // The original text is kept intact (not replaced)
+    expect(result).toContain('This is AI generated text discussing');
+    // New section is appended at the bottom with markers
+    expect(result).toContain('<!-- inbox-curator:auto-execute-result:start -->');
+    expect(result).toContain('- Status: executed');
+  });
+
+  it('replaces old header when old header is at index 0 (starts with header)', async () => {
+    const originalContent = '## Auto-execute Result\n- Action: archive\n- Status: skipped';
+    const files = new Map<string, string>([['AI Reviews/note.md', originalContent]]);
+    const { app, modifiedContents } = createMockAppForWriter(files);
+
+    await appendAutoExecuteResult(app, 'AI Reviews/note.md', {
+      recommendedAction: 'archive',
+      executed: true,
+      status: 'executed',
+      sourcePath: 'Inbox/my-note.md',
+      destinationPath: 'References/Archive/my-note.md',
+    }, 'english');
+
+    const result = modifiedContents.get('AI Reviews/note.md');
+    expect(result).toBeDefined();
+    expect(result).toContain('- Status: executed');
+    expect(result).not.toContain('- Action: archive');
+  });
+
+  it('detects legacy section with full-width colon (全角コロン)', async () => {
+    const originalContent = '# Review Note\n## 自動実行結果\n- アクション： archive\n- ステータス： skipped';
+    const files = new Map<string, string>([['AI Reviews/note.md', originalContent]]);
+    const { app, modifiedContents } = createMockAppForWriter(files);
+
+    await appendAutoExecuteResult(app, 'AI Reviews/note.md', {
+      recommendedAction: 'archive',
+      executed: true,
+      status: 'executed',
+      sourcePath: 'Inbox/my-note.md',
+      destinationPath: 'References/Archive/my-note.md',
+    }, 'japanese');
+
+    const result = modifiedContents.get('AI Reviews/note.md');
+    expect(result).toBeDefined();
+    expect(result).toContain('## 自動実行結果');
+    expect(result).toContain('- Status: executed');
+    expect(result).not.toContain('- アクション： archive');
+  });
+
+  it('formats log with status: skipped and status: failed correctly', async () => {
+    const originalContent = '# Review note';
+    const files = new Map<string, string>([['AI Reviews/note.md', originalContent]]);
+    
+    // Test status: skipped
+    {
+      const { app, modifiedContents } = createMockAppForWriter(files);
+      await appendAutoExecuteResult(app, 'AI Reviews/note.md', {
+        recommendedAction: 'archive',
+        executed: false,
+        status: 'skipped',
+        sourcePath: 'Inbox/my-note.md',
+        error: 'Destination already exists.',
+        destinationPath: 'References/Archive/my-note.md',
+      }, 'english');
+      const result = modifiedContents.get('AI Reviews/note.md');
+      expect(result).toContain('- Status: skipped');
+      expect(result).toContain('- Reason: Destination already exists.');
+      expect(result).toContain('- Destination: References/Archive/my-note.md');
+    }
+
+    // Test status: failed
+    {
+      const { app, modifiedContents } = createMockAppForWriter(files);
+      await appendAutoExecuteResult(app, 'AI Reviews/note.md', {
+        recommendedAction: 'archive',
+        executed: false,
+        status: 'failed',
+        sourcePath: 'Inbox/my-note.md',
+        error: 'Vault is currently locked.',
+      }, 'english');
+      const result = modifiedContents.get('AI Reviews/note.md');
+      expect(result).toContain('- Status: failed');
+      expect(result).toContain('- Reason: Vault is currently locked.');
+      expect(result).not.toContain('- Destination:');
+    }
+  });
+});
+

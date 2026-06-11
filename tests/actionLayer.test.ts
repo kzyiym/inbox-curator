@@ -2,6 +2,30 @@ import { describe, expect, it, vi } from 'vitest';
 import { TFolder, TFile } from 'obsidian';
 import { executeProposedAction } from '../src/actionLayer';
 
+let mockConfirmModalBehavior: 'confirm' | 'cancel' = 'confirm';
+vi.mock('../src/actionConfirmationModal', () => {
+  return {
+    ActionConfirmationModal: class {
+      app: any;
+      message: string;
+      onConfirm: () => void;
+      onClose: () => void = () => {};
+      constructor(app: any, message: string, onConfirm: () => void) {
+        this.app = app;
+        this.message = message;
+        this.onConfirm = onConfirm;
+      }
+      open() {
+        if (mockConfirmModalBehavior === 'confirm') {
+          Promise.resolve().then(() => this.onConfirm());
+        } else if (mockConfirmModalBehavior === 'cancel') {
+          Promise.resolve().then(() => this.onClose());
+        }
+      }
+    }
+  };
+});
+
 function createMockFile(path: string, content: string): TFile {
   const file = new TFile();
   file.path = path;
@@ -26,6 +50,9 @@ function createMockApp(files: Map<string, TFile>, vaultOverrides = {}) {
       },
       trash: async (file: TFile, system: boolean) => {
         trashedFiles.push({ file, system });
+      },
+      adapter: {
+        exists: async () => false,
       },
       ...vaultOverrides,
     },
@@ -65,8 +92,8 @@ Hello World`,
     const mock = createMockApp(files);
     const result = await executeProposedAction(mock.app, file, { outputFolder: 'AI Reviews' });
 
-    expect(result.success).toBe(true);
-    expect(result.status).toBe('success');
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
     expect(result.actionTaken).toBe('none');
     expect(result.action).toBe('archive');
     expect(mock.renamedFiles).toHaveLength(0);
@@ -264,8 +291,8 @@ Hello World`,
     const mock = createMockApp(files);
     const result = await executeProposedAction(mock.app, file, { outputFolder: 'AI Reviews' });
 
-    expect(result.success).toBe(true);
-    expect(result.status).toBe('success');
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
     expect(result.actionTaken).toBe('none');
     expect(result.action).toBe('archive');
     expect(mock.renamedFiles).toHaveLength(0);
@@ -319,7 +346,8 @@ Hello World`,
     const mock = createMockApp(files);
     const result = await executeProposedAction(mock.app, file, { outputFolder: 'AI Reviews' });
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
     expect(result.actionTaken).toBe('none');
     expect(result.action).toBe('archive');
     expect(mock.renamedFiles).toHaveLength(0);
@@ -538,5 +566,87 @@ Needs check`,
     expect(result.error).toContain('is not supported or requires no automated steps');
     expect(mock.renamedFiles).toHaveLength(0);
     expect(mock.trashedFiles).toHaveLength(0);
+  });
+
+  it('moves note to delete candidate folder after confirming modal manually', async () => {
+    mockConfirmModalBehavior = 'confirm';
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: delete_candidate
+---
+Trash content`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      deleteCandidateFolder: 'Delete Candidates',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.status).toBe('executed');
+    expect(result.actionTaken).toBe('delete_candidate');
+    expect(mock.renamedFiles).toHaveLength(1);
+    expect(mock.renamedFiles[0].dest).toBe('Delete Candidates/my-note.md');
+    expect(mock.createdFolders).toContain('Delete Candidates');
+  });
+
+  it('fails safely when manually execution modal is cancelled', async () => {
+    mockConfirmModalBehavior = 'cancel';
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: delete_candidate
+---
+Trash content`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      deleteCandidateFolder: 'Delete Candidates',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('failed');
+    expect(result.error).toBe('User cancelled action execution.');
+    expect(mock.renamedFiles).toHaveLength(0);
+  });
+
+  it('handles folder creation error or rename error on delete_candidate gracefully', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: delete_candidate
+---
+Trash content`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files, {
+      createFolder: async () => {
+        throw new Error('Disk Full');
+      },
+    });
+
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      skipConfirmation: true,
+      deleteCandidateFolder: 'Delete Candidates',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('failed');
+    expect(result.error).toBe('Disk Full');
+    expect(mock.renamedFiles).toHaveLength(0);
   });
 });

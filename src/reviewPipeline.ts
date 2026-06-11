@@ -1,5 +1,6 @@
 import { App, getLanguage, TFile, normalizePath } from 'obsidian';
 import * as yaml from 'js-yaml';
+import { arrayBufferToBase64 } from './utils/base64';
 import { getApiKey } from './secrets';
 import { maskBase64 } from './providerClient';
 import { upsertReviewFrontmatter } from './frontmatter';
@@ -947,11 +948,7 @@ function tryParseJsonObject(text: string): ReviewRawResponse | null {
   return null;
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  const binary = new TextDecoder('iso-8859-1').decode(bytes);
-  return window.btoa(binary);
-}
+
 
 function getMimeType(extension: string): string {
   const ext = extension.toLowerCase().replace(/^\./, '');

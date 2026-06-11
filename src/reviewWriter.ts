@@ -664,7 +664,10 @@ export function sanitizeAiContent(text: string): string {
     .replace(/!\[\[([^\]]+)\]\]/g, '&#33;[[$1]]');
 }
 
-function escapeMarkdown(text: string): string {
+function escapeMarkdown(text: string | undefined | null): string {
+  if (!text) {
+    return '';
+  }
   return text
     .replace(/\\/g, '\\\\')
     .replace(/`/g, '\\`')
@@ -676,7 +679,7 @@ function escapeMarkdown(text: string): string {
 export interface AutoExecuteResultLog {
   recommendedAction: string;
   executed: boolean;
-  status: 'success' | 'skipped' | 'failed';
+  status?: 'executed' | 'skipped' | 'failed';
   sourcePath: string;
   destinationPath?: string;
   error?: string;
@@ -696,16 +699,12 @@ export async function appendAutoExecuteResult(
   let content = await app.vault.read(file);
 
   const heading = h(lang, 'autoExecuteResult');
-
-  // Remove existing Auto-execute Result section if it exists
-  const sectionHeader = `\n\n${heading}\n`;
-  const sectionIndex = content.indexOf(sectionHeader);
-  if (sectionIndex !== -1) {
-    content = content.slice(0, sectionIndex);
-  }
+  const startMarker = '<!-- inbox-curator:auto-execute-result:start -->';
+  const endMarker = '<!-- inbox-curator:auto-execute-result:end -->';
 
   const lines = [
-    `\n${heading}`,
+    startMarker,
+    heading,
     ``,
     `- Recommended action: ${escapeMarkdown(params.recommendedAction)}`,
     `- Executed: ${params.executed ? 'yes' : 'no'}`,
@@ -716,13 +715,73 @@ export async function appendAutoExecuteResult(
     lines.push(`- Destination: ${escapeMarkdown(params.destinationPath)}`);
   }
 
-  lines.push(`- Status: ${params.status}`);
+  const statusStr = params.status || (params.executed ? 'executed' : 'failed');
+  lines.push(`- Status: ${statusStr}`);
 
   if (params.error) {
     lines.push(`- Reason: ${escapeMarkdown(params.error)}`);
   }
 
   lines.push(`- Executed at: ${new Date().toISOString()}`);
+  lines.push(endMarker);
 
-  await app.vault.modify(file, content + lines.join('\n') + '\n');
+  const newSectionContent = `\n\n` + lines.join('\n') + `\n`;
+
+  // 1. マーカーが存在するか検索
+  const startIdx = content.indexOf(startMarker);
+  const endIdx = content.indexOf(endMarker);
+
+  if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
+    const before = content.slice(0, startIdx).trimEnd();
+    const after = content.slice(endIdx + endMarker.length);
+    content = before + newSectionContent + after;
+  } else {
+    // 2. マーカーなし旧セクションの検出
+    const oldHeaders = [
+      '## Auto-execute Result',
+      '## 自動実行結果',
+    ];
+    const oldHeaderIndex = findLastMarkdownHeader(content, oldHeaders);
+
+    let replaced = false;
+    if (oldHeaderIndex !== -1) {
+      // 候補開始位置から後続約800文字をスライスして検証
+      const candidate = content.slice(oldHeaderIndex, oldHeaderIndex + 800);
+      const legacyAutoExecuteLabelPattern = /(^|\n)\s*[-*]?\s*(Action|Recommended [Aa]ction|Executed|Source|Destination|Status|Result|Reason|アクション|ステータス|結果|移動先|理由)\s*[:：]/;
+
+      if (legacyAutoExecuteLabelPattern.test(candidate)) {
+        // 安全と判定された場合のみ置換
+        const nextHeadingIndex = content.indexOf('\n## ', oldHeaderIndex + 4);
+        const before = content.slice(0, oldHeaderIndex).trimEnd();
+        if (nextHeadingIndex !== -1) {
+          const after = content.slice(nextHeadingIndex);
+          content = before + newSectionContent + after;
+        } else {
+          content = before + newSectionContent;
+        }
+        replaced = true;
+      }
+    }
+
+    if (!replaced) {
+      // 3. 怪しいか、存在しない場合は末尾追記
+      content = content.trimEnd() + newSectionContent;
+    }
+  }
+
+  await app.vault.modify(file, content);
+}
+
+function findLastMarkdownHeader(content: string, headers: string[]): number {
+  let latest = -1;
+  for (const header of headers) {
+    if (content.startsWith(header)) {
+      latest = Math.max(latest, 0);
+    }
+    const indexAfterNewline = content.lastIndexOf(`\n${header}`);
+    if (indexAfterNewline >= 0) {
+      latest = Math.max(latest, indexAfterNewline + 1);
+    }
+  }
+  return latest;
 }
