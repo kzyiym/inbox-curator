@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4
+
+- Fix ESLint and TypeScript compilation warnings (unsafe any assignments/accesses, unnecessary assertions).
+- Fix `globalThis` warning by replacing it with `window.require` type-safe helper for popout window compatibility.
+- Clean up unused regex escapes.
+
 ## 1.0.3
 
 - Replace `localStorage.getItem("language")` with Obsidian `getLanguage()` API.
