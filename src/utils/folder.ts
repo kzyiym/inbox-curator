@@ -100,7 +100,7 @@ export function resolveSafeSuggestedPath(suggestedFolder: string, basePath?: str
 
   const resolvedParts: string[] = [];
   const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
-  // eslint-disable-next-line no-control-regex
+  // eslint-disable-next-line no-control-regex -- Control chars (\0-\x1F) must be matched literally for path sanitization
   const INVALID_CHARS = /[<>:"|?*\\'\0-\x1F]/;
 
   for (const part of parts) {

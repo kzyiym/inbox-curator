@@ -156,7 +156,7 @@ export function maskBase64<T>(value: T): T {
     return value.replace(/(data:image\/[a-zA-Z+.-]+;base64,)[a-zA-Z0-9+/=]+/g, '$1[OMITTED]') as unknown as T;
   }
   if (Array.isArray(value)) {
-    return value.map((v) => maskBase64(v)) as unknown as T;
+    return (value as unknown[]).map((v: unknown) => maskBase64(v)) as unknown as T;
   }
   if (typeof value === 'object' && value !== null) {
     const masked: Record<string, unknown> = {};

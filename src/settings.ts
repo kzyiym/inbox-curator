@@ -1705,10 +1705,16 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
   private openExternalUrl(url: string): void {
     try {
-      const { shell } = require('electron');
-      shell.openExternal(url);
+      interface ElectronShell { openExternal(url: string): Promise<void>; }
+      interface RequireLike { (id: string): { shell: ElectronShell }; }
+      const electronRequire = (globalThis as Record<string, unknown>).require as RequireLike | undefined;
+      if (electronRequire) {
+        void electronRequire('electron').shell.openExternal(url);
+      } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
     } catch {
-      window.open(url, '_blank');
+      window.open(url, '_blank', 'noopener,noreferrer');
     }
   }
 

@@ -21,7 +21,7 @@ export function parseYamlRecord(source: string): Record<string, unknown> {
 }
 
 function escapeYamlString(str: string): string {
-  const specialCharsRegex = /[:#'"\[\]{}|>&*!%@`,\n]/;
+  const specialCharsRegex = /[:#'"[\]{}|>&*!%@`,\n]/;
   const startsWithSpecialRegex = /^[-?|<>=!%@`]/;
   const needsQuotes =
     str === '' ||

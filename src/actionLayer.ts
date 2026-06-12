@@ -12,7 +12,7 @@ function parseDocument(content: string): Record<string, unknown> {
   }
   try {
     const parsed = parseYamlRecord(match[1]);
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
     return {};
   }

@@ -23,6 +23,10 @@ import { resolveEffectiveOpenAiTokenLimitParam, buildOpenAiCompatibleTokenLimitD
 import { getFolderMarkdownFilesForCollectionReview, runCollectionReviewPipeline } from './src/collectionReview';
 import { validateFolderPath } from './src/utils/folder';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
 type AutomaticReviewReason = 'create' | 'modify' | 'poll';
 
 interface WatchedFolderProcessingSummary {
@@ -369,11 +373,13 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    const saved = await this.loadData();
+    const raw: unknown = await this.loadData();
+    const saved = isRecord(raw) ? { ...raw } : undefined;
     if (saved) {
       delete saved.autoExecuteDeleteCandidate;
     }
-    this.settings = { ...DEFAULT_SETTINGS, ...(saved ?? {}) };
+    // Persistence boundary: loadData shape matches InboxCuratorSettings by contract
+    this.settings = { ...DEFAULT_SETTINGS, ...(saved ?? {}) } as InboxCuratorSettings;
 
     // Backwards compatibility migration
     if (saved && saved.autoExecuteProposedActions === true && saved.autoExecuteArchive === undefined) {
@@ -1025,7 +1031,7 @@ export default class InboxCuratorPlugin extends Plugin {
 
     // 2. metadataCache が取得できない、または frontmatter cache がない場合は read にフォールバックする
     if (fileCache && fileCache.frontmatter) {
-      const aiReviewSourceHash = fileCache.frontmatter.ai_review_source_hash;
+      const aiReviewSourceHash: unknown = fileCache.frontmatter.ai_review_source_hash;
 
       // 3. frontmatter cache があり、ai_review_source_hash がない場合は cache を削除して return false
       if (typeof aiReviewSourceHash !== 'string' || aiReviewSourceHash.trim() === '') {
