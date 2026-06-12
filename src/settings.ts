@@ -1706,13 +1706,17 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
   private openExternalUrl(url: string): void {
     try {
       interface ElectronShell { openExternal(url: string): Promise<void>; }
-      interface RequireLike { (id: string): { shell: ElectronShell }; }
-      const electronRequire = (globalThis as Record<string, unknown>).require as RequireLike | undefined;
-      if (electronRequire) {
-        void electronRequire('electron').shell.openExternal(url);
-      } else {
-        window.open(url, '_blank', 'noopener,noreferrer');
+      interface RequireLike { (id: string): { shell?: ElectronShell } | undefined; }
+      const maybeRequire: unknown = (window as unknown as Record<string, unknown>).require;
+      if (typeof maybeRequire === 'function') {
+        const electronRequire = maybeRequire as RequireLike;
+        const electron = electronRequire('electron');
+        if (electron?.shell) {
+          void electron.shell.openExternal(url);
+          return;
+        }
       }
+      window.open(url, '_blank', 'noopener,noreferrer');
     } catch {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
