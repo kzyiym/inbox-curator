@@ -1,6 +1,7 @@
 import { App, TFile } from 'obsidian';
 import { parseYamlRecord, stringifyYamlRecord } from './utils/yaml';
 import type { ReviewResult } from './types';
+import type { ReviewConfidence } from './reviewNormalizer';
 
 const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n?/;
 
@@ -28,7 +29,12 @@ export function readAiReviewSourceHash(content: string): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
 }
 
-export async function upsertReviewFrontmatter(app: App, file: TFile, result: ReviewResult): Promise<void> {
+export async function upsertReviewFrontmatter(
+  app: App,
+  file: TFile,
+  result: ReviewResult,
+  confidence?: ReviewConfidence,
+): Promise<void> {
   const content = await app.vault.read(file);
   const { frontmatter, body } = parseDocument(content);
 
@@ -44,6 +50,12 @@ export async function upsertReviewFrontmatter(app: App, file: TFile, result: Rev
   frontmatter.ai_review_practicality = result.scores.practicality;
   frontmatter.ai_review_priority = result.verdict.priority;
   frontmatter.ai_review_recommended_action = result.verdict.recommendedAction;
+  frontmatter.ai_review_reliability_label = result.verdict.reliabilityLabel;
+  if (confidence) {
+    frontmatter.ai_review_confidence = confidence;
+  } else {
+    delete frontmatter.ai_review_confidence;
+  }
   frontmatter.ai_review_needs_verification = result.flags.needsVerification;
   frontmatter.ai_review_delete_candidate = result.flags.deleteCandidate;
   frontmatter.ai_review_version = '1.0.0';

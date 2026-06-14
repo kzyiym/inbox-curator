@@ -62,6 +62,22 @@ export function registerInboxCuratorCommands(plugin: InboxCuratorPlugin): void {
   });
 
   plugin.addCommand({
+    id: 'open-action-review-panel',
+    name: t('commands.openActionReviewPanel'),
+    callback: async () => {
+      await plugin.openActionReviewPanel(false);
+    },
+  });
+
+  plugin.addCommand({
+    id: 'dry-run-auto-sort',
+    name: t('commands.dryRunAutoSort'),
+    callback: async () => {
+      await plugin.openActionReviewPanel(true);
+    },
+  });
+
+  plugin.addCommand({
     id: 'review-selected-notes-as-collection',
     name: t('commands.reviewSelectedNotesAsCollection'),
     callback: async () => {

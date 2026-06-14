@@ -22,7 +22,21 @@ export type AutoSortSkipReason =
   | "setting_disabled"
   | "reliability_low"
   | "prompt_injection"
+  | "allowlist_blocked"
   | "none_action";
+
+const CONFIDENCE_RANK: Record<ReviewConfidence, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+};
+
+export function confidenceMeetsThreshold(
+  confidence: ReviewConfidence,
+  minConfidence: ReviewConfidence,
+): boolean {
+  return CONFIDENCE_RANK[confidence] >= CONFIDENCE_RANK[minConfidence];
+}
 
 export type ReviewInputTrimResult = {
   text: string;
@@ -255,6 +269,13 @@ export function canAutoExecuteReviewAction(
     autoExecuteArchive: boolean;
     autoExecuteReadLater: boolean;
     autoExecuteTask: boolean;
+    allowActionArchive?: boolean;
+    allowActionReadLater?: boolean;
+    allowActionTask?: boolean;
+    allowActionDeleteCandidate?: boolean;
+    minConfidenceArchive?: ReviewConfidence;
+    minConfidenceReadLater?: ReviewConfidence;
+    minConfidenceTask?: ReviewConfidence;
   },
 ): boolean {
   if (reviewMode === "safe") return false;
@@ -262,9 +283,22 @@ export function canAutoExecuteReviewAction(
   if (action === "none") return false;
   if (action === "delete_candidate") return false;
 
-  if (action === "archive") return confidence !== "low" && settings.autoExecuteArchive;
-  if (action === "read_later") return confidence !== "low" && settings.autoExecuteReadLater;
-  if (action === "task") return confidence === "high" && settings.autoExecuteTask;
+  const minArchive = settings.minConfidenceArchive ?? "medium";
+  const minReadLater = settings.minConfidenceReadLater ?? "medium";
+  const minTask = settings.minConfidenceTask ?? "high";
+  const allowArchive = settings.allowActionArchive ?? true;
+  const allowReadLater = settings.allowActionReadLater ?? true;
+  const allowTask = settings.allowActionTask ?? true;
+
+  if (action === "archive") {
+    return allowArchive && confidenceMeetsThreshold(confidence, minArchive) && settings.autoExecuteArchive;
+  }
+  if (action === "read_later") {
+    return allowReadLater && confidenceMeetsThreshold(confidence, minReadLater) && settings.autoExecuteReadLater;
+  }
+  if (action === "task") {
+    return allowTask && confidenceMeetsThreshold(confidence, minTask) && settings.autoExecuteTask;
+  }
 
   return false;
 }

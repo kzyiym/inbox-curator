@@ -10,7 +10,10 @@ import { buildReviewSourceInfo, runReviewPipeline, type ReviewPipelineOptions } 
 import { DEFAULT_SETTINGS, InboxCuratorSettings, InboxCuratorSettingTab } from './src/settings';
 import { executeProposedAction } from './src/actionLayer';
 import { appendAutoExecuteResult } from './src/reviewWriter';
-import { canAutoExecuteReviewAction, type ReviewAction, type ReviewConfidence } from './src/reviewNormalizer';
+import { type ReviewAction, type ReviewConfidence } from './src/reviewNormalizer';
+import { computeActionDecision } from './src/actionDecision';
+import { collectProposedActions, toActionDecisionSettings, type ProposedActionItem } from './src/utils/proposedActions';
+import { ActionReviewModal } from './src/actionReviewModal';
 import { t } from './src/i18n';
 import { clearSessionApiKeys, getApiKey, hasApiKey } from './src/secrets';
 import { logError } from './src/utils/errorLog';
@@ -437,6 +440,13 @@ export default class InboxCuratorPlugin extends Plugin {
       autoExecuteArchive: this.settings.autoExecuteArchive,
       autoExecuteReadLater: this.settings.autoExecuteReadLater,
       autoExecuteTask: this.settings.autoExecuteTask,
+      allowActionArchive: this.settings.allowActionArchive,
+      allowActionReadLater: this.settings.allowActionReadLater,
+      allowActionTask: this.settings.allowActionTask,
+      allowActionDeleteCandidate: this.settings.allowActionDeleteCandidate,
+      minConfidenceArchive: this.settings.minConfidenceArchive,
+      minConfidenceReadLater: this.settings.minConfidenceReadLater,
+      minConfidenceTask: this.settings.minConfidenceTask,
       readLaterFolder: this.settings.readLaterFolder,
       taskFolder: this.settings.taskFolder,
       deleteCandidateFolder: this.settings.deleteCandidateFolder,
@@ -711,86 +721,32 @@ export default class InboxCuratorPlugin extends Plugin {
       const effectiveConfidence = confidence ||
         (reliabilityLabel === 'high' ? 'high' : reliabilityLabel === 'medium' ? 'medium' : 'low');
       const parseStatus = result.parseStatus || 'parsed';
-      let shouldAutoExecute = false;
-      let autoExecuteSkipReason: string | undefined;
-      let autoExecuteSkipCode: string | undefined;
 
-      if (this.settings.reviewMode === 'safe') {
-        autoExecuteSkipReason = 'review-only mode disables auto-sort';
-        autoExecuteSkipCode = 'safe_mode';
-      } else {
-        shouldAutoExecute = canAutoExecuteReviewAction(
-          reviewAction,
-          parseStatus,
-          effectiveConfidence,
-          this.settings.reviewMode,
-          {
-            autoExecuteArchive: this.settings.autoExecuteArchive,
-            autoExecuteReadLater: this.settings.autoExecuteReadLater,
-            autoExecuteTask: this.settings.autoExecuteTask,
-          },
-        );
+      const decision = computeActionDecision({
+        action,
+        reviewAction,
+        parseStatus,
+        confidence: effectiveConfidence,
+        reliabilityLabel,
+        reviewMode: this.settings.reviewMode,
+        hasPromptInjectionSignals: result.hasPromptInjectionSignals ?? false,
+        settings: toActionDecisionSettings(this.settings),
+      });
+      const shouldAutoExecute = decision.wouldAutoExecute;
+      const autoExecuteSkipReason = decision.skipReason;
+      const autoExecuteSkipCode = decision.skipCode;
 
-        if (!shouldAutoExecute) {
-          if (parseStatus !== 'parsed') { autoExecuteSkipReason = `parseStatus is ${parseStatus}`; autoExecuteSkipCode = 'parse_status'; }
-          else if (effectiveConfidence !== 'high' && reviewAction === 'task') { autoExecuteSkipReason = `task requires high confidence (got ${effectiveConfidence})`; autoExecuteSkipCode = 'task_requires_high'; }
-          else if (effectiveConfidence === 'low') { autoExecuteSkipReason = `confidence is low (${effectiveConfidence})`; autoExecuteSkipCode = 'confidence_low'; }
-          else if (action === 'delete_candidate') { autoExecuteSkipReason = 'delete_candidate is never auto-executed'; autoExecuteSkipCode = 'delete_candidate'; }
-          else { autoExecuteSkipReason = 'setting disabled or action none'; autoExecuteSkipCode = 'setting_disabled'; }
-        }
-      }
-
-      if (shouldAutoExecute && reliabilityLabel !== 'high') {
-        const allowsMediumReliability = reviewAction === 'archive' || reviewAction === 'read_later';
-        if (!allowsMediumReliability || reliabilityLabel !== 'medium') {
-          shouldAutoExecute = false;
-          autoExecuteSkipReason = `reliabilityLabel is ${reliabilityLabel} for action ${action}`;
-          autoExecuteSkipCode = 'reliability_low';
-          void logError(this.app, 'WARN', `Inbox Curator: Skipped auto-execute for ${file.path} due to reliability ${reliabilityLabel}`, {
-            actionType: action,
-            reliabilityLabel,
-          });
-          void logOperation(this.app, {
-            timestamp: new Date().toISOString(),
-            level: 'WARN',
-            event: 'auto_sort_skipped',
-            operationId: job.operationId,
-            notePath: file.path,
-            actionType: action,
-            message: `Auto-sort skipped: reliabilityLabel is ${reliabilityLabel} for action ${action}`,
-            details: { reliabilityLabel, reviewAction, hasPromptInjectionSignals: result.hasPromptInjectionSignals ?? null, reasonCode: 'reliability_low' },
-          });
-        }
-      }
-
-      if (shouldAutoExecute && result.hasPromptInjectionSignals && reviewAction === 'task') {
-        shouldAutoExecute = false;
-        autoExecuteSkipReason = 'prompt injection signals detected for task';
-        autoExecuteSkipCode = 'prompt_injection';
-        void logOperation(this.app, {
-          timestamp: new Date().toISOString(),
-          level: 'INFO',
-          event: 'auto_sort_skipped',
-          operationId: job.operationId,
-          notePath: file.path,
+      if (autoExecuteSkipCode === 'reliability_low') {
+        void logError(this.app, 'WARN', `Inbox Curator: Skipped auto-execute for ${file.path} due to reliability ${reliabilityLabel}`, {
           actionType: action,
-          message: 'Auto-sort skipped: prompt injection signals detected for task',
-          details: {
-            action,
-            reviewMode: this.settings.reviewMode,
-            parseStatus,
-            confidence: effectiveConfidence,
-            reliabilityLabel,
-            hasPromptInjectionSignals: true,
-            reasonCode: 'prompt_injection',
-          },
+          reliabilityLabel,
         });
       }
 
       if (!shouldAutoExecute && autoExecuteSkipReason) {
         void logOperation(this.app, {
           timestamp: new Date().toISOString(),
-          level: 'INFO',
+          level: autoExecuteSkipCode === 'reliability_low' ? 'WARN' : 'INFO',
           event: 'auto_sort_skipped',
           operationId: job.operationId,
           notePath: file.path,
@@ -1760,6 +1716,70 @@ export default class InboxCuratorPlugin extends Plugin {
           skipped++;
         }
       } else if (result.status === 'skipped') {
+        skipped++;
+      } else {
+        failed++;
+      }
+    }
+
+    new Notice(t('notice.batchActionsCompleted', { executed, skipped, failed }));
+  }
+
+  async openActionReviewPanel(readOnly: boolean): Promise<void> {
+    const items = await collectProposedActions(this.app, this.settings);
+    new ActionReviewModal(this.app, items, readOnly, {
+      applySelected: (selected) => this.applyProposedActionsFromPanel(selected),
+      refresh: () => collectProposedActions(this.app, this.settings),
+    }).open();
+  }
+
+  async applyProposedActionsFromPanel(items: ProposedActionItem[]): Promise<void> {
+    const runId = generateRunId();
+    let executed = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const item of items) {
+      const actionResult = await executeProposedAction(this.app, item.file, {
+        outputFolder: this.settings.reviewOutputFolder,
+        readLaterFolder: this.settings.readLaterFolder,
+        taskFolder: this.settings.taskFolder,
+        deleteCandidateFolder: this.settings.deleteCandidateFolder,
+        suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
+        skipConfirmation: false,
+      });
+
+      if (actionResult.status === 'executed') {
+        executed++;
+        const taken = actionResult.actionTaken;
+        if (taken === 'archive' || taken === 'read_later' || taken === 'task') {
+          await appendAutoSortActionRecord(this.app, {
+            runId,
+            timestamp: Date.now(),
+            action: taken,
+            sourcePath: item.notePath,
+            destinationPath: actionResult.destinationPath ?? item.notePath,
+            reviewMode: this.settings.reviewMode,
+            parseStatus: 'parsed',
+            confidence: item.confidence,
+            reliabilityLabel: item.reliabilityLabel,
+          }).catch((err) => {
+            void logError(this.app, 'WARN', 'Inbox Curator: Failed to save auto-sort history', {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+        }
+        void logOperation(this.app, {
+          timestamp: new Date().toISOString(),
+          level: 'INFO',
+          event: 'auto_sort_executed',
+          notePath: item.notePath,
+          actionType: item.action,
+          filePath: actionResult.destinationPath,
+          message: 'Action applied from review panel',
+          details: { runId, action: item.reviewAction, source: 'action_review_panel' },
+        });
+      } else if (actionResult.status === 'skipped') {
         skipped++;
       } else {
         failed++;

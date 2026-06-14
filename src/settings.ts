@@ -8,6 +8,7 @@ import { clearOperationLogs, getOperationLogFileCount, getOperationLogEntryCount
 import type { LogLevel } from './utils/logFiles';
 import type { ContextBudgetPreset } from './utils/contentFilter';
 import type { OpenAiCompatibleTokenLimitParam, DetectedOpenAiCompatibleTokenLimitParam } from './openAiCompatible';
+import type { ReviewConfidence } from './reviewNormalizer';
 import { buildOpenAiCompatibleTokenLimitDetectionKey } from './openAiCompatible';
 import { validateFolderPath } from './utils/folder';
 
@@ -39,6 +40,13 @@ export interface InboxCuratorSettings {
   autoExecuteArchive: boolean;
   autoExecuteReadLater: boolean;
   autoExecuteTask: boolean;
+  allowActionArchive: boolean;
+  allowActionReadLater: boolean;
+  allowActionTask: boolean;
+  allowActionDeleteCandidate: boolean;
+  minConfidenceArchive: ReviewConfidence;
+  minConfidenceReadLater: ReviewConfidence;
+  minConfidenceTask: ReviewConfidence;
   readLaterFolder: string;
   taskFolder: string;
   deleteCandidateFolder: string;
@@ -102,6 +110,13 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   autoExecuteArchive: false,
   autoExecuteReadLater: false,
   autoExecuteTask: false,
+  allowActionArchive: true,
+  allowActionReadLater: true,
+  allowActionTask: true,
+  allowActionDeleteCandidate: true,
+  minConfidenceArchive: 'medium',
+  minConfidenceReadLater: 'medium',
+  minConfidenceTask: 'high',
   readLaterFolder: 'Read Later',
   taskFolder: 'Tasks',
   deleteCandidateFolder: 'Delete Candidates',
@@ -860,6 +875,25 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
 
     new Setting(autoCard).setName(t('settings.autoExecute.sectionTitle')).setHeading();
 
+    const addConfidenceThreshold = (
+      key: 'minConfidenceArchive' | 'minConfidenceReadLater' | 'minConfidenceTask',
+    ) => {
+      new Setting(autoCard)
+        .setName(t('settings.minConfidence.label'))
+        .setDesc(t('settings.minConfidence.desc'))
+        .addDropdown((dropdown) =>
+          dropdown
+            .addOption('low', t('settings.minConfidence.low'))
+            .addOption('medium', t('settings.minConfidence.medium'))
+            .addOption('high', t('settings.minConfidence.high'))
+            .setValue(settings[key])
+            .onChange(async (value) => {
+              settings[key] = value as ReviewConfidence;
+              await this.plugin.saveSettings();
+            }),
+        );
+    };
+
     new Setting(autoCard)
       .setName(t('settings.autoExecuteArchive.label'))
       .setDesc(t('settings.autoExecuteArchive.desc'))
@@ -869,6 +903,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+    addConfidenceThreshold('minConfidenceArchive');
 
     new Setting(autoCard)
       .setName(t('settings.autoExecuteReadLater.label'))
@@ -880,6 +915,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           this.display();
         }),
       );
+    addConfidenceThreshold('minConfidenceReadLater');
 
     if (settings.autoExecuteReadLater) {
       let readLaterStatusEl: HTMLElement | null = null;
@@ -934,6 +970,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           this.display();
         }),
       );
+    addConfidenceThreshold('minConfidenceTask');
 
     if (settings.autoExecuteTask) {
       let taskFolderStatusEl: HTMLElement | null = null;
@@ -979,6 +1016,52 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
     }
 
 
+
+    new Setting(autoCard).setName(t('settings.allowlist.sectionTitle')).setHeading();
+    autoCard.createEl('p', {
+      text: t('settings.allowlist.sectionDesc'),
+      cls: 'inbox-curator-section-desc',
+    });
+
+    new Setting(autoCard)
+      .setName(t('settings.allowlist.archive.label'))
+      .setDesc(t('settings.allowlist.archive.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.allowActionArchive).onChange(async (value) => {
+          settings.allowActionArchive = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(autoCard)
+      .setName(t('settings.allowlist.readLater.label'))
+      .setDesc(t('settings.allowlist.readLater.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.allowActionReadLater).onChange(async (value) => {
+          settings.allowActionReadLater = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(autoCard)
+      .setName(t('settings.allowlist.task.label'))
+      .setDesc(t('settings.allowlist.task.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.allowActionTask).onChange(async (value) => {
+          settings.allowActionTask = value;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(autoCard)
+      .setName(t('settings.allowlist.deleteCandidate.label'))
+      .setDesc(t('settings.allowlist.deleteCandidate.desc'))
+      .addToggle((toggle) =>
+        toggle.setValue(settings.allowActionDeleteCandidate).onChange(async (value) => {
+          settings.allowActionDeleteCandidate = value;
+          await this.plugin.saveSettings();
+        }),
+      );
 
     autoCard.createEl('p', {
       text: t('settings.safety.note'),

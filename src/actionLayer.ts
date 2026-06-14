@@ -18,6 +18,75 @@ function parseDocument(content: string): Record<string, unknown> {
   }
 }
 
+export interface ResolvedActionDestination {
+  destinationPath?: string;
+  conflict: boolean;
+  reason?: string;
+}
+
+/**
+ * Non-mutating preview of where a recommended action would move a file.
+ * Mirrors the destination logic of executeProposedAction without performing
+ * any file operations, for use by the dry-run / approval panel.
+ */
+export function resolveActionDestination(
+  app: App,
+  file: TFile,
+  action: string,
+  suggestedFolder: string | undefined,
+  options: {
+    readLaterFolder?: string;
+    taskFolder?: string;
+    deleteCandidateFolder?: string;
+    suggestedFolderBasePath?: string;
+  },
+): ResolvedActionDestination {
+  const normalizedAction = action.trim().toLowerCase();
+
+  if (normalizedAction === 'archive') {
+    if (typeof suggestedFolder === 'string' && suggestedFolder.trim() !== '') {
+      const normalizedFolder = resolveSafeSuggestedPath(suggestedFolder, options.suggestedFolderBasePath);
+      if (normalizedFolder && app.vault.getAbstractFileByPath(normalizedFolder) instanceof TFolder) {
+        const candidate = normalizePath(`${normalizedFolder}/${file.name}`);
+        if (app.vault.getAbstractFileByPath(candidate)) {
+          return { conflict: true, destinationPath: candidate, reason: 'Destination file already exists.' };
+        }
+        return { conflict: false, destinationPath: candidate };
+      }
+    }
+    if (options.suggestedFolderBasePath && options.suggestedFolderBasePath.trim() !== '') {
+      const baseFolder = normalizePath(options.suggestedFolderBasePath.trim());
+      const candidate = normalizePath(`${baseFolder}/${file.name}`);
+      if (app.vault.getAbstractFileByPath(candidate)) {
+        return { conflict: true, destinationPath: candidate, reason: 'Destination file already exists.' };
+      }
+      return { conflict: false, destinationPath: candidate };
+    }
+    return { conflict: false, reason: 'No viable destination folder configured.' };
+  }
+
+  const folderMap: Record<string, string | undefined> = {
+    read_later: options.readLaterFolder,
+    task: options.taskFolder,
+    delete_candidate: options.deleteCandidateFolder,
+  };
+
+  if (normalizedAction in folderMap) {
+    const folder = folderMap[normalizedAction];
+    if (!folder || folder.trim() === '') {
+      return { conflict: false, reason: 'Destination folder is not configured.' };
+    }
+    const destFolder = normalizePath(folder.trim());
+    const candidate = normalizePath(`${destFolder}/${file.name}`);
+    if (app.vault.getAbstractFileByPath(candidate)) {
+      return { conflict: true, destinationPath: candidate, reason: 'Destination file already exists.' };
+    }
+    return { conflict: false, destinationPath: candidate };
+  }
+
+  return { conflict: false };
+}
+
 export interface AutoExecuteActionResult {
   success: boolean;
   status: 'executed' | 'skipped' | 'failed';

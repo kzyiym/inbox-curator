@@ -1284,7 +1284,7 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
     }
 
     const writeResult = await writeReviewNote(app, file, mappedResult);
-    await upsertReviewFrontmatter(app, file, mappedResult);
+    await upsertReviewFrontmatter(app, file, mappedResult, confidence);
 
     const modeLabel = options.reviewMode || 'standard';
     void logOperation(app, {
