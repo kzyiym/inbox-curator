@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Action allowlist: per-action toggles (Archive, Read Later, Task, Delete Candidate) that gate auto-execution and panel apply without changing review output.
+- Configurable confidence thresholds: set a minimum confidence per auto-sort action (defaults preserve prior behavior — Medium for Archive/Read Later, High for Task). Reliability checks still apply on top.
+- Action review panel: a unified dry-run preview / approval / execute-selected modal listing watched-folder notes with their proposed action, confidence, reliability, auto-execute verdict, and resolved destination. New commands `Open action review panel` and `Dry-run auto-sort (preview)`.
+- Persist `ai_review_confidence` and `ai_review_reliability_label` to note frontmatter so the panel can recompute decisions for already-reviewed notes.
+
 ## 1.0.4
 
 - Fix ESLint and TypeScript compilation warnings (unsafe any assignments/accesses, unnecessary assertions).

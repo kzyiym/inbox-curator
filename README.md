@@ -57,6 +57,8 @@ For details, see [Auto-sort Safety](#auto-sort-safety) below.
 - **Attachment Awareness**: Detects linked attachments (images, audio, PDF, etc.). Supports sending images to multimodal models (OpenAI, Gemini, Anthropic) for visual review (up to 3 images, max 1MB payload per image). Features optional temporary in-memory resizing/compression for larger source files (up to 10MB) to fit within this 1MB limit without modifying original Vault files.
 - **Experimental PDF Text Extraction**: Reads local PDF attachments (first 5 pages, up to 10,000 chars) using Obsidian's built-in PDF.js.
 - **Auto-sort Actions**: Optionally auto-move files based on AI recommendations (Archive, Read Later, Task, Delete Candidate). Delete candidates are suggested only — never moved or deleted automatically.
+- **Action Allowlist & Confidence Thresholds**: Choose which actions are allowed to run, and set a minimum confidence per action for auto-execution. Reliability checks still apply on top.
+- **Action Review Panel (Dry-run & Approval)**: Preview what auto-sort would do, then select and apply only the actions you approve. A single panel covers dry-run preview, approval, and selective execution.
 - **Undo Auto-sort**: Recent auto-sort runs can be reverted with the "Undo last auto-sort run" command.
 - **Automatic Watching**: Watches the configured folder for file changes with configurable debouncing. Polling fallback for missed events.
 - **Deduplication**: Uses `ai_review_source_hash` in frontmatter to skip already-reviewed notes whose content hasn't changed.
@@ -161,6 +163,8 @@ This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/c
 | `cleanup-processing-markers` | Clean up processing markers | Remove stale 🤖 prefix markers from reviewed files |
 | `review-selected-notes-as-collection` | Review selected notes as a collection | Cross-note analysis of selected notes |
 | `review-folder-as-collection` | Review folder as a collection | Cross-note analysis of a folder's contents |
+| `open-action-review-panel` | Open action review panel | Review proposed actions for watched-folder notes and apply the ones you approve |
+| `dry-run-auto-sort` | Dry-run auto-sort (preview) | Preview what auto-sort would do without applying any changes |
  
 ---
 
@@ -197,10 +201,25 @@ This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/c
 ### Auto-sort Actions
 | Setting | Default | Description |
 |---|---|---|
-| Archive | OFF | Runs when confidence is Medium or High |
-| Read Later | OFF | Runs when confidence is Medium or High |
-| Tasks | OFF | Runs only when confidence is High |
+| Archive | OFF | Auto-executes when confidence meets its threshold (default Medium or higher) |
+| Read Later | OFF | Auto-executes when confidence meets its threshold (default Medium or higher) |
+| Tasks | OFF | Auto-executes when confidence meets its threshold (default High only) |
 | Delete Candidates | — | Suggested only. Never moved automatically. |
+
+Each auto-sort action has a **Minimum confidence to auto-execute** dropdown (Low or higher / Medium or higher / High only). Reliability checks still apply on top of the confidence threshold, and Tasks remain blocked when prompt injection signals are detected.
+
+### Action Allowlist
+| Setting | Default | Description |
+|---|---|---|
+| Allow Archive | ON | Permit the Archive action to be executed |
+| Allow Read Later | ON | Permit the Read Later action to be executed |
+| Allow Task | ON | Permit the Task action to be executed |
+| Allow Delete Candidate | ON | Permit moving delete candidates to the quarantine folder (manual apply only) |
+
+Disabled actions are still reviewed and shown in the action review panel, but are never auto-executed or applied.
+
+### Action Review Panel
+Use `Open action review panel` to see every watched-folder note that carries a proposed action, with its action, confidence, reliability, whether it would auto-execute (and why not), and the resolved destination. Select the notes you approve and apply them in one step. `Dry-run auto-sort (preview)` opens the same panel read-only to preview auto-sort outcomes without making changes. Applied moves are recorded to auto-sort history and can be reverted with `Undo last auto-sort run`.
 
 ### Auto-sort Folders
 | Setting | Default | Description |
