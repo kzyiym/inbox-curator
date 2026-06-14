@@ -18,7 +18,6 @@ export type ReviewReliabilityLabel = 'high' | 'medium' | 'low';
 export type ReviewValueLabel = 'high' | 'medium' | 'low';
 export type ReviewPriority = 'high' | 'medium' | 'low';
 export type ReviewFetchStatus = 'not_applicable' | 'success' | 'failed';
-// TODO: Consider adding "temporary_reference" for pricing/news/spec-change articles.
 export type RecommendedAction =
   | 'keep_as_reference'
   | 'read_later'

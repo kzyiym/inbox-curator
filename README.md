@@ -56,7 +56,7 @@ For details, see [Auto-sort Safety](#auto-sort-safety) below.
 - **URL Fetching & Article Extraction**: Detects URL-only notes, fetches HTML metadata (og:title, description), and extracts readable article text.
 - **Attachment Awareness**: Detects linked attachments (images, audio, PDF, etc.). Supports sending images to multimodal models (OpenAI, Gemini, Anthropic) for visual review (up to 3 images, max 1MB payload per image). Features optional temporary in-memory resizing/compression for larger source files (up to 10MB) to fit within this 1MB limit without modifying original Vault files.
 - **Experimental PDF Text Extraction**: Reads local PDF attachments (first 5 pages, up to 10,000 chars) using Obsidian's built-in PDF.js.
-- **Auto-sort Actions**: Optionally auto-move files based on AI recommendations (Archive, Read Later, Task, Delete Candidate). Delete candidates are suggested only — never moved or deleted automatically.
+- **Auto-sort Actions**: Optionally auto-move files based on AI recommendations (Archive, Read Later, Task). Delete candidates are suggested only and require manual approval before being moved to quarantine.
 - **Action Allowlist & Confidence Thresholds**: Choose which actions are allowed to run, and set a minimum confidence per action for auto-execution. Reliability checks still apply on top.
 - **Action Review Panel (Dry-run & Approval)**: Preview what auto-sort would do, then select and apply only the actions you approve. A single panel covers dry-run preview, approval, and selective execution.
 - **Undo Auto-sort**: Recent auto-sort runs can be reverted with the "Undo last auto-sort run" command.
@@ -130,7 +130,7 @@ This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/c
 
 1. **Clip**: Browse any article, documentation, or post. Click the Web Clipper extension in your browser, select your Inbox folder as the destination, and clip it into Obsidian.
 2. **Auto-Review**: With **Automatic Watching** and **Auto-review on Create** enabled in Inbox Curator settings, every clipped note is automatically queued for AI review the moment it lands in your Inbox — no manual intervention needed.
-3. **Auto-Organize**: Enable **Auto-execute Actions** (Archive, Read Later, Task, Delete Candidate), and the plugin moves each reviewed note to its appropriate folder. Your Inbox stays clean with zero effort.
+3. **Auto-Organize**: Enable the **Archive**, **Read Later**, and **Task** auto-sort actions you trust. Delete candidates remain pending for manual review and quarantine.
 
 > [!TIP]
 > This clip → auto-review → auto-organize pipeline is the intended workflow. Set it up once and let the plugin handle your daily reading intake.
@@ -393,7 +393,15 @@ pnpm test
 
 ### Project Status
 
-All P0–P2 features are complete. See the [GitHub Issues](https://github.com/kzyiym/inbox-curator/issues) for planned work.
+The current review, action approval, and reversible auto-sort foundation is implemented.
+
+Planned work is prioritized as:
+
+1. Reuse existing Vault folder and tag vocabulary, with folder/tag pickers.
+2. Add operations management UI for queue status, failed-review retry, and undo history.
+3. Add related-note discovery, link suggestions, and similar-note grouping.
+
+See [GitHub Issues](https://github.com/kzyiym/inbox-curator/issues) for public tracking.
 
 ---
 
@@ -409,7 +417,7 @@ To keep automation reversible:
 - **Recent auto-sort runs can be undone** with the `Inbox Curator: Undo last auto-sort run` command.
 - **Tasks require higher confidence** (High) than Archive or Read Later (Medium or High).
 - **Task auto-execution is blocked when prompt injection signals are detected** in the note content. Archive and Read Later may still auto-execute when their configured confidence and safety conditions are met, even if prompt injection signals are detected.
-- For stricter safety, use **Review only mode** (Settings → Review Behavior → Review mode → Review only), which disables all auto-sort actions entirely.
+- For stricter safety, use **Review only mode** (Settings → Review Behavior → Review mode → Review only), which disables automatic and manual action execution.
 
 ## FAQ
 
@@ -423,7 +431,7 @@ OpenAI (and OpenAI-compatible endpoints), Google Gemini (native API), and Anthro
 
 ### Will Inbox Curator delete my notes automatically?
 
-No. Inbox Curator never deletes notes automatically. Delete candidates are suggestions only. By default, notes flagged as delete candidates remain in place. You may optionally configure auto-move of high-confidence delete candidates to a quarantine folder (`Delete Candidates`), but this is not permanent deletion.
+No. Inbox Curator never deletes notes automatically. Delete candidates are suggestions only and remain in place until you approve the action manually. Manual execution moves the note to the configured quarantine folder (`Delete Candidates`); it does not permanently delete the note.
 
 ### Can I undo auto-sorting?
 
@@ -431,7 +439,13 @@ Yes. Recent auto-sort runs can be undone with the command:
 
 `Inbox Curator: Undo last auto-sort run`
 
-Only move-based actions (Archive, Read Later, Task, suggested folder, Delete Candidates) are undoable. Manual Trash and Permanent Delete cannot be undone by Inbox Curator.
+Recorded move actions (Archive, Read Later, Task, suggested folder, Delete Candidates) can be restored. If the moved note is missing, that item is skipped; if the original path is occupied, the note is restored with a `(restored)` suffix.
+
+### How can I review proposed actions before applying them?
+
+Run `Inbox Curator: Open action review panel`. The panel shows the proposed action, confidence, reliability, auto-execution decision, reason, and resolved destination for watched-folder notes. Select only the actions you approve.
+
+Use `Inbox Curator: Dry-run auto-sort (preview)` for a read-only preview. Review only mode also makes the panel read-only and blocks manual action commands.
 
 ### Why are Archive and Read Later executed with Medium confidence?
 
@@ -441,7 +455,7 @@ Archive and Read Later are reversible, low-risk organization actions. Tasks requ
 
 - **Standard (Advanced)**: Full structured AI review with scores, summaries, credibility assessments, tags, and action recommendations.
 - **Simple (Auto-sort)**: Lightweight parsing focused on action classification only — ideal for auto-sorting.
-- **Safe (Review only)**: Generates review output but disables all auto-sort actions entirely. Use this when you want to manually review AI suggestions before acting.
+- **Safe (Review only)**: Generates review output but disables automatic and manual action execution. The action review panel remains available as a read-only preview.
 
 ### How are API keys stored?
 
