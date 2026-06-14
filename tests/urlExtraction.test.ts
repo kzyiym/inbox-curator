@@ -9,7 +9,7 @@ vi.mock('obsidian', async (importOriginal) => {
 });
 
 import { requestUrl } from 'obsidian';
-import { fetchUrlContext } from '../src/urlExtraction';
+import { fetchUrlContext, isValidFetchUrl } from '../src/urlExtraction';
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -241,5 +241,23 @@ describe('fetchUrlContext', () => {
     expect(result.extractedText).not.toContain('広告');
     expect(result.extractedText).not.toContain('Advertisement');
     expect(result.extractedText).not.toContain('iframe');
+  });
+});
+
+describe('isValidFetchUrl', () => {
+  it.each([
+    'http://localhost',
+    'http://service.local/path',
+    'http://127.0.0.1',
+    'http://169.254.169.254/latest/meta-data',
+    'http://100.64.0.1',
+    'http://[::1]/',
+    'https://user:password@example.com/',
+  ])('blocks unsafe target %s', (url) => {
+    expect(isValidFetchUrl(url)).toBe(false);
+  });
+
+  it('allows a normal public HTTPS URL', () => {
+    expect(isValidFetchUrl('https://example.com/article')).toBe(true);
   });
 });

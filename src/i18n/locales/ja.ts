@@ -16,6 +16,7 @@ export const ja = {
   'settings.suggestedFolderBasePath.desc': 'AIが提案したフォルダの親となるベースパス。設定するとすべてのAI提案フォルダがこの配下に作成されます。',
   'settings.suggestedFolderBasePath.placeholder': 'Archive',
   'settings.validation.dotPrefix': '「.」で始まるフォルダ名（例: .inbox-curator）は通常フォルダとして使用できません。デフォルト値に戻しました。',
+  'settings.validation.invalidPath': '安全でない、または無効なフォルダパスです。デフォルト値に戻しました。',
   'settings.maxNotes.label': '1回の実行あたりの最大ノート数',
   'settings.maxNotes.desc': '1回の一括処理でレビューする最大ノート数。スキップされたノートはこの制限にカウントされません。',
   'settings.maxConcurrent.label': '最大同時実行数',

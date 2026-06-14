@@ -16,6 +16,7 @@ export const en = {
   'settings.suggestedFolderBasePath.desc': 'Optional base path under which all AI-suggested folders will be created.',
   'settings.suggestedFolderBasePath.placeholder': 'Archive',
   'settings.validation.dotPrefix': 'Folder names starting with "." (e.g. ".inbox-curator") cannot be used for user-visible folders. Reset to default.',
+  'settings.validation.invalidPath': 'The folder path is unsafe or invalid. Reset to default.',
   'settings.maxNotes.label': 'Max notes per run',
   'settings.maxNotes.desc': 'Maximum reviewed notes per run. Skipped notes do not count.',
   'settings.maxConcurrent.label': 'Max concurrent reviews',

@@ -8,6 +8,7 @@ import type { InboxCuratorProvider } from './settings';
 import { postGeminiChat } from './gemini';
 import { postAnthropicChat } from './anthropic';
 import { isImageNotSupportedErrorText } from './providerErrorClassifier';
+import { sanitizeSensitiveData } from './utils/sensitiveData';
 
 export interface ChatContentTextPart {
   type: 'text';
@@ -152,28 +153,5 @@ export async function postProviderChat(request: ProviderChatRequest): Promise<Pr
 }
 
 export function maskBase64<T>(value: T): T {
-  if (typeof value === 'string') {
-    return value.replace(/(data:image\/[a-zA-Z+.-]+;base64,)[a-zA-Z0-9+/=]+/g, '$1[OMITTED]') as unknown as T;
-  }
-  if (Array.isArray(value)) {
-    return (value as unknown[]).map((v: unknown) => maskBase64(v)) as unknown as T;
-  }
-  if (typeof value === 'object' && value !== null) {
-    const masked: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(value)) {
-      if ((key === 'data' || key === 'url' || key === 'content' || key === 'responseBody' || key === 'error') && typeof val === 'string') {
-        if (val.includes('base64,')) {
-          masked[key] = val.replace(/(data:image\/[a-zA-Z+.-]+;base64,)[a-zA-Z0-9+/=]+/g, '$1[OMITTED]');
-        } else if (val.length > 100 && /^[a-zA-Z0-9+/=]+$/.test(val.trim())) {
-          masked[key] = val.slice(0, 30) + '...[OMITTED]';
-        } else {
-          masked[key] = maskBase64(val);
-        }
-      } else {
-        masked[key] = maskBase64(val);
-      }
-    }
-    return masked as unknown as T;
-  }
-  return value;
+  return sanitizeSensitiveData(value);
 }

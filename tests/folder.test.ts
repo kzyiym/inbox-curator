@@ -131,7 +131,25 @@ describe('validateFolderPath', () => {
   it('normalizes backslashes', () => {
     const r = validateFolderPath('AI\\Reviews', 'Inbox');
     expect(r.sanitized).toBe('AI/Reviews');
-    expect(r.changed).toBe(false);
+    expect(r.changed).toBe(true);
+  });
+
+  it.each([
+    '../Secrets',
+    'C:\\Users\\Secrets',
+    '/absolute/path',
+    'Inbox/CON',
+    'Inbox/name:bad',
+  ])('rejects unsafe configured path %s', (value) => {
+    const r = validateFolderPath(value, 'Inbox');
+    expect(r.sanitized).toBe('Inbox');
+    expect(r.changed).toBe(true);
+    expect(r.reason).toBe('invalid_path');
+  });
+
+  it('allows an empty optional path when the default is empty', () => {
+    const r = validateFolderPath('', '');
+    expect(r).toEqual({ sanitized: '', changed: false });
   });
 });
 

@@ -9,6 +9,7 @@ import {
   getLogEntryCount,
   clearLogFilesByPrefix,
 } from './logFiles';
+import { sanitizeSensitiveData } from './sensitiveData';
 
 export type OperationLogLevel = 'INFO' | 'WARN' | 'ERROR';
 
@@ -52,7 +53,7 @@ export async function logOperation(app: App, entry: OperationLogEntry): Promise<
     await ensureLogFolder(app);
     await removeLogFilesOlderThan(app, LOG_PREFIX, RETENTION_DAYS);
     const path = buildOperationLogFileName();
-    const line = JSON.stringify(entry) + '\n';
+    const line = JSON.stringify(sanitizeSensitiveData(entry)) + '\n';
     await appendToFile(app, path, line);
   } catch (e) {
     console.error('Inbox Curator: Failed to write operation log', e);

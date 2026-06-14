@@ -233,15 +233,6 @@ function detectedLabel(detected: DetectedOpenAiCompatibleTokenLimitParam): strin
   return 'unknown';
 }
 
-function buildSafeSnippet(value: string | undefined, maxLength = 160): string | undefined {
-  const normalized = value?.replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return undefined;
-  }
-
-  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}…`;
-}
-
 export interface SettingsUiVisibility {
   showAutomaticWatchingDetails: boolean;
   showPollingDetails: boolean;
@@ -282,6 +273,8 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
     const result = validateFolderPath(value, defaultValue);
     if (result.changed && result.reason === 'dot_prefix') {
       new Notice(t('settings.validation.dotPrefix'));
+    } else if (result.changed && result.reason === 'invalid_path') {
+      new Notice(t('settings.validation.invalidPath'));
     }
     return { sanitized: result.sanitized, changed: result.changed };
   }
@@ -595,7 +588,6 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
               model: settings.model,
               status: result.status,
               error: result.error,
-              responseSnippet: buildSafeSnippet(result.responseBody),
             });
           }
           this.display();
@@ -807,7 +799,11 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           .setPlaceholder(t('settings.suggestedFolderBasePath.placeholder'))
           .setValue(settings.suggestedFolderBasePath)
           .onChange(async (value) => {
-            settings.suggestedFolderBasePath = value.trim();
+            const result = this.applyFolderValidation(value, DEFAULT_SETTINGS.suggestedFolderBasePath);
+            if (result.changed) {
+              text.setValue(result.sanitized);
+            }
+            settings.suggestedFolderBasePath = result.sanitized;
             await this.plugin.saveSettings();
             updateSuggestedFolderStatus();
           });

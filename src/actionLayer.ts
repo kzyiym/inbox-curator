@@ -1,7 +1,7 @@
 import { App, TFolder, TFile, normalizePath, Notice } from 'obsidian';
 import { parseYamlRecord } from './utils/yaml';
 import { ActionConfirmationModal } from './actionConfirmationModal';
-import { ensureFolder, resolveSafeSuggestedPath } from './utils/folder';
+import { ensureFolder, resolveSafeFolderPath, resolveSafeSuggestedPath } from './utils/folder';
 import { normalizeReviewAction, type ReviewAction } from './reviewNormalizer';
 
 const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n?/;
@@ -56,7 +56,10 @@ export function resolveActionDestination(
       }
     }
     if (options.suggestedFolderBasePath && options.suggestedFolderBasePath.trim() !== '') {
-      const baseFolder = normalizePath(options.suggestedFolderBasePath.trim());
+      const baseFolder = resolveSafeFolderPath(options.suggestedFolderBasePath);
+      if (!baseFolder) {
+        return { conflict: false, reason: 'Configured base folder path is unsafe.' };
+      }
       const candidate = normalizePath(`${baseFolder}/${file.name}`);
       if (app.vault.getAbstractFileByPath(candidate)) {
         return { conflict: true, destinationPath: candidate, reason: 'Destination file already exists.' };
@@ -77,7 +80,10 @@ export function resolveActionDestination(
     if (!folder || folder.trim() === '') {
       return { conflict: false, reason: 'Destination folder is not configured.' };
     }
-    const destFolder = normalizePath(folder.trim());
+    const destFolder = resolveSafeFolderPath(folder);
+    if (!destFolder) {
+      return { conflict: false, reason: 'Configured destination folder path is unsafe.' };
+    }
     const candidate = normalizePath(`${destFolder}/${file.name}`);
     if (app.vault.getAbstractFileByPath(candidate)) {
       return { conflict: true, destinationPath: candidate, reason: 'Destination file already exists.' };
@@ -207,11 +213,13 @@ export async function executeProposedAction(
 
     // Priority 2: suggestedFolderBasePath as default archive folder
     if (!destPath && options.suggestedFolderBasePath && options.suggestedFolderBasePath.trim() !== '') {
-      const baseFolder = normalizePath(options.suggestedFolderBasePath.trim());
-      const candidate = normalizePath(`${baseFolder}/${file.name}`);
-      const existingDest = app.vault.getAbstractFileByPath(candidate);
-      if (!existingDest) {
-        destPath = candidate;
+      const baseFolder = resolveSafeFolderPath(options.suggestedFolderBasePath);
+      if (baseFolder) {
+        const candidate = normalizePath(`${baseFolder}/${file.name}`);
+        const existingDest = app.vault.getAbstractFileByPath(candidate);
+        if (!existingDest) {
+          destPath = candidate;
+        }
       }
     }
 
@@ -241,11 +249,13 @@ export async function executeProposedAction(
       }
     }
     if (!conflictExists && options.suggestedFolderBasePath && options.suggestedFolderBasePath.trim() !== '') {
-      const baseFolder = normalizePath(options.suggestedFolderBasePath.trim());
-      const candidate = normalizePath(`${baseFolder}/${file.name}`);
-      if (app.vault.getAbstractFileByPath(candidate)) {
-        conflictExists = true;
-        conflictPath = candidate;
+      const baseFolder = resolveSafeFolderPath(options.suggestedFolderBasePath);
+      if (baseFolder) {
+        const candidate = normalizePath(`${baseFolder}/${file.name}`);
+        if (app.vault.getAbstractFileByPath(candidate)) {
+          conflictExists = true;
+          conflictPath = candidate;
+        }
       }
     }
 
@@ -277,7 +287,10 @@ export async function executeProposedAction(
         error: 'Read later folder is not configured.',
       };
     }
-    const destFolder = normalizePath(options.readLaterFolder.trim());
+    const destFolder = resolveSafeFolderPath(options.readLaterFolder);
+    if (!destFolder) {
+      return { success: false, status: 'failed', error: 'Read later folder path is unsafe.' };
+    }
     const destPath = normalizePath(`${destFolder}/${file.name}`);
 
     // Collision check
@@ -310,7 +323,10 @@ export async function executeProposedAction(
         error: 'Task folder is not configured.',
       };
     }
-    const destFolder = normalizePath(options.taskFolder.trim());
+    const destFolder = resolveSafeFolderPath(options.taskFolder);
+    if (!destFolder) {
+      return { success: false, status: 'failed', error: 'Task folder path is unsafe.' };
+    }
     const destPath = normalizePath(`${destFolder}/${file.name}`);
 
     // Collision check
@@ -343,7 +359,10 @@ export async function executeProposedAction(
         error: 'Delete candidate folder is not configured.',
       };
     }
-    const destFolder = normalizePath(options.deleteCandidateFolder.trim());
+    const destFolder = resolveSafeFolderPath(options.deleteCandidateFolder);
+    if (!destFolder) {
+      return { success: false, status: 'failed', error: 'Delete candidate folder path is unsafe.' };
+    }
     const destPath = normalizePath(`${destFolder}/${file.name}`);
 
     // Collision check

@@ -70,40 +70,43 @@ export async function ensureFolder(app: App, folderPath: string): Promise<void> 
  * - Extremely long paths (max 255 chars)
  */
 export function resolveSafeSuggestedPath(suggestedFolder: string, basePath?: string): string | null {
-  const cleanFolder = suggestedFolder.trim();
+  const safeSuggested = resolveSafeFolderPath(suggestedFolder);
+  if (!safeSuggested) {
+    return null;
+  }
+
+  const trimmedBase = basePath?.trim() ?? '';
+  if (!trimmedBase) {
+    return safeSuggested;
+  }
+
+  const safeBase = resolveSafeFolderPath(trimmedBase);
+  if (!safeBase) {
+    return null;
+  }
+
+  return resolveSafeFolderPath(`${safeBase}/${safeSuggested}`);
+}
+
+export function resolveSafeFolderPath(folderPath: string): string | null {
+  const cleanPath = folderPath.trim();
   if (
-    !cleanFolder ||
-    cleanFolder.startsWith('/') ||
-    cleanFolder.startsWith('\\') ||
-    cleanFolder.startsWith('~') ||
-    /^[a-zA-Z]:[/\\]/.test(cleanFolder) ||
-    cleanFolder.split(/[/\\]/).some(part => part.trim() === '..')
+    !cleanPath ||
+    cleanPath.startsWith('/') ||
+    cleanPath.startsWith('\\') ||
+    cleanPath.startsWith('~') ||
+    /^[a-zA-Z]:[/\\]/.test(cleanPath) ||
+    cleanPath.split(/[/\\]/).some((part) => part.trim() === '..')
   ) {
     return null;
   }
 
-  const parts: string[] = [];
-
-  // 1. Process base path first if configured
-  if (basePath) {
-    const baseClean = basePath.replace(/\\/g, '/').trim();
-    if (baseClean) {
-      parts.push(...baseClean.split('/'));
-    }
-  }
-
-  // 2. Process suggested folder
-  const suggestedClean = cleanFolder.replace(/\\/g, '/');
-  if (suggestedClean) {
-    parts.push(...suggestedClean.split('/'));
-  }
-
-  const resolvedParts: string[] = [];
   const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
   // eslint-disable-next-line no-control-regex -- Control chars (\0-\x1F) must be matched literally for path sanitization
   const INVALID_CHARS = /[<>:"|?*\\'\0-\x1F]/;
+  const resolvedParts: string[] = [];
 
-  for (const part of parts) {
+  for (const part of cleanPath.replace(/\\/g, '/').split('/')) {
     const trimmedPart = part.trim();
     
     if (trimmedPart === '') {
@@ -149,7 +152,7 @@ export function resolveSafeSuggestedPath(suggestedFolder: string, basePath?: str
   return finalPath;
 }
 
-export type FolderPathValidationReason = 'empty' | 'dot_prefix';
+export type FolderPathValidationReason = 'empty' | 'dot_prefix' | 'invalid_path';
 
 export interface FolderPathValidationResult {
   sanitized: string;
@@ -165,14 +168,23 @@ export interface FolderPathValidationResult {
 export function validateFolderPath(value: string, defaultValue: string): FolderPathValidationResult {
   const trimmed = value.trim();
   if (!trimmed) {
-    return { sanitized: defaultValue, changed: true, reason: 'empty' };
+    return {
+      sanitized: defaultValue,
+      changed: value !== defaultValue,
+      ...(value !== defaultValue ? { reason: 'empty' as const } : {}),
+    };
   }
 
-  const sanitized = trimmed.replace(/\\/g, '/');
-  const parts = sanitized.split('/').filter((p) => p.length > 0);
-  if (parts.some((p) => p.startsWith('.'))) {
+  const normalized = trimmed.replace(/\\/g, '/');
+  const parts = normalized.split('/').filter((p) => p.length > 0);
+  if (parts.some((p) => p.startsWith('.') && p !== '.' && p !== '..')) {
     return { sanitized: defaultValue, changed: true, reason: 'dot_prefix' };
   }
 
-  return { sanitized, changed: false };
+  const sanitized = resolveSafeFolderPath(normalized);
+  if (!sanitized) {
+    return { sanitized: defaultValue, changed: true, reason: 'invalid_path' };
+  }
+
+  return { sanitized, changed: sanitized !== value };
 }

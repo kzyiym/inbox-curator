@@ -100,19 +100,6 @@ function buildUrlMetadata(html: string): UrlMetadata {
   return Object.fromEntries(Object.entries(metadata).filter(([, value]) => typeof value === 'string' && value.trim() !== '')) as UrlMetadata;
 }
 
-function buildSafeSnippet(value: string | undefined, maxLength = 160): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return undefined;
-  }
-
-  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}…`;
-}
-
 function removeNonContentElements(root: ParentNode): void {
   const selectors = ['script', 'style', 'noscript', 'svg', 'canvas', 'iframe', 'nav', 'footer', 'header', 'aside', 'form'];
   for (const selector of selectors) {
@@ -282,20 +269,35 @@ function extractReadableText(html: string, maxCharacters: number, url?: string):
 
 const BLOCKED_HOST_PATTERNS = [
   /^localhost$/i,
+  /\.localhost$/i,
+  /\.local$/i,
+  /^metadata(?:\.google\.internal)?$/i,
   /^127\.\d+\.\d+\.\d+$/,
   /^0\.0\.0\.0$/,
   /^::1$/,
+  /^::$/,
+  /^f[cd][0-9a-f:]+$/i,
+  /^fe[89ab][0-9a-f:]+$/i,
+  /^::ffff:(?:127|10|169\.254|172\.(?:1[6-9]|2\d|3[01])|192\.168)\./i,
   /^169\.254\.\d+\.\d+$/,
   /^10\.\d+\.\d+\.\d+$/,
   /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
   /^192\.168\.\d+\.\d+$/,
+  /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d+\.\d+$/,
+  /^192\.0\.0\.\d+$/,
+  /^192\.0\.2\.\d+$/,
+  /^198\.1[89]\.\d+\.\d+$/,
+  /^198\.51\.100\.\d+$/,
+  /^203\.0\.113\.\d+$/,
+  /^(?:22[4-9]|23\d|24\d|25[0-5])\.\d+\.\d+\.\d+$/,
 ];
 
-function isValidFetchUrl(raw: string): boolean {
+export function isValidFetchUrl(raw: string): boolean {
   try {
     const parsed = new URL(raw);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-    const hostname = parsed.hostname.toLowerCase();
+    if (parsed.username || parsed.password) return false;
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
     for (const pattern of BLOCKED_HOST_PATTERNS) {
       if (pattern.test(hostname)) return false;
     }
@@ -344,7 +346,6 @@ export async function fetchUrlContext(url: string, notePath: string, options: Ur
         notePath,
         status: response.status,
         error: `HTTP ${response.status}`,
-        responseSnippet: buildSafeSnippet(response.text),
       });
       return { fetchStatus: 'failed', extractionUsed: false };
     }
@@ -383,7 +384,7 @@ export async function fetchUrlContext(url: string, notePath: string, options: Ur
   } catch (error) {
     console.warn('Inbox Curator URL fetch crashed', {
       notePath,
-      error: error instanceof Error ? buildSafeSnippet(error.message) : 'Unknown error',
+      error: error instanceof Error ? error.name : 'Unknown error',
     });
     return { fetchStatus: 'failed', extractionUsed: false };
   }

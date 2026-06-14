@@ -82,6 +82,7 @@ export default class InboxCuratorPlugin extends Plugin {
   // (scheduleAutomaticReview / tryEnqueueAutomaticReview) removes them on hit.
   // This ordering is intentional — do not rearrange without tracing the event sequence.
   private readonly processingMarkerRenameSkipCache = new Set<string>();
+  private readonly ownedProcessingMarkers = new Map<string, string>();
 
   private static readonly PROCESSING_FILE_MARKER = '🤖 ';
 
@@ -100,8 +101,6 @@ export default class InboxCuratorPlugin extends Plugin {
     setLogLevelGetter(() => this.settings.logLevel);
 
     void logOperation(this.app, { timestamp: new Date().toISOString(), level: 'INFO', event: 'plugin_loaded' });
-
-    await this.cleanupEmojiPrefixFiles(true);
 
     this.reviewQueue = new ReviewQueue(async (job) => this.runQueuedReviewJob(job), {
       rateLimiter: this.reviewRateLimiter,
@@ -378,7 +377,7 @@ export default class InboxCuratorPlugin extends Plugin {
     this.fileSkipCache.clear();
     clearSessionApiKeys();
     this.finishProcessing();
-    void this.cleanupEmojiPrefixFiles();
+    void this.cleanupOwnedProcessingMarkers();
   }
 
   async loadSettings(): Promise<void> {
@@ -403,6 +402,7 @@ export default class InboxCuratorPlugin extends Plugin {
       { field: 'readLaterFolder', default: DEFAULT_SETTINGS.readLaterFolder },
       { field: 'taskFolder', default: DEFAULT_SETTINGS.taskFolder },
       { field: 'deleteCandidateFolder', default: DEFAULT_SETTINGS.deleteCandidateFolder },
+      { field: 'suggestedFolderBasePath', default: DEFAULT_SETTINGS.suggestedFolderBasePath },
     ];
     let foldersSanitized = false;
     for (const { field, default: def } of folderFields) {
@@ -638,6 +638,44 @@ export default class InboxCuratorPlugin extends Plugin {
     return count;
   }
 
+  private async restoreOwnedProcessingMarker(file: TFile, originalPath: string): Promise<boolean> {
+    const markedPath = file.path;
+    if (!this.isProcessingMarkerPath(markedPath)) {
+      this.ownedProcessingMarkers.delete(markedPath);
+      return true;
+    }
+
+    const existing = this.app.vault.getAbstractFileByPath(originalPath);
+    if (existing && existing !== file) {
+      return false;
+    }
+
+    this.processingMarkerRenameSkipCache.add(markedPath);
+    this.processingMarkerRenameSkipCache.add(originalPath);
+    await this.app.fileManager.renameFile(file, originalPath);
+    this.ownedProcessingMarkers.delete(markedPath);
+    return true;
+  }
+
+  private async cleanupOwnedProcessingMarkers(): Promise<number> {
+    let count = 0;
+    for (const [markedPath, originalPath] of Array.from(this.ownedProcessingMarkers.entries())) {
+      const file = this.resolveMarkdownFile(markedPath);
+      if (!file) {
+        this.ownedProcessingMarkers.delete(markedPath);
+        continue;
+      }
+      try {
+        if (await this.restoreOwnedProcessingMarker(file, originalPath)) {
+          count += 1;
+        }
+      } catch {
+        // Best effort during cancellation or unload.
+      }
+    }
+    return count;
+  }
+
   private async runQueuedReviewJob(job: ReviewJob): Promise<ReviewJobResult> {
     void logOperation(this.app, {
       timestamp: new Date().toISOString(),
@@ -680,11 +718,14 @@ export default class InboxCuratorPlugin extends Plugin {
       const originalFileName = file.name;
       await this.app.fileManager.renameFile(file, `${dir}${InboxCuratorPlugin.PROCESSING_FILE_MARKER}${originalFileName}`);
       this.processingMarkerRenameSkipCache.add(file.path);
+      this.ownedProcessingMarkers.set(file.path, originalPath);
     }
 
     try {
       const pipelineOptions = this.getReviewPipelineOptions();
       pipelineOptions.operationId = job.operationId;
+      pipelineOptions.sourcePathOverride = originalPath;
+      pipelineOptions.allowRemoteUrlFetch = !isBackgroundAutoJob;
       const result = await runReviewPipeline(this.app, file, pipelineOptions);
       if (this.isUnloaded) {
         return { status: 'cancelled', error: 'Plugin unloaded' };
@@ -766,6 +807,37 @@ export default class InboxCuratorPlugin extends Plugin {
         shouldAutoExecute &&
         (job.source === 'manual-folder' || job.source === 'auto-create' || job.source === 'auto-modify' || job.source === 'polling')
       ) {
+        const actionSourcePath = originalPath ?? file.path;
+        const currentContent = await this.app.vault.read(file);
+        const currentSource = buildReviewSourceInfo(
+          file,
+          this.settings.reviewOutputFolder.trim() || 'AI Reviews',
+          currentContent,
+          actionSourcePath,
+        );
+        const reviewedSourceHash = result.reviewResult.source?.sourceHash;
+        if (reviewedSourceHash && currentSource.sourceHash !== reviewedSourceHash) {
+          void logOperation(this.app, {
+            timestamp: new Date().toISOString(),
+            level: 'WARN',
+            event: 'auto_sort_skipped',
+            operationId: job.operationId,
+            notePath: file.path,
+            actionType: action,
+            message: 'Auto-sort skipped because the source note changed after review.',
+            details: { reasonCode: 'source_changed' },
+          });
+          return { status: 'processed' };
+        }
+
+        if (originalPath && !(await this.restoreOwnedProcessingMarker(file, originalPath))) {
+          return {
+            status: 'failed',
+            error: 'Could not restore the processing marker before automatic action execution.',
+            retryable: false,
+          };
+        }
+
         const actionResult = await executeProposedAction(this.app, file, {
           outputFolder: this.settings.reviewOutputFolder,
           readLaterFolder: this.settings.readLaterFolder,
@@ -783,7 +855,7 @@ export default class InboxCuratorPlugin extends Plugin {
             recommendedAction: action,
             executed: actionResult.status === 'executed',
             status: actionResult.status,
-            sourcePath: file.path,
+            sourcePath: actionSourcePath,
             destinationPath: actionResult.destinationPath,
             error: actionResult.status !== 'executed' ? actionResult.error : undefined,
           }, result.reviewResult.promptLanguage);
@@ -861,7 +933,7 @@ export default class InboxCuratorPlugin extends Plugin {
           details: {
             runId: job.runId,
             action: reviewAction,
-            sourcePath: file.path,
+            sourcePath: actionSourcePath,
             destinationPath: actionResult.destinationPath ?? null,
             reviewMode: this.settings.reviewMode,
             parseStatus,
@@ -875,8 +947,8 @@ export default class InboxCuratorPlugin extends Plugin {
           runId: job.runId,
           timestamp: Date.now(),
           action: reviewAction as AutoSortActionRecord['action'],
-          sourcePath: file.path,
-          destinationPath: actionResult.destinationPath ?? file.path,
+          sourcePath: actionSourcePath,
+          destinationPath: actionResult.destinationPath ?? actionSourcePath,
           reviewMode: this.settings.reviewMode,
           parseStatus: parseStatus,
           confidence: effectiveConfidence,
@@ -930,8 +1002,12 @@ export default class InboxCuratorPlugin extends Plugin {
         error: error instanceof Error ? error.message : 'Unknown error',
       };
     } finally {
-      if (isBackgroundAutoJob) {
-        await this.cleanupEmojiPrefixFiles(true);
+      if (originalPath && this.isProcessingMarkerPath(file.path)) {
+        try {
+          await this.restoreOwnedProcessingMarker(file, originalPath);
+        } catch {
+          // Best effort cleanup; the explicit cleanup command can recover leftovers.
+        }
       }
     }
   }

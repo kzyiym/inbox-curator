@@ -2,7 +2,16 @@ node_modules/
 dist/
 main.js
 *.map
+*.tsbuildinfo
+*.tmp
+*.bak
+*.orig
+*.rej
 .hermes
+.eslintcache
+.vitest/
+.frontend-review/
+.pnpm-store/
 
 .DS_Store
 Thumbs.db
@@ -17,6 +26,10 @@ data.json
 *.zip
 
 coverage/
+package-lock.json
+commit_diff.patch
+npm-debug.log*
+pnpm-debug.log*
 
 *.md
 !README.md

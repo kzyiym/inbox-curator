@@ -99,6 +99,12 @@ describe('computeActionDecision', () => {
     expect(d.skipCode).toBe('prompt_injection');
   });
 
+  it('blocks archive auto-execute on prompt injection signals', () => {
+    const d = input({ hasPromptInjectionSignals: true });
+    expect(d.wouldAutoExecute).toBe(false);
+    expect(d.skipCode).toBe('prompt_injection');
+  });
+
   it('never auto-executes delete_candidate', () => {
     const d = input({ action: 'delete_candidate', reviewAction: 'delete_candidate' });
     expect(d.wouldAutoExecute).toBe(false);

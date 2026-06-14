@@ -121,9 +121,9 @@ export function computeActionDecision(input: ActionDecisionInput): ActionDecisio
     }
   }
 
-  if (wouldAutoExecute && input.hasPromptInjectionSignals && reviewAction === 'task') {
+  if (wouldAutoExecute && input.hasPromptInjectionSignals) {
     wouldAutoExecute = false;
-    skipReason = 'prompt injection signals detected for task';
+    skipReason = 'prompt injection risk detected in untrusted review input';
     skipCode = 'prompt_injection';
   }
 

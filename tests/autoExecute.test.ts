@@ -6,6 +6,7 @@ import { runReviewPipeline } from '../src/reviewPipeline';
 import { appendAutoExecuteResult } from '../src/reviewWriter';
 import { createReviewJob } from '../src/queue/job';
 import { logOperation } from '../src/utils/operationLog';
+import { appendAutoSortActionRecord } from '../src/utils/autoSortHistory';
 
 vi.mock('../src/utils/errorLog', () => ({
   logError: vi.fn(),
@@ -27,6 +28,10 @@ vi.mock('../src/reviewPipeline', () => ({
 vi.mock('../src/reviewWriter', () => ({
   writeReviewNote: vi.fn(),
   appendAutoExecuteResult: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../src/utils/autoSortHistory', () => ({
+  appendAutoSortActionRecord: vi.fn().mockResolvedValue(undefined),
 }));
 
 describe('InboxCuratorPlugin Auto-execute', () => {
@@ -97,11 +102,14 @@ describe('InboxCuratorPlugin Auto-execute', () => {
       },
     } as any);
 
-    vi.mocked(executeProposedAction).mockResolvedValue({
-      success: true,
-      status: 'executed',
-      actionTaken: 'archive',
-      destinationPath: 'References/Archive/my-note.md',
+    vi.mocked(executeProposedAction).mockImplementation(async (_app, file) => {
+      file.path = 'References/Archive/my-note.md';
+      return {
+        success: true,
+        status: 'executed',
+        actionTaken: 'archive',
+        destinationPath: 'References/Archive/my-note.md',
+      };
     });
 
     const job = createReviewJob('auto-create', 'Inbox/my-note.md', 0);
@@ -126,6 +134,10 @@ describe('InboxCuratorPlugin Auto-execute', () => {
       destinationPath: 'References/Archive/my-note.md',
       error: undefined,
     }, 'english');
+    expect(appendAutoSortActionRecord).toHaveBeenCalledWith(mockApp, expect.objectContaining({
+      sourcePath: 'Inbox/my-note.md',
+      destinationPath: 'References/Archive/my-note.md',
+    }));
   });
 
   it('runs auto-read-later when action is read_later and autoExecuteReadLater is enabled', async () => {
@@ -166,6 +178,34 @@ describe('InboxCuratorPlugin Auto-execute', () => {
       destinationPath: 'Read Later/my-note.md',
       error: undefined,
     }, 'english');
+  });
+
+  it('skips automatic action when the note source hash changed after review', async () => {
+    plugin.settings.autoExecuteArchive = true;
+    vi.mocked(runReviewPipeline).mockResolvedValue({
+      ok: true,
+      reviewResult: {
+        source: { sourceHash: 'reviewed-hash' },
+        promptLanguage: 'english',
+        verdict: {
+          reliabilityLabel: 'high',
+          recommendedAction: 'archive',
+        },
+      },
+      writeResult: {
+        outputPath: 'AI Reviews/my-note.ai-review.md',
+      },
+    } as any);
+
+    const job = createReviewJob('auto-create', 'Inbox/my-note.md', 0);
+    const result = await (plugin as any).runQueuedReviewJob(job);
+
+    expect(result.status).toBe('processed');
+    expect(executeProposedAction).not.toHaveBeenCalled();
+    expect(logOperation).toHaveBeenCalledWith(mockApp, expect.objectContaining({
+      event: 'auto_sort_skipped',
+      details: { reasonCode: 'source_changed' },
+    }));
   });
 
   it('runs auto-task when action is task and autoExecuteTask is enabled', async () => {
@@ -639,7 +679,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
         expect(executeProposedAction).not.toHaveBeenCalled();
       });
 
-      it('allows archive auto-execute even when hasPromptInjectionSignals is true', async () => {
+      it('blocks archive auto-execute when hasPromptInjectionSignals is true', async () => {
         plugin.settings.autoExecuteArchive = true;
 
         vi.mocked(runReviewPipeline).mockResolvedValue({
@@ -667,10 +707,10 @@ describe('InboxCuratorPlugin Auto-execute', () => {
         const result = await (plugin as any).runQueuedReviewJob(job);
 
         expect(result.status).toBe('processed');
-        expect(executeProposedAction).toHaveBeenCalledTimes(1);
+        expect(executeProposedAction).not.toHaveBeenCalled();
       });
 
-      it('allows read_later auto-execute even when hasPromptInjectionSignals is true', async () => {
+      it('blocks read_later auto-execute when hasPromptInjectionSignals is true', async () => {
         plugin.settings.autoExecuteReadLater = true;
 
         vi.mocked(runReviewPipeline).mockResolvedValue({
@@ -698,7 +738,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
         const result = await (plugin as any).runQueuedReviewJob(job);
 
         expect(result.status).toBe('processed');
-        expect(executeProposedAction).toHaveBeenCalledTimes(1);
+        expect(executeProposedAction).not.toHaveBeenCalled();
       });
 
       it('allows task auto-execute when hasPromptInjectionSignals is false', async () => {

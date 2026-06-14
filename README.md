@@ -206,7 +206,7 @@ This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/c
 | Tasks | OFF | Auto-executes when confidence meets its threshold (default High only) |
 | Delete Candidates | — | Suggested only. Never moved automatically. |
 
-Each auto-sort action has a **Minimum confidence to auto-execute** dropdown (Low or higher / Medium or higher / High only). Reliability checks still apply on top of the confidence threshold, and Tasks remain blocked when prompt injection signals are detected.
+Each auto-sort action has a **Minimum confidence to auto-execute** dropdown (Low or higher / Medium or higher / High only). Reliability checks still apply on top of the confidence threshold, and every automatic action remains blocked when prompt injection risk is detected.
 
 ### Action Allowlist
 | Setting | Default | Description |
@@ -416,7 +416,7 @@ To keep automation reversible:
 - Auto-sort actions are **recorded** in `.inbox-curator/auto-sort-history.json`.
 - **Recent auto-sort runs can be undone** with the `Inbox Curator: Undo last auto-sort run` command.
 - **Tasks require higher confidence** (High) than Archive or Read Later (Medium or High).
-- **Task auto-execution is blocked when prompt injection signals are detected** in the note content. Archive and Read Later may still auto-execute when their configured confidence and safety conditions are met, even if prompt injection signals are detected.
+- **All automatic actions are blocked when prompt injection risk is detected** in the final review input, including fetched article text and extracted PDF text. Image review is also treated as untrusted for automatic actions because embedded text cannot be reliably pre-scanned.
 - For stricter safety, use **Review only mode** (Settings → Review Behavior → Review mode → Review only), which disables automatic and manual action execution.
 
 ## FAQ
@@ -483,14 +483,11 @@ Yes, when image reading is enabled (`Settings → Attachments`). The plugin can 
 
 ### What happens with URL-only notes?
 
-When a note contains only a URL, the plugin fetches the page's metadata (title, description, OG tags) and optionally extracts the readable article text. This works best with static HTML pages. Single-page applications (SPAs) that require JavaScript may yield incomplete results.
+When a note contains only a URL, manual review can fetch the page's metadata (title, description, OG tags) and optionally extract the readable article text. Background watcher and polling jobs do not fetch remote URLs, which prevents an untrusted note from triggering network requests without user interaction. Static HTML works best; single-page applications (SPAs) that require JavaScript may yield incomplete results.
 
 ### What is prompt injection detection?
 
-The plugin automatically scans note content for signals that attempt to manipulate the AI review prompt (prompt injection). When detected:
-- Task auto-execution is blocked.
-- Archive and Read Later may still auto-execute if their confidence and safety conditions are met.
-- Review output includes a warning.
+The plugin scans the final text sent for review, including fetched article text and extracted PDF text, for signals that attempt to manipulate the AI review prompt. When detected, every automatic action is blocked. Image inputs are also treated as untrusted for automatic actions because prompt-like text inside an image cannot be reliably scanned before model execution.
 
 You can use Safe mode (Review only) for maximum protection.
 

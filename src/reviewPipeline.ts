@@ -35,6 +35,8 @@ const URL_REGEX = /https?:\/\/[^\s<>()\]]+/gi;
 
 export interface ReviewPipelineOptions {
   operationId?: string;
+  sourcePathOverride?: string;
+  allowRemoteUrlFetch?: boolean;
   outputFolder: string;
   provider: InboxCuratorProvider;
   endpointUrl: string;
@@ -110,6 +112,14 @@ export interface ReviewPipelineFailure {
 }
 
 export type ReviewPipelineResult = ReviewPipelineFailure | ReviewPipelineSuccess;
+
+export function detectPromptInjectionRisk(modelInput: ReviewModelInputPayload): boolean {
+  const hasReadableImageAttachment = Boolean(
+    modelInput.readImages &&
+    modelInput.attachments?.some((attachment) => attachment.kind === 'image' && attachment.exists),
+  );
+  return hasPromptInjectionSignals(modelInput.noteContent) || hasReadableImageAttachment;
+}
 
 type ReviewRawResponse = Record<string, unknown>;
 
@@ -197,9 +207,11 @@ function detectUrlOnlyBody(body: string): UrlOnlyDetectionResult {
   };
 }
 
-function buildOutputPath(file: TFile, outputFolder: string): string {
+function buildOutputPath(file: TFile, outputFolder: string, sourcePathOverride?: string): string {
   const maxBasenameLen = 72;
-  let basename = file.basename;
+  let basename = sourcePathOverride
+    ? (sourcePathOverride.split('/').pop() ?? file.name).replace(/\.md$/i, '')
+    : file.basename;
 
   if (basename.length > maxBasenameLen) {
     const chars = Array.from(basename);
@@ -243,26 +255,35 @@ function buildHashSourceContent(noteContent: string): string {
   return cleanedFrontmatter ? `---\n${cleanedFrontmatter}\n---\n${body}` : body;
 }
 
-function buildSourceHash(file: TFile, noteContent: string): string {
+function buildSourceHash(notePath: string, noteContent: string): string {
   return hashString(
     JSON.stringify({
-      notePath: file.path,
+      notePath,
       noteContent: buildHashSourceContent(noteContent),
     }),
   );
 }
 
-export function buildReviewSourceInfo(file: TFile, outputFolder: string, noteContent: string): ReviewSourceInfo {
+export function buildReviewSourceInfo(
+  file: TFile,
+  outputFolder: string,
+  noteContent: string,
+  sourcePathOverride?: string,
+): ReviewSourceInfo {
   const { frontmatter, body } = parseDocument(noteContent);
   const extractedUrl = detectUrlOnlyBody(body).firstUrl;
   const sourceUrl = extractSourceUrl(frontmatter) ?? extractedUrl;
+  const notePath = sourcePathOverride ?? file.path;
+  const noteTitle = sourcePathOverride
+    ? (sourcePathOverride.split('/').pop() ?? file.name).replace(/\.md$/i, '')
+    : file.basename;
 
   return {
-    noteTitle: file.basename,
-    notePath: file.path,
-    outputPath: buildOutputPath(file, outputFolder),
+    noteTitle,
+    notePath,
+    outputPath: buildOutputPath(file, outputFolder, sourcePathOverride),
     generatedAt: new Date().toISOString(),
-    sourceHash: buildSourceHash(file, noteContent),
+    sourceHash: buildSourceHash(notePath, noteContent),
     ...(sourceUrl ? { sourceUrl } : {}),
   };
 }
@@ -331,19 +352,6 @@ export function buildResponseLanguageDirective(promptLanguage: 'auto' | 'japanes
     return '日本語';
   }
   return 'the same language as the note';
-}
-
-function buildSafeSnippet(value: string | undefined, maxLength = 160): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return undefined;
-  }
-
-  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength)}…`;
 }
 
 function buildUrlOnlyPromptContent(
@@ -475,7 +483,7 @@ export async function buildReviewModelInputPayload(
       extractionUsed: false,
     };
 
-    if (options.fetchUrlMetadata || options.extractUrlArticleText) {
+    if ((options.fetchUrlMetadata || options.extractUrlArticleText) && options.allowRemoteUrlFetch !== false) {
       const fetchedContext = await fetchUrlContext(sourceUrl, file.path, {
         fetchMetadata: options.fetchUrlMetadata,
         extractArticle: options.extractUrlArticleText,
@@ -494,6 +502,12 @@ export async function buildReviewModelInputPayload(
       };
     } else {
       urlContext = defaultUrlContext;
+      if (options.allowRemoteUrlFetch === false) {
+        urlContext.extractionWarnings = [
+          'Remote URL fetching is disabled for background automatic reviews.',
+        ];
+        urlContext.extractionMethod = 'background-fetch-disabled';
+      }
     }
 
     fetchStatus = urlContext.fetchStatus;
@@ -538,8 +552,8 @@ export async function buildReviewModelInputPayload(
 
   return {
     operationId: options.operationId,
-    noteTitle: file.basename,
-    notePath: file.path,
+    noteTitle: source.noteTitle,
+    notePath: source.notePath,
     ...(sourceUrl ? { sourceUrl } : {}),
     contentType,
     inputProfile,
@@ -1145,7 +1159,6 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
       status: response.status,
       error: response.error,
       retryable: retryHint.retryable,
-      responseSnippet: buildSafeSnippet(response.responseBody),
     }));
     const errorCode = retryHint.reason === 'image_not_supported' ? 'image_not_supported' : undefined;
     throw new ReviewPipelineError(
@@ -1215,13 +1228,13 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
     return { ok: false, error: 'Plugin unloaded', retryable: false, stage: 'unknown' };
   }
 
-  const source = buildReviewSourceInfo(file, outputFolder, noteContent);
+  const source = buildReviewSourceInfo(file, outputFolder, noteContent, options.sourcePathOverride);
   const modelInput = await buildReviewModelInputPayload(app, file, noteContent, source, options);
   if (isUnloaded()) {
     return { ok: false, error: 'Plugin unloaded', retryable: false, stage: 'unknown' };
   }
 
-  const detectedPromptInjection = hasPromptInjectionSignals(noteContent);
+  const detectedPromptInjection = detectPromptInjectionRisk(modelInput);
 
   try {
     const rawReview = await getReviewRawResponse(app, modelInput);
@@ -1283,8 +1296,36 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
       return { ok: false, error: 'Plugin unloaded', retryable: false, stage: 'unknown' };
     }
 
+    const sourceStillMatches = (content: string): boolean =>
+      buildReviewSourceInfo(file, outputFolder, content, options.sourcePathOverride).sourceHash === source.sourceHash;
+    const latestContent = await app.vault.read(file);
+    if (!sourceStillMatches(latestContent)) {
+      return {
+        ok: false,
+        error: 'Note changed during review; review was not applied.',
+        retryable: true,
+        stage: 'write',
+        errorCode: 'source_changed',
+      };
+    }
+
     const writeResult = await writeReviewNote(app, file, mappedResult);
-    await upsertReviewFrontmatter(app, file, mappedResult, confidence);
+    const frontmatterApplied = await upsertReviewFrontmatter(
+      app,
+      file,
+      mappedResult,
+      confidence,
+      sourceStillMatches,
+    );
+    if (!frontmatterApplied) {
+      return {
+        ok: false,
+        error: 'Note changed while review results were being saved; automatic actions were blocked.',
+        retryable: true,
+        stage: 'write',
+        errorCode: 'source_changed',
+      };
+    }
 
     const modeLabel = options.reviewMode || 'standard';
     void logOperation(app, {

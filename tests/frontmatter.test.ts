@@ -56,6 +56,10 @@ function createMockApp(initialContent: string) {
         modify: async (_file: unknown, next: string) => {
           stored = next;
         },
+        process: async (_file: unknown, callback: (content: string) => string) => {
+          stored = callback(stored);
+          return stored;
+        },
       },
     },
     getContent: () => stored,
@@ -108,5 +112,21 @@ describe('upsertReviewFrontmatter', () => {
     expect(content).not.toContain('ai_review_unresolved_attachment_count:');
     expect(content).not.toContain('ai_review_source_url:');
     expect(content).toContain('title: Keep me');
+  });
+
+  it('does not update frontmatter when the source changed before the atomic write', async () => {
+    const initial = '---\ntitle: Keep me\n---\nChanged body\n';
+    const mock = createMockApp(initial);
+
+    const applied = await upsertReviewFrontmatter(
+      mock.app as never,
+      {} as never,
+      createBaseResult(),
+      undefined,
+      (content) => content.includes('Original body'),
+    );
+
+    expect(applied).toBe(false);
+    expect(mock.getContent()).toBe(initial);
   });
 });

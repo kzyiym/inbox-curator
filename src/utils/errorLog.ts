@@ -1,6 +1,7 @@
 import { App, normalizePath } from 'obsidian';
 import { ensureDotFolder } from './folder';
 import { isErrorLoggingEnabled } from './logFiles';
+import { sanitizeSensitiveData, sanitizeSensitiveString } from './sensitiveData';
 
 const LOG_FOLDER = normalizePath('.inbox-curator/logs');
 
@@ -40,8 +41,10 @@ export async function logError(
   }
 
   const timestamp = new Date().toISOString();
+  const safeMessage = sanitizeSensitiveString(message);
+  const safeDetails = details ? sanitizeSensitiveData(details) : undefined;
 
-  console.warn(message, details);
+  console.warn(safeMessage, safeDetails);
 
   try {
     await ensureDotFolder(app, LOG_FOLDER);
@@ -54,7 +57,7 @@ export async function logError(
     } catch {
       /* file doesn't exist yet */
     }
-    content += formatEntry(timestamp, level, message, details);
+    content += formatEntry(timestamp, level, safeMessage, safeDetails);
     await adapter.write(normalized, content);
   } catch (e) {
     console.error('Inbox Curator: Failed to write error log file', e);
