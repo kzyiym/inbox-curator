@@ -1,7 +1,7 @@
 {
   "id": "kzyiym-inbox-curator",
   "name": "Inbox Curator",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "minAppVersion": "1.11.4",
   "description": "Review, summarize, and organize your inbox notes with AI.",
   "author": "kzyiym",
