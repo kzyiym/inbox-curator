@@ -2,6 +2,7 @@ import { App, TFolder, TFile, normalizePath, Notice } from 'obsidian';
 import { parseYamlRecord } from './utils/yaml';
 import { ActionConfirmationModal } from './actionConfirmationModal';
 import { ensureFolder, resolveSafeSuggestedPath } from './utils/folder';
+import { normalizeReviewAction, type ReviewAction } from './reviewNormalizer';
 
 const FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---\n?/;
 
@@ -106,6 +107,9 @@ export async function executeProposedAction(
     deleteCandidateFolder?: string;
     skipConfirmation?: boolean;
     suggestedFolderBasePath?: string;
+    expectedAction?: ReviewAction;
+    expectedDestinationPath?: string | null;
+    allowedActions?: readonly ReviewAction[];
   },
 ): Promise<AutoExecuteActionResult> {
   // 1. Safety check: do not touch review output files
@@ -135,6 +139,52 @@ export async function executeProposedAction(
   }
 
   const normalizedAction = action.trim().toLowerCase();
+  const currentReviewAction = normalizeReviewAction(normalizedAction);
+
+  if (options.expectedAction && currentReviewAction !== options.expectedAction) {
+    return {
+      success: false,
+      status: 'skipped',
+      error: `Recommended action changed from ${options.expectedAction} to ${currentReviewAction}.`,
+      action: normalizedAction,
+    };
+  }
+
+  if (
+    currentReviewAction !== 'none' &&
+    options.allowedActions &&
+    !options.allowedActions.includes(currentReviewAction)
+  ) {
+    return {
+      success: false,
+      status: 'skipped',
+      error: `Action ${currentReviewAction} is disabled by the action allowlist.`,
+      action: normalizedAction,
+    };
+  }
+
+  if (options.expectedDestinationPath !== undefined) {
+    const suggestedFolder = typeof frontmatter.ai_review_suggested_folder === 'string'
+      ? frontmatter.ai_review_suggested_folder
+      : undefined;
+    const currentDestination = resolveActionDestination(
+      app,
+      file,
+      currentReviewAction,
+      suggestedFolder,
+      options,
+    ).destinationPath ?? null;
+
+    if (currentDestination !== options.expectedDestinationPath) {
+      return {
+        success: false,
+        status: 'skipped',
+        error: 'Resolved action destination changed after the review panel was opened.',
+        action: normalizedAction,
+        destinationPath: currentDestination ?? undefined,
+      };
+    }
+  }
 
   if (normalizedAction === 'archive') {
     let destPath: string | undefined;
@@ -363,7 +413,7 @@ export async function executeProposedAction(
         if (!resolved) {
           resolve({
             success: false,
-            status: 'failed',
+            status: 'skipped',
             error: 'User cancelled action execution.',
           });
         }

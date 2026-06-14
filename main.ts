@@ -11,7 +11,7 @@ import { DEFAULT_SETTINGS, InboxCuratorSettings, InboxCuratorSettingTab } from '
 import { executeProposedAction } from './src/actionLayer';
 import { appendAutoExecuteResult } from './src/reviewWriter';
 import { type ReviewAction, type ReviewConfidence } from './src/reviewNormalizer';
-import { computeActionDecision } from './src/actionDecision';
+import { computeActionDecision, isActionAllowed } from './src/actionDecision';
 import { collectProposedActions, toActionDecisionSettings, type ProposedActionItem } from './src/utils/proposedActions';
 import { ActionReviewModal } from './src/actionReviewModal';
 import { t } from './src/i18n';
@@ -28,6 +28,12 @@ import { validateFolderPath } from './src/utils/folder';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getAllowedReviewActions(settings: InboxCuratorSettings): ReviewAction[] {
+  const decisionSettings = toActionDecisionSettings(settings);
+  const actions: ReviewAction[] = ['archive', 'read_later', 'task', 'delete_candidate'];
+  return actions.filter((action) => isActionAllowed(action, decisionSettings));
 }
 
 type AutomaticReviewReason = 'create' | 'modify' | 'poll';
@@ -1697,28 +1703,42 @@ export default class InboxCuratorPlugin extends Plugin {
     let failed = 0;
     const results: string[] = [];
 
-    for (const file of files) {
-      const result = await executeProposedAction(this.app, file, {
-        outputFolder: this.settings.reviewOutputFolder,
-        readLaterFolder: this.settings.readLaterFolder,
-        taskFolder: this.settings.taskFolder,
-        deleteCandidateFolder: this.settings.deleteCandidateFolder,
-        suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
-        skipConfirmation: true,
-      });
+    if (this.settings.reviewMode === 'safe') {
+      new Notice(t('notice.batchActionsCompleted', { executed, skipped: files.length, failed }));
+      return;
+    }
 
-      if (result.status === 'executed') {
-        if (result.actionTaken === 'archive' || result.actionTaken === 'read_later' ||
-            result.actionTaken === 'task' || result.actionTaken === 'delete_candidate') {
-          executed++;
-          if (result.actionTaken) results.push(result.actionTaken);
-        } else {
+    for (const file of files) {
+      try {
+        const result = await executeProposedAction(this.app, file, {
+          outputFolder: this.settings.reviewOutputFolder,
+          readLaterFolder: this.settings.readLaterFolder,
+          taskFolder: this.settings.taskFolder,
+          deleteCandidateFolder: this.settings.deleteCandidateFolder,
+          suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
+          skipConfirmation: true,
+          allowedActions: getAllowedReviewActions(this.settings),
+        });
+
+        if (result.status === 'executed') {
+          if (result.actionTaken === 'archive' || result.actionTaken === 'read_later' ||
+              result.actionTaken === 'task' || result.actionTaken === 'delete_candidate') {
+            executed++;
+            if (result.actionTaken) results.push(result.actionTaken);
+          } else {
+            skipped++;
+          }
+        } else if (result.status === 'skipped') {
           skipped++;
+        } else {
+          failed++;
         }
-      } else if (result.status === 'skipped') {
-        skipped++;
-      } else {
+      } catch (error) {
         failed++;
+        void logError(this.app, 'ERROR', 'Inbox Curator: Proposed action execution failed', {
+          notePath: file.path,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
 
@@ -1727,7 +1747,7 @@ export default class InboxCuratorPlugin extends Plugin {
 
   async openActionReviewPanel(readOnly: boolean): Promise<void> {
     const items = await collectProposedActions(this.app, this.settings);
-    new ActionReviewModal(this.app, items, readOnly, {
+    new ActionReviewModal(this.app, items, readOnly || this.settings.reviewMode === 'safe', {
       applySelected: (selected) => this.applyProposedActionsFromPanel(selected),
       refresh: () => collectProposedActions(this.app, this.settings),
     }).open();
@@ -1740,49 +1760,74 @@ export default class InboxCuratorPlugin extends Plugin {
     let failed = 0;
 
     for (const item of items) {
-      const actionResult = await executeProposedAction(this.app, item.file, {
-        outputFolder: this.settings.reviewOutputFolder,
-        readLaterFolder: this.settings.readLaterFolder,
-        taskFolder: this.settings.taskFolder,
-        deleteCandidateFolder: this.settings.deleteCandidateFolder,
-        suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
-        skipConfirmation: false,
-      });
-
-      if (actionResult.status === 'executed') {
-        executed++;
-        const taken = actionResult.actionTaken;
-        if (taken === 'archive' || taken === 'read_later' || taken === 'task') {
-          await appendAutoSortActionRecord(this.app, {
-            runId,
-            timestamp: Date.now(),
-            action: taken,
-            sourcePath: item.notePath,
-            destinationPath: actionResult.destinationPath ?? item.notePath,
-            reviewMode: this.settings.reviewMode,
-            parseStatus: 'parsed',
-            confidence: item.confidence,
-            reliabilityLabel: item.reliabilityLabel,
-          }).catch((err) => {
-            void logError(this.app, 'WARN', 'Inbox Curator: Failed to save auto-sort history', {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          });
-        }
-        void logOperation(this.app, {
-          timestamp: new Date().toISOString(),
-          level: 'INFO',
-          event: 'auto_sort_executed',
-          notePath: item.notePath,
-          actionType: item.action,
-          filePath: actionResult.destinationPath,
-          message: 'Action applied from review panel',
-          details: { runId, action: item.reviewAction, source: 'action_review_panel' },
-        });
-      } else if (actionResult.status === 'skipped') {
+      if (
+        this.settings.reviewMode === 'safe' ||
+        !isActionAllowed(item.reviewAction, toActionDecisionSettings(this.settings))
+      ) {
         skipped++;
-      } else {
+        continue;
+      }
+
+      try {
+        const actionResult = await executeProposedAction(this.app, item.file, {
+          outputFolder: this.settings.reviewOutputFolder,
+          readLaterFolder: this.settings.readLaterFolder,
+          taskFolder: this.settings.taskFolder,
+          deleteCandidateFolder: this.settings.deleteCandidateFolder,
+          suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
+          skipConfirmation: false,
+          expectedAction: item.reviewAction,
+          expectedDestinationPath: item.destinationPath ?? null,
+          allowedActions: getAllowedReviewActions(this.settings),
+        });
+
+        if (actionResult.status === 'executed') {
+          executed++;
+          const taken = actionResult.actionTaken;
+          if (
+            taken === 'archive' ||
+            taken === 'read_later' ||
+            taken === 'task' ||
+            taken === 'delete_candidate'
+          ) {
+            await appendAutoSortActionRecord(this.app, {
+              runId,
+              timestamp: Date.now(),
+              action: taken,
+              sourcePath: item.notePath,
+              destinationPath: actionResult.destinationPath ?? item.notePath,
+              reviewMode: this.settings.reviewMode,
+              parseStatus: 'parsed',
+              confidence: item.confidence,
+              reliabilityLabel: item.reliabilityLabel,
+            }).catch((err) => {
+              void logError(this.app, 'WARN', 'Inbox Curator: Failed to save auto-sort history', {
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+          }
+          void logOperation(this.app, {
+            timestamp: new Date().toISOString(),
+            level: 'INFO',
+            event: 'auto_sort_executed',
+            notePath: item.notePath,
+            actionType: item.action,
+            filePath: actionResult.destinationPath,
+            message: 'Action applied from review panel',
+            details: { runId, action: item.reviewAction, source: 'action_review_panel' },
+          });
+        } else if (actionResult.status === 'skipped') {
+          skipped++;
+        } else {
+          failed++;
+        }
+      } catch (error) {
         failed++;
+        void logError(this.app, 'ERROR', 'Inbox Curator: Review panel action failed', {
+          notePath: item.notePath,
+          actionType: item.reviewAction,
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     }
 
@@ -1827,12 +1872,18 @@ export default class InboxCuratorPlugin extends Plugin {
   }
 
   async executeProposedActionForFile(file: TFile): Promise<void> {
+    if (this.settings.reviewMode === 'safe') {
+      new Notice(t('notice.actionSkipped', { reason: t('notice.reviewOnlyActionDisabled') }));
+      return;
+    }
+
     const result = await executeProposedAction(this.app, file, {
       outputFolder: this.settings.reviewOutputFolder,
       readLaterFolder: this.settings.readLaterFolder,
       taskFolder: this.settings.taskFolder,
       deleteCandidateFolder: this.settings.deleteCandidateFolder,
       suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
+      allowedActions: getAllowedReviewActions(this.settings),
     });
 
     if (result.status === 'executed') {

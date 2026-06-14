@@ -111,6 +111,41 @@ describe('undoLastAutoSortRun', () => {
     expect(app.fileManager.renameFile).toHaveBeenCalledTimes(1);
   });
 
+  it('restores delete_candidate files from quarantine back to source', async () => {
+    mockGetLastUndoable.mockResolvedValue({
+      runId: 'run-delete-candidate',
+      timestamp: Date.now() - 1000,
+      source: 'auto-create',
+      actions: [
+        {
+          runId: 'run-delete-candidate',
+          timestamp: Date.now() - 1000,
+          action: 'delete_candidate',
+          sourcePath: 'Inbox/test.md',
+          destinationPath: 'Delete Candidates/test.md',
+          reviewMode: 'standard',
+          parseStatus: 'parsed',
+          confidence: 'medium',
+          reliabilityLabel: 'medium',
+        },
+      ],
+    });
+
+    const { app, addFile } = createMockApp();
+    addFile('Delete Candidates/test.md');
+
+    const { undoLastAutoSortRun } = await import('../src/undoAutoSort');
+    const result = await undoLastAutoSortRun(app);
+
+    expect(result).not.toBeNull();
+    expect(result!.restoredCount).toBe(1);
+    expect(app.fileManager.renameFile).toHaveBeenCalledWith(
+      expect.objectContaining({ path: 'Inbox/test.md' }),
+      'Inbox/test.md',
+    );
+    expect(mockMarkUndone).toHaveBeenCalledWith(app, 'run-delete-candidate');
+  });
+
   it('processes actions in reverse order', async () => {
     mockGetLastUndoable.mockResolvedValue({
       runId: 'run-2',

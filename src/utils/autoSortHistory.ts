@@ -11,7 +11,7 @@ const AUTO_SORT_HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 export type AutoSortActionRecord = {
   runId: string;
   timestamp: number;
-  action: 'archive' | 'read_later' | 'task';
+  action: 'archive' | 'read_later' | 'task' | 'delete_candidate';
   sourcePath: string;
   destinationPath: string;
   reviewMode: ReviewMode;

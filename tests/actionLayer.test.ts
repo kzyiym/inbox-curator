@@ -525,6 +525,88 @@ Task content`,
     expect(mock.createdFolders).toContain('Tasks');
   });
 
+  it('skips safely when the current frontmatter action differs from the expected action', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: task
+---
+Task content`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      taskFolder: 'Tasks',
+      expectedAction: 'archive',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(result.actionTaken).not.toBe('task');
+    expect(mock.renamedFiles).toHaveLength(0);
+    expect(mock.createdFolders).toHaveLength(0);
+  });
+
+  it('skips safely when the current action is disabled by the allowlist', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: task
+---
+Task content`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      taskFolder: 'Tasks',
+      allowedActions: ['archive', 'read_later'],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(result.error).toContain('disabled by the action allowlist');
+    expect(mock.renamedFiles).toHaveLength(0);
+    expect(mock.createdFolders).toHaveLength(0);
+  });
+
+  it('skips safely when the resolved destination differs from the reviewed destination', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+ai_review_suggested_folder: References/New
+---
+Reference content`,
+    );
+    const currentFolder = new TFolder();
+    currentFolder.path = 'References/New';
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+    (files as Map<string, TFile | TFolder>).set('References/New', currentFolder);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      expectedAction: 'archive',
+      expectedDestinationPath: 'References/Old/my-note.md',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(result.error).toContain('destination changed');
+    expect(mock.renamedFiles).toHaveLength(0);
+    expect(mock.createdFolders).toHaveLength(0);
+  });
+
   it('fails safely for task action if taskFolder is not provided', async () => {
     const file = createMockFile(
       'Inbox/my-note.md',
@@ -560,7 +642,10 @@ Needs check`,
     files.set('Inbox/my-note.md', file);
 
     const mock = createMockApp(files);
-    const result = await executeProposedAction(mock.app, file, { outputFolder: 'AI Reviews' });
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      allowedActions: ['archive'],
+    });
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('is not supported or requires no automated steps');
@@ -595,7 +680,7 @@ Trash content`,
     expect(mock.createdFolders).toContain('Delete Candidates');
   });
 
-  it('fails safely when manually execution modal is cancelled', async () => {
+  it('reports manual execution modal cancellation as skipped', async () => {
     mockConfirmModalBehavior = 'cancel';
     const file = createMockFile(
       'Inbox/my-note.md',
@@ -615,7 +700,7 @@ Trash content`,
     });
 
     expect(result.success).toBe(false);
-    expect(result.status).toBe('failed');
+    expect(result.status).toBe('skipped');
     expect(result.error).toBe('User cancelled action execution.');
     expect(mock.renamedFiles).toHaveLength(0);
   });

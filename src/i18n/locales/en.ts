@@ -196,6 +196,7 @@ export const en = {
   'actionReview.button.applySelected': 'Apply selected',
   'actionReview.button.close': 'Close',
   'actionReview.noSelection': 'No applicable notes selected.',
+  'notice.reviewOnlyActionDisabled': 'Review only mode disables action execution.',
 
   // File context menu
   'fileMenu.reviewCurrentNote': 'Review this note',

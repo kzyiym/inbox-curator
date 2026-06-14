@@ -75,6 +75,22 @@ describe('autoSortHistory', () => {
     expect(loaded.runs).toEqual([]);
   });
 
+  it('loads existing version 1 history records', async () => {
+    await app.vault.adapter.write(HISTORY_PATH, JSON.stringify({
+      version: 1,
+      runs: [{
+        runId: 'legacy-run',
+        timestamp: NOW - 2000,
+        source: 'auto-create',
+        actions: [sampleRecord],
+      }],
+    }));
+
+    const loaded = await loadAutoSortHistory(app);
+    expect(loaded.version).toBe(1);
+    expect(loaded.runs[0].actions[0].action).toBe('archive');
+  });
+
   it('appends action record to history', async () => {
     await appendAutoSortActionRecord(app, sampleRecord);
     const history = await loadAutoSortHistory(app);
@@ -82,6 +98,18 @@ describe('autoSortHistory', () => {
     expect(history.runs[0].runId).toBe('run-test-1');
     expect(history.runs[0].actions).toHaveLength(1);
     expect(history.runs[0].actions[0].action).toBe('archive');
+  });
+
+  it('appends delete_candidate action records without changing the history version', async () => {
+    await appendAutoSortActionRecord(app, {
+      ...sampleRecord,
+      action: 'delete_candidate',
+      destinationPath: 'Delete Candidates/test.md',
+    });
+
+    const history = await loadAutoSortHistory(app);
+    expect(history.version).toBe(1);
+    expect(history.runs[0].actions[0].action).toBe('delete_candidate');
   });
 
   it('groups actions with same runId into same run', async () => {

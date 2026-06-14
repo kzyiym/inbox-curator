@@ -219,7 +219,7 @@ Each auto-sort action has a **Minimum confidence to auto-execute** dropdown (Low
 Disabled actions are still reviewed and shown in the action review panel, but are never auto-executed or applied.
 
 ### Action Review Panel
-Use `Open action review panel` to see every watched-folder note that carries a proposed action, with its action, confidence, reliability, whether it would auto-execute (and why not), and the resolved destination. Select the notes you approve and apply them in one step. `Dry-run auto-sort (preview)` opens the same panel read-only to preview auto-sort outcomes without making changes. Applied moves are recorded to auto-sort history and can be reverted with `Undo last auto-sort run`.
+Use `Open action review panel` to see every watched-folder note that carries a proposed action, with its action, confidence, reliability, whether it would auto-execute (and why not), and the resolved destination. Select the notes you approve and apply them in one step. `Dry-run auto-sort (preview)` opens the same panel read-only to preview auto-sort outcomes without making changes. Review only mode also forces the panel to be read-only. Applied moves, including Delete Candidate quarantine moves, are recorded to auto-sort history and can be reverted with `Undo last auto-sort run`.
 
 ### Auto-sort Folders
 | Setting | Default | Description |

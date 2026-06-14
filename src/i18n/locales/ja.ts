@@ -196,6 +196,7 @@ export const ja = {
   'actionReview.button.applySelected': '選択を適用',
   'actionReview.button.close': '閉じる',
   'actionReview.noSelection': '適用可能なノートが選択されていません。',
+  'notice.reviewOnlyActionDisabled': 'Review only モードではアクションを実行できません。',
 
   // File context menu
   'fileMenu.reviewCurrentNote': 'このノートをレビュー',
