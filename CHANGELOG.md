@@ -6,6 +6,11 @@
 - Configurable confidence thresholds: set a minimum confidence per auto-sort action (defaults preserve prior behavior — Medium for Archive/Read Later, High for Task). Reliability checks still apply on top.
 - Action review panel: a unified dry-run preview / approval / execute-selected modal listing watched-folder notes with their proposed action, confidence, reliability, auto-execute verdict, and resolved destination. New commands `Open action review panel` and `Dry-run auto-sort (preview)`.
 - Persist `ai_review_confidence` and `ai_review_reliability_label` to note frontmatter so the panel can recompute decisions for already-reviewed notes.
+- **Security:** Stop all auto-execution actions when prompt injection is detected. Image inputs, fetched external articles, and extracted PDF contents are also scanned or fail-closed.
+- **Security:** Enhanced concurrency safety by detecting and aborting if a note is modified during review, using hash comparison and atomic updates.
+- **Security:** Prevent SSRF attacks by prohibiting background polling/watch jobs from fetching remote URLs.
+- **Security:** Universal log masking to redact API keys, tokens, and Base64 payloads.
+- **Security:** Strengthened folder path validation for AI-suggested destinations.
 
 ## 1.0.4
 
