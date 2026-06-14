@@ -22,7 +22,7 @@ export function sanitizeSensitiveData<T>(value: T): T {
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizeSensitiveData(item)) as T;
+    return (value as unknown[]).map((item) => sanitizeSensitiveData(item)) as unknown as T;
   }
 
   if (value && typeof value === 'object') {

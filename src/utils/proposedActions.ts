@@ -92,7 +92,7 @@ export async function collectProposedActions(
     const frontmatter = app.metadataCache.getFileCache(file)?.frontmatter;
     if (!frontmatter) continue;
 
-    const rawAction = frontmatter.ai_review_recommended_action;
+    const rawAction: unknown = frontmatter.ai_review_recommended_action;
     if (typeof rawAction !== 'string' || rawAction.trim() === '') continue;
 
     const reviewAction = normalizeReviewAction(rawAction);
@@ -103,7 +103,7 @@ export async function collectProposedActions(
     const confidence: ReviewConfidence =
       asConfidence(frontmatter.ai_review_confidence) ?? reliabilityLabel;
 
-    const suggestedFolderRaw = frontmatter.ai_review_suggested_folder;
+    const suggestedFolderRaw: unknown = frontmatter.ai_review_suggested_folder;
     const suggestedFolder =
       typeof suggestedFolderRaw === 'string' && suggestedFolderRaw.trim() !== ''
         ? suggestedFolderRaw.trim()
