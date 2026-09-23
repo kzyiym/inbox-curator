@@ -1,5 +1,5 @@
 import { App, TFile, normalizePath } from 'obsidian';
-import type { InputContentReductionInfo, ReviewResult, StructuredSummaryComparisonTable, ReviewActionItem, RecommendedAction, ReviewPriority } from './types';
+import type { InputContentReductionInfo, ReviewResult, ReviewReadingDecision, StructuredSummaryComparisonTable, ReviewActionItem, RecommendedAction, ReviewPriority } from './types';
 import { ensureFolder } from './utils/folder';
 
 export interface ReviewNoteWriteResult {
@@ -12,7 +12,8 @@ type ResolvedLanguage = 'english' | 'japanese';
 
 const HEADINGS: Record<string, Record<ResolvedLanguage, string>> = {
   overview: { english: '## Overview', japanese: '## 概要' },
-  keyTakeaways: { english: '## Key Takeaways', japanese: '## 重要なポイント' },
+  keyTakeaways: { english: '## Key Points', japanese: '## 要点' },
+  takeaways: { english: '## Takeaways', japanese: '## 持ち帰れること' },
   whyItMatters: { english: '## Why It Matters', japanese: '## このノートの価値' },
   caveats: { english: '## Caveats', japanese: '## 注意点' },
   suggestedUse: { english: '## Suggested Use', japanese: '## 活用方法' },
@@ -221,19 +222,78 @@ function mapEvidenceBasisToDisplay(value: string): string {
   return toTitleCase(value);
 }
 
-function buildTimeSensitiveRecheckItem(language: PromptLanguage): string | null {
-  if (language === 'japanese') {
-    return '時点依存の情報です。導入・契約・実装前に公式情報で再確認してください。';
+const READING_DECISION_LABELS: Record<ResolvedLanguage, Record<ReviewReadingDecision, string>> = {
+  english: {
+    read_source: 'Read the source',
+    summary_enough: 'Summary is enough',
+    reference_when_needed: 'Reference when needed',
+    hold: 'Hold',
+  },
+  japanese: {
+    read_source: '原文を読む候補',
+    summary_enough: '要約で足りる',
+    reference_when_needed: '必要時に参照',
+    hold: '判定保留',
+  },
+};
+
+function formatReadingDecision(
+  decision: ReviewReadingDecision | undefined,
+  language: PromptLanguage,
+): string {
+  const lang: ResolvedLanguage = language === 'japanese' ? 'japanese' : 'english';
+  if (!decision) {
+    return lang === 'japanese' ? '未判定' : 'Not assessed';
   }
-  return 'This is time-sensitive information. Recheck the official source before making a decision.';
+  return READING_DECISION_LABELS[lang][decision] ?? (lang === 'japanese' ? '未判定' : 'Not assessed');
 }
 
-function isTimeSensitiveEvidenceBasis(evidenceBasis: string[]): boolean {
-  const sensitiveKeys = new Set([
-    'news_article', 'personal_blog', 'community_article',
-    'secondary_source', 'uncited_secondary_source',
-  ]);
-  return evidenceBasis.some((e) => sensitiveKeys.has(e.trim().toLowerCase().replace(/[-_]/g, '_')));
+function buildTakeawayItems(result: ReviewResult): string[] {
+  if (Array.isArray(result.takeaways) && result.takeaways.length > 0) {
+    return result.takeaways;
+  }
+
+  // Backward compatibility: older reviews stored this content in retentionReasons.
+  if (Array.isArray(result.retentionReasons) && result.retentionReasons.length > 0) {
+    return result.retentionReasons
+      .map((item) => stripLeadingSectionLabel(item.trim()))
+      .filter(Boolean);
+  }
+
+  // Backward compatibility: older reviews stored suggested use in practicalityReview.
+  const practical = result.practicalityReview?.trim();
+  if (practical) {
+    return practical
+      .split('\n')
+      .map((line) => stripLeadingSectionLabel(line.trim()))
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+const TOP_LABELS: Record<'readingDecision' | 'readingReason', Record<ResolvedLanguage, string>> = {
+  readingDecision: { english: 'Reading Decision', japanese: '読む判断' },
+  readingReason: { english: 'Reason', japanese: '判断理由' },
+};
+
+function buildKeyPointItems(result: ReviewResult): string[] {
+  if (result.summary.length > 0) {
+    return result.summary.slice(0, 3);
+  }
+
+  const structured = result.structuredSummary?.keyPoints;
+  if (Array.isArray(structured) && structured.length > 0) {
+    return structured.slice(0, 3);
+  }
+
+  const detailLead = firstSentence(result.detailedSummary);
+  if (detailLead) {
+    return [stripLeadingSectionLabel(detailLead)];
+  }
+
+  const claim = result.structuredSummary?.centralClaim?.trim();
+  return claim ? [stripLeadingSectionLabel(claim)] : [];
 }
 
 function buildCaveatItems(result: ReviewResult, language: PromptLanguage): string[] {
@@ -248,17 +308,6 @@ function buildCaveatItems(result: ReviewResult, language: PromptLanguage): strin
     for (const gap of result.risksOrGaps) {
       const cleaned = stripLeadingSectionLabel(gap).trim();
       if (cleaned) items.push(cleaned);
-    }
-  }
-
-  const showTimeSensitive =
-    result.flags.needsVerification ||
-    (Array.isArray(result.evidenceBasis) && isTimeSensitiveEvidenceBasis(result.evidenceBasis));
-
-  if (showTimeSensitive) {
-    const recheck = buildTimeSensitiveRecheckItem(language);
-    if (recheck) {
-      items.unshift(recheck);
     }
   }
 
@@ -559,35 +608,52 @@ function buildComparisonTable(table: StructuredSummaryComparisonTable | undefine
 
 export function buildReviewContent(result: ReviewResult): string {
   const lang = result.promptLanguage;
-  const decisionReason = sanitizeAiContent(buildDecisionReason(result));
-  const overview = sanitizeAiContent(stripLeadingSectionLabel(
-    result.detailedSummary?.trim() ||
-    result.structuredSummary?.centralClaim?.trim() ||
-    result.summary?.join(' ') ||
-    'None',
-  ));
+  const rawReadingReason = result.readingDecisionReason?.trim()
+    ? compactWhitespace(result.readingDecisionReason)
+    : '';
+  const readingReason = rawReadingReason ? sanitizeAiContent(rawReadingReason) : '';
+  const readingDecision = formatReadingDecision(result.readingDecision, lang);
+  const reasonLine = readingReason
+    ? `**${TOP_LABELS.readingReason[lang]}**: ${readingReason}\n`
+    : '';
 
-  let takeaways = (result.structuredSummary?.keyPoints ?? []).map(sanitizeAiContent);
-  if (takeaways.length === 0) {
-    takeaways = (result.summary ?? []).map(sanitizeAiContent);
+  let readingDecisionYaml = '';
+  if (result.readingDecision) {
+    readingDecisionYaml += `reading_decision: "${yamlQuote(result.readingDecision)}"\n`;
+    if (rawReadingReason) {
+      readingDecisionYaml += `reading_decision_reason: "${yamlQuote(rawReadingReason)}"\n`;
+    }
   }
+
+  const keyPoints = buildKeyPointItems(result).map(sanitizeAiContent);
+
+  const takeawayItems = buildTakeawayItems(result).map(sanitizeAiContent);
+  const takeawaysSection = takeawayItems.length > 0
+    ? `${h(lang, 'takeaways')}\n\n${bulletLines(takeawayItems)}\n\n`
+    : '';
 
   const comparisonTable = buildComparisonTable(result.structuredSummary?.comparisonTable);
   const comparisonTableSection = comparisonTable ? `\n${comparisonTable}\n` : '';
 
-  const whyItMatters = sanitizeAiContent(joinAsParagraphs(buildRetentionValueItems(result).map(stripLeadingSectionLabel)) || 'None');
-
-  const caveatsSection = bulletLines(buildCaveatItems(result, lang).map(sanitizeAiContent));
-
-  const suggestedUse = sanitizeAiContent(formatSuggestedUseItems(result, lang));
+  const caveatItems = buildCaveatItems(result, lang).map(sanitizeAiContent);
+  const caveatsSection = caveatItems.length > 0
+    ? `${h(lang, 'caveats')}\n\n${bulletLines(caveatItems)}\n\n`
+    : '';
 
   const conceptCandidatesSection = buildConceptCandidatesSection(result, lang);
 
   const evidenceNotes = sanitizeAiContent(buildEvidenceNotes(result));
 
   const followUp = buildFollowUpActions(result, lang);
-  const requiredLines = bulletLines(followUp.required.map(sanitizeAiContent));
-  const optionalLines = bulletLines(followUp.optional.map(sanitizeAiContent));
+  const hasFollowUp = followUp.required.length > 0 || followUp.optional.length > 0;
+  const followUpSection = hasFollowUp
+    ? `${h(lang, 'followUpActions')}\n\n${h(lang, 'required')}\n\n${bulletLines(followUp.required.map(sanitizeAiContent))}\n\n${h(lang, 'optional')}\n\n${bulletLines(followUp.optional.map(sanitizeAiContent))}\n\n`
+    : '';
+
+  // Legacy reviews (created before reading decisions existed) keep their action reason here.
+  const legacyActionReason = !result.readingDecision && result.decisionReason?.trim()
+    ? sanitizeAiContent(compactWhitespace(result.decisionReason))
+    : '';
 
   const tags = result.suggestedTags && result.suggestedTags.length > 0 ? result.suggestedTags.map(sanitizeAiContent).join(', ') : 'None';
   const folder = result.suggestedFolder ? sanitizeAiContent(result.suggestedFolder) : 'None';
@@ -624,7 +690,7 @@ export function buildReviewContent(result: ReviewResult): string {
 
   const inputProcessingStr = buildInputProcessingSection(result.inputReductionInfo, lang);
 
-  return `---\nsource: "[[${yamlQuote(result.source.noteTitle)}]]"\nsource_path: "${yamlQuote(result.source.notePath)}"\ncontent_type: "${yamlQuote(result.contentType)}"\ninput_profile: "${yamlQuote(result.inputProfile)}"\nfetch_status: "${yamlQuote(result.fetchStatus)}"\ndomain_profile: "${yamlQuote(result.domainProfile)}"\ngenerated_at: "${yamlQuote(result.source.generatedAt)}"\nprovider: "${yamlQuote(result.provider)}"\nmodel: "${yamlQuote(result.model)}"\nsource_hash: "${yamlQuote(result.source.sourceHash)}"\nrecommended_action: "${yamlQuote(result.verdict.recommendedAction)}"\npriority: "${yamlQuote(result.verdict.priority)}"\nneeds_verification: ${String(result.flags.needsVerification)}\n${extractionYaml}---\n\n# AI Review: ${result.source.noteTitle}\n\nSource: [[${result.source.noteTitle}]]\n\n**Verdict**: ${formatVerdictLabel(result.verdict.recommendedAction, result.verdict.priority, lang)}\n\n${h(lang, 'overview')}\n\n${overview}\n\n${h(lang, 'keyTakeaways')}\n\n${bulletLines(takeaways)}\n${comparisonTableSection}\n${h(lang, 'whyItMatters')}\n\n${whyItMatters}\n\n${h(lang, 'caveats')}\n\n${caveatsSection}\n\n${h(lang, 'suggestedUse')}\n\n${suggestedUse}\n\n${conceptCandidatesSection}---\n\n${h(lang, 'reviewDetails')}\n\n${h(lang, 'curationDecision')}\n\n- **Recommended Action**: ${toTitleCase(result.verdict.recommendedAction)}\n- **Priority**: ${toTitleCase(result.verdict.priority)}\n- **Reading Value**: ${toTitleCase(result.verdict.readingValueLabel)}\n- **Saving Value**: ${toTitleCase(result.verdict.savingValueLabel)}\n- **Reliability**: ${toTitleCase(result.verdict.reliabilityLabel)}\n- **Needs Verification**: ${result.flags.needsVerification ? 'Yes' : 'No'}\n- **Reason**: ${decisionReason}\n\n${h(lang, 'evidenceNotes')}\n\n${evidenceNotes}\n\n${h(lang, 'followUpActions')}\n\n${h(lang, 'required')}\n\n${requiredLines}\n\n${h(lang, 'optional')}\n\n${optionalLines}\n\n${attachmentSection}${h(lang, 'organization')}\n\n- **Suggested Tags**: ${tags}\n- **Suggested Folder**: ${folder}\n${inputProcessingStr}${h(lang, 'technicalMetadata')}\n\n${technicalMetadataStr}\n`;
+  return `---\nsource: "[[${yamlQuote(result.source.noteTitle)}]]"\nsource_path: "${yamlQuote(result.source.notePath)}"\ncontent_type: "${yamlQuote(result.contentType)}"\ninput_profile: "${yamlQuote(result.inputProfile)}"\nfetch_status: "${yamlQuote(result.fetchStatus)}"\ndomain_profile: "${yamlQuote(result.domainProfile)}"\ngenerated_at: "${yamlQuote(result.source.generatedAt)}"\nprovider: "${yamlQuote(result.provider)}"\nmodel: "${yamlQuote(result.model)}"\nsource_hash: "${yamlQuote(result.source.sourceHash)}"\nrecommended_action: "${yamlQuote(result.verdict.recommendedAction)}"\npriority: "${yamlQuote(result.verdict.priority)}"\nneeds_verification: ${String(result.flags.needsVerification)}\n${readingDecisionYaml}${extractionYaml}---\n\n# AI Review: ${result.source.noteTitle}\n\nSource: [[${result.source.noteTitle}]]\n\n**${TOP_LABELS.readingDecision[lang]}**: ${readingDecision}\n${reasonLine}\n${h(lang, 'keyTakeaways')}\n\n${bulletLines(keyPoints)}\n${comparisonTableSection}\n${takeawaysSection}${caveatsSection}${conceptCandidatesSection}---\n\n${h(lang, 'reviewDetails')}\n\n${h(lang, 'curationDecision')}\n\n- **Recommended Action**: ${toTitleCase(result.verdict.recommendedAction)}\n- **Priority**: ${toTitleCase(result.verdict.priority)}\n- **Reading Value**: ${toTitleCase(result.verdict.readingValueLabel)}\n- **Saving Value**: ${toTitleCase(result.verdict.savingValueLabel)}\n- **Reliability**: ${toTitleCase(result.verdict.reliabilityLabel)}\n- **Needs Verification**: ${result.flags.needsVerification ? 'Yes' : 'No'}\n${legacyActionReason ? `- **Reason**: ${legacyActionReason}\n` : ''}\n${h(lang, 'evidenceNotes')}\n\n${evidenceNotes}\n\n${followUpSection}${attachmentSection}${h(lang, 'organization')}\n\n- **Suggested Tags**: ${tags}\n- **Suggested Folder**: ${folder}\n${inputProcessingStr}${h(lang, 'technicalMetadata')}\n\n${technicalMetadataStr}\n`;
 }
 
 export async function writeReviewNote(app: App, sourceFile: TFile, result: ReviewResult): Promise<ReviewNoteWriteResult> {

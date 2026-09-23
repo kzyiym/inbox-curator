@@ -332,9 +332,59 @@ describe('mapToReviewResult', () => {
 
   it('still fails when critical required fields are missing', () => {
     const raw = getBaseRaw();
-    delete (raw as any).detailedSummary;
+    delete (raw as any).verdict;
 
     const res = mapToReviewResult(raw, context);
     expect(res.ok).toBe(false);
+  });
+
+  it('accepts a response without detailedSummary (field is now optional)', () => {
+    const raw = getBaseRaw();
+    delete (raw as any).detailedSummary;
+
+    const res = mapToReviewResult(raw, context);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.result.detailedSummary).toBe('');
+  });
+
+  it('parses readingDecision and readingDecisionReason', () => {
+    const raw = { ...getBaseRaw(), readingDecision: 'read_source', readingDecisionReason: 'The author walks through a concrete procedure.' };
+    const res = mapToReviewResult(raw, context);
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.result.readingDecision).toBe('read_source');
+      expect(res.result.readingDecisionReason).toBe('The author walks through a concrete procedure.');
+    }
+  });
+
+  it('normalizes readingDecision variants and leaves unknown values unassessed', () => {
+    const readLater = mapToReviewResult({ ...getBaseRaw(), readingDecision: 'Reference-When-Needed' }, context);
+    expect(readLater.ok).toBe(true);
+    if (readLater.ok) expect(readLater.result.readingDecision).toBe('reference_when_needed');
+
+    const unknown = mapToReviewResult({ ...getBaseRaw(), readingDecision: 'definitely_read' }, context);
+    expect(unknown.ok).toBe(true);
+    if (unknown.ok) expect(unknown.result.readingDecision).toBeUndefined();
+  });
+
+  it('parses takeaways and defaults to an empty array', () => {
+    const withTakeaways = mapToReviewResult({ ...getBaseRaw(), takeaways: ['Reusable step A', 'Reusable step B'] }, context);
+    expect(withTakeaways.ok).toBe(true);
+    if (withTakeaways.ok) expect(withTakeaways.result.takeaways).toEqual(['Reusable step A', 'Reusable step B']);
+
+    const withoutTakeaways = mapToReviewResult(getBaseRaw(), context);
+    expect(withoutTakeaways.ok).toBe(true);
+    if (withoutTakeaways.ok) expect(withoutTakeaways.result.takeaways).toEqual([]);
+  });
+
+  it('does not let readingDecision change recommendedAction', () => {
+    const raw = { ...getBaseRaw(), readingDecision: 'read_source' };
+    raw.verdict.recommendedAction = 'archive';
+    const res = mapToReviewResult(raw, context);
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.result.readingDecision).toBe('read_source');
+      expect(res.result.verdict.recommendedAction).toBe('archive');
+    }
   });
 });

@@ -17,6 +17,7 @@ export type ReviewInputProfile =
 export type ReviewReliabilityLabel = 'high' | 'medium' | 'low';
 export type ReviewValueLabel = 'high' | 'medium' | 'low';
 export type ReviewPriority = 'high' | 'medium' | 'low';
+export type ReviewReadingDecision = 'read_source' | 'summary_enough' | 'reference_when_needed' | 'hold';
 export type ReviewFetchStatus = 'not_applicable' | 'success' | 'failed';
 export type RecommendedAction =
   | 'keep_as_reference'
@@ -175,6 +176,9 @@ export interface ReviewResult {
   credibilityReview: string;
   practicalityReview: string;
   decisionReason?: string;
+  readingDecision?: ReviewReadingDecision;
+  readingDecisionReason?: string;
+  takeaways?: string[];
   retentionReasons?: string[];
   evidenceBasis?: string[];
   structuredSummary?: StructuredSummary;

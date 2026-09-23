@@ -111,14 +111,15 @@ export const en = {
   'settings.reviewMode.simple': 'Auto-sort',
   'settings.reviewMode.safe': 'Review only',
   'settings.customReviewPrompt.label': 'Additional review instructions',
-  'settings.customReviewPrompt.desc': 'Enter optional instructions that should be considered during AI review. Output format, safety constraints, and auto-execution rules cannot be overridden.',
-  'settings.customReviewPrompt.placeholder': 'Example: Be stricter with low-value articles and prefer move suggestions over delete suggestions.',
+  'settings.customReviewPrompt.desc': 'Enter optional instructions that should be considered during AI review. You can also list your interests or current tasks; they are used mainly for the reading decision. Output format, safety constraints, and auto-execution rules cannot be overridden.',
+  'settings.customReviewPrompt.placeholder': 'Example: Interests: local LLMs, accessibility. Current task: redesigning my note workflow.',
   'settings.customReviewPrompt.truncated': 'Additional review instructions were shortened to {{maxLength}} characters.',
   'settings.customReviewPrompt.showExamples': 'Show examples',
   'settings.customReviewPrompt.examplesLabel': 'Examples:',
   'settings.customReviewPrompt.exampleStrict': 'Be stricter with low-value articles.',
   'settings.customReviewPrompt.exampleMove': 'Prefer move suggestions over delete suggestions.',
   'settings.customReviewPrompt.exampleTechnical': 'For technical articles, focus on practical implementation value.',
+  'settings.customReviewPrompt.exampleInterests': 'Interests: local LLMs, accessibility. Current task: redesigning my note workflow.',
   
   'settings.openAiTokenLimitParam.label': 'Output token limit parameter',
   'settings.openAiTokenLimitParam.desc': 'Controls how the output token limit is sent to OpenAI-compatible APIs. Auto-detect is recommended. Some models reject max_tokens and require max_completion_tokens; some local providers work best with no token limit parameter.',
@@ -285,6 +286,7 @@ export const en = {
 
   // Errors
   'error.imageNotSupported': 'The selected model does not support image input. Turn off "Read Images" in Settings > Attachments & Media, or switch to a multimodal model that supports image input.',
+  'error.inputInsufficient': 'Skipped AI review: the note has no readable body content, or the URL content could not be fetched. No API call was made.',
 
   // Collection Review
   'settings.collectionReview.title': 'Collection Review',

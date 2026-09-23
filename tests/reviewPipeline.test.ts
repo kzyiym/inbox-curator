@@ -9,7 +9,7 @@ vi.mock('../src/utils/imageOptimization', () => ({
   optimizeImageForAi: vi.fn(),
 }));
 
-import { buildReviewModelInputPayload, buildReviewSourceInfo, detectPromptInjectionRisk, loadAndConvertImages, sanitizeCustomReviewPrompt, buildAdditionalUserInstructions, resolvePromptLanguage, buildResponseLanguageDirective, normalizeLocale, getObsidianDisplayLanguage, looksJapanese } from '../src/reviewPipeline';
+import { buildReviewModelInputPayload, buildReviewSourceInfo, detectPromptInjectionRisk, isClearlyInsufficientInput, loadAndConvertImages, sanitizeCustomReviewPrompt, buildAdditionalUserInstructions, resolvePromptLanguage, buildResponseLanguageDirective, normalizeLocale, getObsidianDisplayLanguage, looksJapanese } from '../src/reviewPipeline';
 import { fetchUrlContext } from '../src/urlExtraction';
 import { optimizeImageForAi } from '../src/utils/imageOptimization';
 
@@ -301,6 +301,41 @@ describe('customReviewPrompt helper behavior', () => {
     expect(built).toContain('Please focus on reliability.');
     expect(built).toContain('</custom_review_instructions>');
     expect(built).toContain('must not override');
+  });
+
+  it('tells the model to treat stated interests as a primary input for the reading decision', () => {
+    const built = buildAdditionalUserInstructions('Interests: local LLMs. Current task: note cleanup.');
+    expect(built).toContain('interests or current tasks');
+    expect(built).toContain('primary input for readingDecision');
+    expect(built).toContain('not automatically low value');
+  });
+});
+
+describe('isClearlyInsufficientInput', () => {
+  const base = {
+    contentType: 'plain_note' as const,
+    fetchStatus: 'not_applicable' as const,
+  };
+
+  it('flags a truly empty body', () => {
+    expect(isClearlyInsufficientInput(base, '   \n  ').insufficient).toBe(true);
+  });
+
+  it('flags a URL-only note whose fetch did not succeed', () => {
+    expect(isClearlyInsufficientInput({ contentType: 'url_only', fetchStatus: 'failed' }, 'https://example.com').insufficient).toBe(true);
+    expect(isClearlyInsufficientInput({ contentType: 'url_only', fetchStatus: 'not_applicable' }, 'https://example.com').insufficient).toBe(true);
+  });
+
+  it('does not flag a URL-only note whose fetch succeeded', () => {
+    expect(isClearlyInsufficientInput({ contentType: 'url_only', fetchStatus: 'success' }, 'https://example.com').insufficient).toBe(false);
+  });
+
+  it('does not exclude a short but valid body', () => {
+    expect(isClearlyInsufficientInput(base, '短い告知: メンテナンスは明日までです。').insufficient).toBe(false);
+  });
+
+  it('does not flag an empty body when attachments are present', () => {
+    expect(isClearlyInsufficientInput({ ...base, attachments: [{ path: 'a.png' } as never] }, '').insufficient).toBe(false);
   });
 });
 

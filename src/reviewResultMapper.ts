@@ -9,6 +9,7 @@ import type {
   ReviewFetchStatus,
   ReviewInputProfile,
   ReviewPriority,
+  ReviewReadingDecision,
   ReviewReliabilityLabel,
   ReviewResult,
   ReviewSourceInfo,
@@ -38,6 +39,12 @@ const REVIEW_RELIABILITY_LABELS: readonly ReviewReliabilityLabel[] = [
   'low',
 ];
 const REVIEW_PRIORITIES: readonly ReviewPriority[] = ['high', 'medium', 'low'];
+const REVIEW_READING_DECISIONS: readonly ReviewReadingDecision[] = [
+  'read_source',
+  'summary_enough',
+  'reference_when_needed',
+  'hold',
+];
 const RECOMMENDED_ACTIONS: readonly RecommendedAction[] = [
   'keep_as_reference',
   'read_later',
@@ -89,6 +96,14 @@ function pickEnumValue<T extends string>(value: unknown, allowed: readonly T[], 
   }
   const clean = value.trim().toLowerCase();
   return allowed.includes(clean as T) ? (clean as T) : fallback;
+}
+
+function pickOptionalEnumValue<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const clean = value.trim().toLowerCase().replace(/[-\s]/g, '_');
+  return allowed.includes(clean as T) ? (clean as T) : undefined;
 }
 
 function normalizeStringArray(value: unknown, maxChars = 1000): string[] {
@@ -261,8 +276,7 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
   if (
     raw.verdict === undefined || raw.verdict === null ||
     raw.scores === undefined || raw.scores === null ||
-    (raw.summary === undefined && raw.shortSummary === undefined) ||
-    raw.detailedSummary === undefined || raw.detailedSummary === null
+    (raw.summary === undefined && raw.shortSummary === undefined)
   ) {
     return { ok: false, error: 'AI response is missing critical required fields.' };
   }
@@ -317,6 +331,11 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
     credibilityReview: truncateString(pickString(raw.credibilityReview, ''), 10000),
     practicalityReview: truncateString(pickString(raw.practicalityReview, ''), 10000),
     decisionReason: raw.decisionReason !== undefined ? truncateString(pickString(raw.decisionReason, ''), 1000) : undefined,
+    readingDecision: pickOptionalEnumValue(raw.readingDecision, REVIEW_READING_DECISIONS),
+    readingDecisionReason: raw.readingDecisionReason !== undefined
+      ? truncateString(pickString(raw.readingDecisionReason, ''), 1000)
+      : undefined,
+    takeaways: normalizeStringArray(raw.takeaways, 1000),
     retentionReasons: normalizeStringArray(raw.retentionReasons, 1000),
     evidenceBasis,
     structuredSummary: normalizeStructuredSummary(raw.structuredSummary),

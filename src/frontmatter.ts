@@ -55,6 +55,11 @@ export async function upsertReviewFrontmatter(
     frontmatter.ai_review_practicality = result.scores.practicality;
     frontmatter.ai_review_priority = result.verdict.priority;
     frontmatter.ai_review_recommended_action = result.verdict.recommendedAction;
+    if (result.readingDecision) {
+      frontmatter.ai_review_reading_decision = result.readingDecision;
+    } else {
+      delete frontmatter.ai_review_reading_decision;
+    }
     frontmatter.ai_review_reliability_label = result.verdict.reliabilityLabel;
     if (confidence) {
       frontmatter.ai_review_confidence = confidence;

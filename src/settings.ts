@@ -1531,6 +1531,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
     examples.createEl('div', { text: `- ${t('settings.customReviewPrompt.exampleStrict')}` });
     examples.createEl('div', { text: `- ${t('settings.customReviewPrompt.exampleMove')}` });
     examples.createEl('div', { text: `- ${t('settings.customReviewPrompt.exampleTechnical')}` });
+    examples.createEl('div', { text: `- ${t('settings.customReviewPrompt.exampleInterests')}` });
 
     const counter = footer.createEl('span', {
       cls: 'inbox-curator-custom-prompt-counter',

@@ -27,6 +27,12 @@ const REVIEW_FETCH_STATUSES = ['not_applicable', 'success', 'failed'] as const;
 const REVIEW_VALUE_LABELS = ['high', 'medium', 'low'] as const;
 const REVIEW_RELIABILITY_LABELS = ['high', 'medium', 'low'] as const;
 const REVIEW_PRIORITIES = ['high', 'medium', 'low'] as const;
+const REVIEW_READING_DECISIONS = [
+  'read_source',
+  'summary_enough',
+  'reference_when_needed',
+  'hold',
+] as const;
 const RECOMMENDED_ACTIONS = [
   'keep_as_reference',
   'read_later',
@@ -212,6 +218,18 @@ export function validateReviewResult(value: unknown): ReviewResultValidationResu
 
   if (value.decisionReason !== undefined && typeof value.decisionReason !== 'string') {
     return { ok: false, error: 'ReviewResult.decisionReason must be a string when present.' };
+  }
+
+  if (value.readingDecision !== undefined && !includesEnum(REVIEW_READING_DECISIONS, value.readingDecision)) {
+    return { ok: false, error: 'ReviewResult.readingDecision is invalid.' };
+  }
+
+  if (value.readingDecisionReason !== undefined && typeof value.readingDecisionReason !== 'string') {
+    return { ok: false, error: 'ReviewResult.readingDecisionReason must be a string when present.' };
+  }
+
+  if (value.takeaways !== undefined && !isStringArray(value.takeaways)) {
+    return { ok: false, error: 'ReviewResult.takeaways must be a string array when present.' };
   }
 
   if (value.retentionReasons !== undefined && !isStringArray(value.retentionReasons)) {

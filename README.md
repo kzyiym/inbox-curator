@@ -52,6 +52,7 @@ For details, see [Auto-sort Safety](#auto-sort-safety) below.
 ## Features
 
 - **AI Note Review**: Sends note content to a configurable AI provider and receives structured JSON verdicts with scores, summaries, credibility assessments, tags, and action recommendations.
+- **Reading Decision**: Each review starts with a reading decision — `Read the source`, `Summary is enough`, `Reference when needed`, or `Hold` — with a one-sentence, article-specific reason. This is separate from the filing action and does not change auto-sort behavior.
 - **Batch Processing**: Processes multiple files sequentially with configurable limits and rate limiting to prevent API token exhaustion.
 - **URL Fetching & Article Extraction**: Detects URL-only notes, fetches HTML metadata (og:title, description), and extracts readable article text.
 - **Attachment Awareness**: Detects linked attachments (images, audio, PDF, etc.). Supports sending images to multimodal models (OpenAI, Gemini, Anthropic) for visual review (up to 3 images, max 1MB payload per image). Features optional temporary in-memory resizing/compression for larger source files (up to 10MB) to fit within this 1MB limit without modifying original Vault files.
@@ -231,7 +232,7 @@ Use `Open action review panel` to see every watched-folder note that carries a p
 | Setting | Default | Description |
 |---|---|---|
 | Review Mode | `Advanced` | Advanced (structured JSON) / Auto-sort (plain-text) / Review only (no actions) |
-| Custom Review Prompt | *(empty)* | Up to 3000 characters of additional AI instructions |
+| Custom Review Prompt | *(empty)* | Up to 3000 characters of additional AI instructions. You can also list your interests or current tasks; they are used mainly for the reading decision. |
 
 ### Context Budget
 | Setting | Default | Description |
@@ -505,7 +506,11 @@ Collection review analyzes a group of notes together, identifying themes, patter
 
 ### Can I customize the review prompt?
 
-Yes. You can add up to 3,000 characters of custom instructions in `Settings → Review Behavior → Additional Review Instructions`. This lets you tailor the AI review to your specific needs (e.g., focus on technical accuracy, prioritize certain topics, add domain-specific criteria).
+Yes. You can add up to 3,000 characters of custom instructions in `Settings → Review Behavior → Additional Review Instructions`. This lets you tailor the AI review to your specific needs (e.g., focus on technical accuracy, prioritize certain topics, add domain-specific criteria). You can also list your interests or current tasks; the AI uses them mainly for the reading decision, and an article outside those interests is not automatically treated as low value.
+
+### Why was a note skipped without an AI review?
+
+If a note has no readable body content, or it is a URL-only note whose content could not be fetched, the plugin skips the AI call entirely and does not sort the note. This avoids spending API calls on empty input. Short but valid notes (brief announcements, short news) are still reviewed. Skipped notes are logged, and a notice is shown.
 
 ### How does deduplication work?
 

@@ -111,14 +111,15 @@ export const ja = {
   'settings.reviewMode.simple': 'Auto-sort',
   'settings.reviewMode.safe': 'Review only',
   'settings.customReviewPrompt.label': '追加レビュー指示',
-  'settings.customReviewPrompt.desc': 'AIレビュー時に追加で考慮してほしい方針を入力します。出力形式、安全条件、自動実行ルールは上書きできません。',
-  'settings.customReviewPrompt.placeholder': '例：低品質な記事は厳しめに評価し、削除よりも移動提案を優先してください。',
+  'settings.customReviewPrompt.desc': 'AIレビュー時に追加で考慮してほしい方針を入力します。関心テーマや進行中の課題を短く書くと、原文を読むかの判断に反映されます。出力形式、安全条件、自動実行ルールは上書きできません。',
+  'settings.customReviewPrompt.placeholder': '例：関心テーマはローカルLLMとアクセシビリティ。進行中の課題はノート整理の見直し。',
   'settings.customReviewPrompt.truncated': '追加レビュー指示は{{maxLength}}文字以内に切り詰めて保存しました。',
   'settings.customReviewPrompt.showExamples': '入力例を表示',
   'settings.customReviewPrompt.examplesLabel': '例：',
   'settings.customReviewPrompt.exampleStrict': '低品質な記事は厳しめに評価してください。',
   'settings.customReviewPrompt.exampleMove': '削除よりも移動提案を優先してください。',
   'settings.customReviewPrompt.exampleTechnical': '技術記事は、実装に使えるかを重視してください。',
+  'settings.customReviewPrompt.exampleInterests': '関心：ローカルLLM、アクセシビリティ。進行中の課題：ノート整理の見直し。',
   
   'settings.openAiTokenLimitParam.label': '出力上限パラメータ',
   'settings.openAiTokenLimitParam.desc': 'OpenAI互換APIへ出力上限をどのパラメータ名で送るかを指定します。通常は自動検出を推奨します。一部モデルは max_tokens を拒否し max_completion_tokens を要求し、ローカルプロバイダでは送信しない方が安定する場合があります。',
@@ -285,6 +286,7 @@ export const ja = {
 
   // Errors
   'error.imageNotSupported': '選択されたモデルは画像入力をサポートしていません。「設定 > 添付ファイルとメディア」で「画像の読み込み」をオフにするか、画像入力に対応したマルチモーダルモデルに変更してください。',
+  'error.inputInsufficient': 'AIレビューをスキップしました。本文が空、またはURLの本文取得に失敗したためです。APIは呼び出していません。',
 
   // Collection Review
   'settings.collectionReview.title': 'コレクションレビュー',

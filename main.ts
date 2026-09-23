@@ -753,6 +753,9 @@ export default class InboxCuratorPlugin extends Plugin {
         if (result.errorCode === 'image_not_supported') {
           new Notice(t('error.imageNotSupported'));
         }
+        if (result.errorCode === 'insufficient_input') {
+          new Notice(t('error.inputInsufficient'));
+        }
         return {
           status: 'failed',
           error: result.error,
