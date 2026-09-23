@@ -37,6 +37,8 @@ pnpm-debug.log*
 !SECURITY.md
 !CHANGELOG.md
 !DEPENDENCY-AUDIT.md
+!RELEASING.md
+!release-notes/*.md
 
 docs/
 site/

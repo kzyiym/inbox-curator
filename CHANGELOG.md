@@ -34,28 +34,21 @@
 
 - Replace `localStorage.getItem("language")` with Obsidian `getLanguage()` API.
 - Add GitHub artifact attestations to release workflow for supply-chain transparency.
-- Replace deprecated `setWarning()` with `setDestructive()` in settings.
 - Fix Promise-returned-where-void-expected in `onClick` handlers; add missing error handling.
 - Add missing i18n keys for API key deletion and log clear failures.
+- Keep `setWarning()` for the API-key delete button: `setDestructive()` requires a newer min App version than `1.11.4`, so the earlier switch was reverted.
 
 ## 1.0.2
 
-- Add `match-obsidian` prompt language option (follow Obsidian UI language).
-- Fix Obsidian API compatibility and code quality issues (`setHeading`, manifest fields).
-- Update min App version to `1.11.4`.
+- Update min App version to `1.11.4` (required for the SecretStorage / trashFile APIs).
+- Remove unknown `icon` field from `manifest.json`.
+- Replace raw `h4`/`h5` heading elements with `Setting#setHeading()` in the settings UI.
 
 ## 1.0.1
 
-- Collection review: cross-note analysis for selected notes and folders.
-- Auto-sort undo: `Undo last auto-sort run` command.
-- Content filtering: context budget management with priority-based trimming.
-- Operation logging: structured JSONL logs with daily rotation.
-- Error logging: rotating error logs in `.inbox-curator/logs/`.
-- i18n: full English and Japanese UI.
-- Image optimization: in-memory resize/compress for images up to 10 MB.
-- Prompt injection detection: automatic scanning with configurable blocking.
-- Provider error classifier: structured error messages for API issues.
-- Comprehensive test suite (31 test files).
+- Add `match-obsidian` prompt language option (follow Obsidian UI language) and improve note-language detection.
+- Resolve Obsidian API compatibility and code-quality issues: use `FileManager.trashFile()` for delete candidates so Obsidian's deletion preference is respected, improve popout-window compatibility, tighten typing around provider requests / PDF extraction / Base64 masking, and clarify fire-and-forget logging with an explicit `void`.
+- Add repository social preview image.
 
 ## 1.0.0
 
@@ -73,4 +66,14 @@
 - Custom review prompt support.
 - Context budget presets (small / standard / large / custom).
 - OpenAI-compatible token limit auto-detection.
-- Desktop-only (Obsidian v1.11.4+).
+- Collection review: cross-note analysis for selected notes and folders.
+- Auto-sort undo: `Undo last auto-sort run` command.
+- Content filtering: context budget management with priority-based trimming.
+- Operation logging: structured JSONL logs with daily rotation.
+- Error logging: rotating error logs in `.inbox-curator/logs/`.
+- i18n: full English and Japanese UI.
+- Image optimization: in-memory resize/compress for images up to 10 MB.
+- Prompt injection detection: automatic scanning with configurable blocking.
+- Provider error classifier: structured error messages for API issues.
+- Comprehensive test suite (31 test files).
+- Desktop-only (Obsidian v1.5.0+ at release; raised to v1.11.4 in 1.0.2).

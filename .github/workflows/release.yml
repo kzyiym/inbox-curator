@@ -41,12 +41,20 @@ jobs:
       - name: Build plugin
         run: pnpm build
 
-      - name: Package Release
+      - name: Resolve release notes
         id: package
         run: |
           # The release tag name (e.g. 0.1.0 or v0.1.0)
           TAG_NAME=${GITHUB_REF#refs/tags/}
+          # Release notes file uses the version without a leading "v"
+          FILE_VERSION=${TAG_NAME#v}
           echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "file_version=$FILE_VERSION" >> $GITHUB_OUTPUT
+          if [ -f "release-notes/${FILE_VERSION}.md" ]; then
+            echo "has_notes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_notes=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Attest build artifacts
         uses: actions/attest@v4
@@ -56,11 +64,29 @@ jobs:
             manifest.json
             styles.css
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (curated notes)
+        if: steps.package.outputs.has_notes == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.package.outputs.tag }}
           name: Release ${{ steps.package.outputs.tag }}
+          body_path: release-notes/${{ steps.package.outputs.file_version }}.md
+          draft: false
+          prerelease: false
+          files: |
+            main.js
+            manifest.json
+            styles.css
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release (generated notes)
+        if: steps.package.outputs.has_notes != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.package.outputs.tag }}
+          name: Release ${{ steps.package.outputs.tag }}
+          generate_release_notes: true
           draft: false
           prerelease: false
           files: |
