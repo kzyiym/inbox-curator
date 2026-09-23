@@ -21,6 +21,18 @@ export function registerInboxCuratorCommands(plugin: InboxCuratorPlugin): void {
   });
 
   plugin.addCommand({
+    id: 'review-current-note-diagnostics',
+    name: t('commands.reviewCurrentNoteDiagnostics'),
+    editorCheckCallback: (checking, _editor, view) => {
+      const file = view?.file;
+      if (checking) {
+        return file instanceof TFile && file.extension === 'md' && !file.path.endsWith('.ai-review.md');
+      }
+      void plugin.reviewActiveFileWithDiagnostics();
+    },
+  });
+
+  plugin.addCommand({
     id: 'process-watched-folder',
     name: t('commands.processWatchedFolder'),
     callback: async () => {

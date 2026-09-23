@@ -167,6 +167,7 @@ export const en = {
 
   // Commands
   'commands.reviewCurrentNote': 'Review current note',
+  'commands.reviewCurrentNoteDiagnostics': 'Review current note (diagnostic capture)',
   'commands.processWatchedFolder': 'Process watched folder',
   'commands.executeProposedAction': 'Execute proposed action for current note',
   'commands.cleanupProcessingMarkers': 'Clean up processing file name markers',
@@ -213,6 +214,9 @@ export const en = {
 
   // Notices
   'notice.reviewingCurrentNote': 'Inbox Curator: Reviewing current note...',
+  'notice.diagnosticReviewing': 'Inbox Curator: Running diagnostic review...',
+  'notice.diagnosticSaved': 'Inbox Curator: Diagnostic saved to {{path}}',
+  'notice.diagnosticNoCapture': 'Inbox Curator: Diagnostic capture produced no data.',
   'notice.reviewAlreadyInProgress': 'Inbox Curator: Review already in progress',
   'notice.reviewCompleted': 'Inbox Curator: Review completed',
   'notice.reviewFailed': 'Inbox Curator: Review failed',

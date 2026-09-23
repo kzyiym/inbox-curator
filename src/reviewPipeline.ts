@@ -56,6 +56,7 @@ export interface ReviewPipelineOptions {
   maxInputContentChars: number;
   maxOutputTokens: number;
   openAiTokenLimitParam?: 'max_tokens' | 'max_completion_tokens' | 'none';
+  diagnosticCapture?: boolean;
 }
 
 export interface ReviewModelInputPayload {
@@ -94,11 +95,48 @@ export interface ReviewModelInputPayload {
 export interface ReviewPipelineSuccess {
   ok: true;
   reviewResult: ReviewResult;
-  writeResult: ReviewNoteWriteResult;
+  writeResult?: ReviewNoteWriteResult;
   modelInput: ReviewModelInputPayload;
   parseStatus?: import('./reviewNormalizer').ReviewParseStatus;
   confidence?: import('./reviewNormalizer').ReviewConfidence;
   hasPromptInjectionSignals?: boolean;
+  diagnostic?: ReviewDiagnosticCapture;
+}
+
+export interface ReviewDiagnosticCapture {
+  capturedAt: string;
+  operationId?: string;
+  notePath: string;
+  noteTitle: string;
+  provider: string;
+  model: string;
+  reviewMode: string;
+  promptLanguage: string;
+  contentType: string;
+  inputProfile: string;
+  fetchStatus: string;
+  inputReductionInfo?: InputContentReductionInfo;
+  customReviewPrompt?: string;
+  imageAttachmentCount: number;
+  systemPrompt: string;
+  userPrompt: string;
+  rawResponseText: string;
+  normalized: {
+    summary: string[];
+    readingDecision?: string;
+    readingDecisionReason?: string;
+    takeaways: string[];
+    recommendedAction: string;
+    priority: string;
+    credibilityReview: string;
+  };
+}
+
+export interface ReviewDiagnosticPrompts {
+  system: string;
+  user: string;
+  rawText: string;
+  imageAttachmentCount: number;
 }
 
 export interface ReviewPipelineFailure {
@@ -1105,7 +1143,11 @@ export async function loadAndConvertImages(
   return loaded;
 }
 
-async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayload): Promise<ReviewRawResponse> {
+async function getReviewRawResponse(
+  app: App,
+  modelInput: ReviewModelInputPayload,
+  capture?: (data: ReviewDiagnosticPrompts) => void,
+): Promise<ReviewRawResponse> {
   const apiKey = await getApiKey(app, modelInput.provider);
   if (!apiKey) {
     throw new ReviewPipelineError('API key is not saved in SecretStorage.', {
@@ -1117,9 +1159,11 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
   const prompt = buildReviewPrompt(modelInput);
 
   let userContent: import('./providerClient').ProviderChatMessageContent = prompt.user;
+  let imageAttachmentCount = 0;
   if (modelInput.readImages && Array.isArray(modelInput.attachments)) {
     const attachments = modelInput.attachments;
     const images = await loadAndConvertImages(app, attachments, modelInput.optimizeImagesForAi);
+    imageAttachmentCount = images.length;
     for (const img of attachments.filter((a) => a.kind === 'image' && a.exists)) {
       if (img.skipReason && img.skipReason !== 'decoding or reading failed') {
         void logOperation(app, {
@@ -1232,6 +1276,15 @@ async function getReviewRawResponse(app: App, modelInput: ReviewModelInputPayloa
     statusCode: response.status,
   });
 
+  if (capture) {
+    capture({
+      system: prompt.system,
+      user: prompt.user,
+      rawText: response.content,
+      imageAttachmentCount,
+    });
+  }
+
   if (modelInput.reviewMode === 'simple' || modelInput.reviewMode === 'safe') {
     return { _rawText: response.content };
   }
@@ -1308,8 +1361,13 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
 
   const detectedPromptInjection = detectPromptInjectionRisk(modelInput);
 
+  let diagnosticCapture: ReviewDiagnosticPrompts | undefined;
+  const capture = options.diagnosticCapture
+    ? (data: ReviewDiagnosticPrompts) => { diagnosticCapture = data; }
+    : undefined;
+
   try {
-    const rawReview = await getReviewRawResponse(app, modelInput);
+    const rawReview = await getReviewRawResponse(app, modelInput, capture);
     if (isUnloaded()) {
       return { ok: false, error: 'Plugin unloaded', retryable: false, stage: 'unknown' };
     }
@@ -1366,6 +1424,63 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
 
     if (isUnloaded()) {
       return { ok: false, error: 'Plugin unloaded', retryable: false, stage: 'unknown' };
+    }
+
+    if (options.diagnosticCapture) {
+      const diagnostic: ReviewDiagnosticCapture = {
+        capturedAt: new Date().toISOString(),
+        operationId: options.operationId,
+        notePath: source.notePath,
+        noteTitle: source.noteTitle,
+        provider: modelInput.provider,
+        model: modelInput.model,
+        reviewMode: options.reviewMode || 'standard',
+        promptLanguage: modelInput.promptLanguage,
+        contentType: modelInput.contentType,
+        inputProfile: modelInput.inputProfile,
+        fetchStatus: modelInput.fetchStatus,
+        ...(modelInput.inputReductionInfo ? { inputReductionInfo: modelInput.inputReductionInfo } : {}),
+        ...(modelInput.customReviewPrompt ? { customReviewPrompt: modelInput.customReviewPrompt } : {}),
+        imageAttachmentCount: diagnosticCapture?.imageAttachmentCount ?? 0,
+        systemPrompt: diagnosticCapture?.system ?? '',
+        userPrompt: diagnosticCapture?.user ?? '',
+        rawResponseText: diagnosticCapture?.rawText ?? '',
+        normalized: {
+          summary: mappedResult.summary,
+          ...(mappedResult.readingDecision ? { readingDecision: mappedResult.readingDecision } : {}),
+          ...(mappedResult.readingDecisionReason ? { readingDecisionReason: mappedResult.readingDecisionReason } : {}),
+          takeaways: mappedResult.takeaways ?? [],
+          recommendedAction: mappedResult.verdict.recommendedAction,
+          priority: mappedResult.verdict.priority,
+          credibilityReview: mappedResult.credibilityReview,
+        },
+      };
+
+      void logOperation(app, {
+        timestamp: new Date().toISOString(),
+        level: 'INFO',
+        event: 'review_diagnostic_captured',
+        operationId: options.operationId,
+        notePath: file.path,
+        provider: modelInput.provider,
+        model: modelInput.model,
+        details: {
+          reviewMode: options.reviewMode || 'standard',
+          truncated: modelInput.inputReductionInfo?.wasTruncated ?? null,
+          originalLength: modelInput.inputReductionInfo?.originalCharCount ?? null,
+          finalLength: modelInput.inputReductionInfo?.finalCharCount ?? null,
+          rawResponseLength: diagnosticCapture?.rawText.length ?? 0,
+        } as Record<string, string | number | boolean | null>,
+      });
+
+      return {
+        ok: true,
+        reviewResult: mappedResult,
+        modelInput,
+        diagnostic,
+        ...(parseStatus ? { parseStatus } : {}),
+        ...(confidence ? { confidence } : {}),
+      };
     }
 
     const sourceStillMatches = (content: string): boolean =>

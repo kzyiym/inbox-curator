@@ -18,6 +18,7 @@ Thumbs.db
 
 .obsidian/
 .vscode/
+.inbox-curator/
 
 .env
 .env.*

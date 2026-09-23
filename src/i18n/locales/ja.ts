@@ -167,6 +167,7 @@ export const ja = {
 
   // Commands
   'commands.reviewCurrentNote': 'アクティブノートをレビュー',
+  'commands.reviewCurrentNoteDiagnostics': 'アクティブノートをレビュー（診断キャプチャ）',
   'commands.processWatchedFolder': '監視フォルダの一括処理を実行',
   'commands.executeProposedAction': '現在のノートの推奨アクションを実行',
   'commands.cleanupProcessingMarkers': '処理中マーカーのクリーンアップ',
@@ -213,6 +214,9 @@ export const ja = {
 
   // Notices
   'notice.reviewingCurrentNote': 'Inbox Curator: アクティブノートをレビュー中...',
+  'notice.diagnosticReviewing': 'Inbox Curator: 診断レビューを実行中...',
+  'notice.diagnosticSaved': 'Inbox Curator: 診断結果を保存しました: {{path}}',
+  'notice.diagnosticNoCapture': 'Inbox Curator: 診断キャプチャのデータがありません。',
   'notice.reviewAlreadyInProgress': 'Inbox Curator: すでにレビュー処理が実行中です',
   'notice.reviewCompleted': 'Inbox Curator: レビューが完了しました',
   'notice.reviewFailed': 'Inbox Curator: レビューに失敗しました',

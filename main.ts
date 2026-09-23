@@ -1,5 +1,6 @@
 import { getLanguage, MarkdownView, Notice, Plugin, TFile, TFolder, normalizePath } from 'obsidian';
 import { registerInboxCuratorCommands } from './src/commands';
+import { writeReviewDiagnostic } from './src/utils/reviewDiagnostics';
 import { readAiReviewSourceHash } from './src/frontmatter';
 import { ProcessingNoticeManager } from './src/processingNotice';
 import { createReviewJob, generateRunId } from './src/queue/job';
@@ -811,6 +812,7 @@ export default class InboxCuratorPlugin extends Plugin {
         (job.source === 'manual-folder' || job.source === 'auto-create' || job.source === 'auto-modify' || job.source === 'polling')
       ) {
         const actionSourcePath = originalPath ?? file.path;
+        const reviewNotePath = result.writeResult?.outputPath ?? result.reviewResult.source.outputPath;
         const currentContent = await this.app.vault.read(file);
         const currentSource = buildReviewSourceInfo(
           file,
@@ -854,7 +856,7 @@ export default class InboxCuratorPlugin extends Plugin {
         }
 
         try {
-          await appendAutoExecuteResult(this.app, result.writeResult.outputPath, {
+          await appendAutoExecuteResult(this.app, reviewNotePath, {
             recommendedAction: action,
             executed: actionResult.status === 'executed',
             status: actionResult.status,
@@ -866,7 +868,7 @@ export default class InboxCuratorPlugin extends Plugin {
           const appendErrorMessage = appendErr instanceof Error ? appendErr.message : String(appendErr);
           void logError(this.app, 'WARN', 'Inbox Curator: Failed to append auto-execute result to review log', {
             error: appendErrorMessage,
-            reviewNotePath: result.writeResult.outputPath,
+            reviewNotePath,
           });
           void logOperation(this.app, {
             timestamp: new Date().toISOString(),
@@ -874,7 +876,7 @@ export default class InboxCuratorPlugin extends Plugin {
             event: 'auto_execute_result_append_failed',
             operationId: job.operationId,
             notePath: file.path,
-            reviewNotePath: result.writeResult.outputPath,
+            reviewNotePath,
             message: appendErrorMessage,
           });
         }
@@ -1376,6 +1378,58 @@ export default class InboxCuratorPlugin extends Plugin {
     }
 
     await this.reviewFile(file);
+  }
+
+  async reviewActiveFileWithDiagnostics(): Promise<void> {
+    const file = this.getActiveMarkdownFile();
+    if (!file) {
+      new Notice(t('notice.openMarkdownNoteFirst'));
+      return;
+    }
+
+    if (file.path.endsWith('.ai-review.md')) {
+      new Notice(t('notice.cannotReviewAiReview'));
+      return;
+    }
+
+    if (!this.tryBeginProcessing(t('notice.diagnosticReviewing'))) {
+      return;
+    }
+
+    this.updateProcessingStatus(t('notice.diagnosticReviewing'));
+
+    try {
+      const pipelineOptions = this.getReviewPipelineOptions();
+      pipelineOptions.operationId = `diag-${Date.now()}`;
+      pipelineOptions.diagnosticCapture = true;
+
+      const result = await runReviewPipeline(this.app, file, pipelineOptions);
+      if (result.ok === false) {
+        void logError(this.app, 'ERROR', 'Inbox Curator: Diagnostic review failed', {
+          notePath: file.path,
+          stage: result.stage,
+          error: result.error ?? 'Unknown error',
+        });
+        new Notice(this.buildShortReviewError(result.error ?? 'Diagnostic review did not complete'));
+        return;
+      }
+
+      if (!result.diagnostic) {
+        new Notice(t('notice.diagnosticNoCapture'));
+        return;
+      }
+
+      const path = await writeReviewDiagnostic(this.app, result.diagnostic);
+      new Notice(t('notice.diagnosticSaved', { path }));
+    } catch (error) {
+      void logError(this.app, 'ERROR', 'Inbox Curator: Diagnostic review crashed', {
+        notePath: file.path,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      new Notice(this.buildShortReviewError(error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      this.finishProcessing();
+    }
   }
 
   async reviewFile(file: TFile): Promise<void> {

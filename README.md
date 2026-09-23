@@ -512,6 +512,10 @@ Yes. You can add up to 3,000 characters of custom instructions in `Settings → 
 
 If a note has no readable body content, or it is a URL-only note whose content could not be fetched, the plugin skips the AI call entirely and does not sort the note. This avoids spending API calls on empty input. Short but valid notes (brief announcements, short news) are still reviewed. Skipped notes are logged, and a notice is shown.
 
+### How do I capture a diagnostic of a single review?
+
+Run `Inbox Curator: Review current note (diagnostic capture)` on the active note. This performs one review request and saves the exact system/user prompt, the raw AI response, and the normalized result to a local diagnostic file. It does **not** write or overwrite a review note, does not update the source note, and does not run any auto-sort action. Files are written to `.inbox-curator/diagnostics/` in your vault and are git-ignored. To remove them, delete that folder (or the individual `review-*.json` files).
+
 ### How does deduplication work?
 
 After a review, the plugin writes an `ai_review_source_hash` to the note's frontmatter. On subsequent scans, if the note content hasn't changed (hash matches), the note is skipped. This prevents re-reviewing unchanged notes.
