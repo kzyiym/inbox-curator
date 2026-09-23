@@ -628,6 +628,7 @@ function buildAttachmentPromptSection(modelInput: ReviewModelInputPayload, optio
 
 function buildMappingContext(source: ReviewSourceInfo, modelInput: ReviewModelInputPayload): {
   source: ReviewSourceInfo;
+  sourceContent: string;
   contentType: ReviewContentType;
   inputProfile: ReviewInputProfile;
   fetchStatus: ReviewFetchStatus;
@@ -644,6 +645,7 @@ function buildMappingContext(source: ReviewSourceInfo, modelInput: ReviewModelIn
 } {
   return {
     source,
+    sourceContent: modelInput.noteContent,
     contentType: modelInput.contentType,
     inputProfile: modelInput.inputProfile,
     fetchStatus: modelInput.fetchStatus,
@@ -805,6 +807,7 @@ function buildReviewPrompt(modelInput: ReviewModelInputPayload): { system: strin
       'structuredSummary.comparisonTable should be included only when the note actually contains a comparison structure worth preserving.',
       'structuredSummary.evidenceMentioned must only describe evidence, studies, or sources actually mentioned in the note. Do not invent support. If a formal citation is unclear, say so explicitly.',
       'evidenceBasis must classify the source type using one or more of: first_party_presentation (SpeakerDeck, conference slides), official_documentation (official docs), company_announcement (company blog/press), news_article (Impress/ITmedia/news), personal_blog (individual experience/opinion), community_article (Zenn/Qiita/community posts), secondary_source (cited or uncited), mixed_sources, unknown.',
+      'A journalist-written newspaper article remains news_article even when it quotes official documents or interviews. Classify the article itself, not just a source it cites.',
       'conceptCandidates is optional. Only include it when the content has clear, reusable concepts suitable for permanent note-making (e.g. architectural patterns, methodologies, design principles). Omit for news, pricing updates, spec changes, or ephemeral articles. Each item has a title (concept name, without brackets) and description (1 short phrase).',
       'deleteCandidate must be a suggestion only, not an instruction.',
       'suggestedFolder must be a category-style suggestion, not the note title or a folder that simply repeats the note name.',
@@ -820,6 +823,7 @@ function buildReviewPrompt(modelInput: ReviewModelInputPayload): { system: strin
        '- delete_candidate: Advertisement-heavy, thin content, duplicate, not worth keeping in vault. Content is too ephemeral or has no lasting value. Be conservative: only suggest when clearly low-value.',
        'Security/privacy incident news: default to archive. Only use keep_as_reference if the article includes official postmortem, technical root cause analysis, prevention measures, or implementation lessons. Ordinary breach/incident reporting is archive + needsVerification true + priority medium.',
        'CRITICAL: Most notes should be "archive". Reserve keep_as_reference for content you would actually cite or reuse months later. Reserve read_later for content you intend to act on soon.',
+       'For news features about education or national policy, distinguish durable original research from a report of current events. Do not choose keep_as_reference or high savingValue solely because the topic is important; name the concrete reusable evidence in retentionReasons if you do.',
        'Note: needsVerification is a boolean flag, not an action. Set flags.needsVerification to true for content needing verification (see needsVerification Flag Rubric).',
        'Note: "research more" is not an action. If a topic deserves further investigation, suggest it in nextActions as optional follow-up.',
        '',

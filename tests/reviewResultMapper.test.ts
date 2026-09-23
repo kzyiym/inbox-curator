@@ -36,6 +36,39 @@ const getBaseRaw = () => ({
 });
 
 describe('mapToReviewResult', () => {
+  it('treats a missing verification verdict as requiring review', () => {
+    const raw = getBaseRaw();
+    delete (raw.flags as { needsVerification?: boolean }).needsVerification;
+    const res = mapToReviewResult(raw, context);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.result.flags.needsVerification).toBe(true);
+  });
+
+  it('requires verification for education policy and demographic claims even if the model says no', () => {
+    const raw = getBaseRaw();
+    const res = mapToReviewResult(raw, {
+      ...context,
+      sourceContent: 'オーストラリアのSNS禁止とフィンランドの学力低下を扱う教育政策の記事。',
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.result.flags.needsVerification).toBe(true);
+  });
+
+  it('requires verification when the model supplies required verification actions', () => {
+    const res = mapToReviewResult({ ...getBaseRaw(), verificationNeeded: ['Check the original study'] }, context);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.result.flags.needsVerification).toBe(true);
+  });
+
+  it('classifies a journalist-written news feature as news rather than a community article', () => {
+    const res = mapToReviewResult({ ...getBaseRaw(), evidenceBasis: ['community_article', 'official_documentation'] }, {
+      ...context,
+      sourceContent: '2025年11月、記者はドバイの空港に降りた。',
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.result.evidenceBasis).toEqual(['news_article', 'official_documentation']);
+  });
+
   it('maps a valid result successfully', () => {
     const res = mapToReviewResult(getBaseRaw(), context);
     expect(res.ok).toBe(true);

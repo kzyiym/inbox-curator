@@ -8,6 +8,8 @@ import type {
 import { ensureFolder } from './utils/folder';
 import { postProviderChat, type ProviderChatMessage } from './providerClient';
 import { truncateContent } from './utils/contentFilter';
+import { buildReviewSourceInfo } from './reviewPipeline';
+import { parseYamlRecord, stringifyYamlRecord } from './utils/yaml';
 
 const COLLECTION_REVIEW_OUTPUT_FOLDER = 'Collection Reviews';
 const COLLECTION_REVIEW_FILE_PREFIX = 'collection-review-';
@@ -75,30 +77,31 @@ async function resolveUniqueFilePath(app: App, outputFolder: string): Promise<st
   return filePath;
 }
 
-async function gatherExistingReviewContent(app: App, file: TFile): Promise<string | null> {
-  const parentPath = file.path.replace(/\.md$/, '');
-  const reviewFileName = `${parentPath}.ai-review.md`;
-  const reviewDir = file.parent?.path ?? '';
-  const reviewFile = app.vault.getAbstractFileByPath(reviewFileName);
-  if (reviewFile instanceof TFile) {
-    try {
-      const content = await app.vault.read(reviewFile);
-      return content;
-    } catch {
-      return null;
-    }
+function readFrontmatter(content: string): Record<string, unknown> {
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  return match ? parseYamlRecord(match[1]) : {};
+}
+
+async function gatherExistingReviewContent(app: App, file: TFile, sourceContent: string): Promise<string | null> {
+  const frontmatter = readFrontmatter(sourceContent);
+  const outputPath = frontmatter.ai_review_output_path;
+  const recordedHash = frontmatter.ai_review_source_hash;
+  if (typeof outputPath !== 'string' || typeof recordedHash !== 'string') return null;
+
+  const currentHash = buildReviewSourceInfo(file, '', sourceContent).sourceHash;
+  if (currentHash !== recordedHash) return null;
+
+  const reviewFile = app.vault.getAbstractFileByPath(outputPath);
+  if (!(reviewFile instanceof TFile)) return null;
+  try {
+    const content = await app.vault.read(reviewFile);
+    const reviewFrontmatter = readFrontmatter(content);
+    return reviewFrontmatter.source_hash === currentHash && reviewFrontmatter.source_path === file.path
+      ? content
+      : null;
+  } catch {
+    return null;
   }
-  const altReviewFileName = `${reviewDir}/${file.basename}.ai-review.md`;
-  const altReviewFile = app.vault.getAbstractFileByPath(altReviewFileName);
-  if (altReviewFile instanceof TFile) {
-    try {
-      const content = await app.vault.read(altReviewFile);
-      return content;
-    } catch {
-      return null;
-    }
-  }
-  return null;
 }
 
 function gatherFrontmatterReviewFields(content: string): string {
@@ -150,7 +153,7 @@ async function buildNoteInput(
     const fmSummary = gatherFrontmatterReviewFields(content);
 
     if (useExistingReviewsFirst) {
-      const reviewContent = await gatherExistingReviewContent(app, file);
+      const reviewContent = await gatherExistingReviewContent(app, file, content);
       if (reviewContent) {
         hasExistingReview = true;
         existingReviewContent = reviewContent;
@@ -236,6 +239,9 @@ export async function buildCollectionReviewInput(
       parts.push('');
       parts.push('=== Existing AI Review ===');
       parts.push(note.existingReviewContent.slice(0, 3000));
+      if (note.excerpt) {
+        parts.push('', 'Source note excerpt:', note.excerpt);
+      }
     } else {
       if (note.frontmatterSummary) {
         parts.push('');
@@ -261,7 +267,7 @@ export async function buildCollectionReviewInput(
     prompt,
     outputFolder: options.outputFolder,
     sourceType: 'selected_notes',
-    sourceFolder: options.outputFolder,
+    sourceFolder: '',
     sourceNotePaths: notesInput.map((n) => n.notePath),
   };
 }
@@ -296,6 +302,7 @@ function buildCollectionReviewPrompt(
       ``,
       `## 関連リンク候補`,
       `関連するノートのペアを挙げ、関連の種類（supports / contradicts / duplicates / extends / same_theme）と理由を書いてください。`,
+      `関連や矛盾を提案するときは、両方のノートの該当する記述を短く示してください。根拠が不足するときは断定せず「要確認」としてください。`,
       ``,
       `## 知識マップ / MOC候補`,
       `MOCタイトル、提案セクション、関連ノートを提案してください。`,
@@ -326,6 +333,7 @@ function buildCollectionReviewPrompt(
       `- 元ノートを変更する前提の出力はしないでください`,
       `- 自動適用ではなく提案として書いてください`,
       `- 矛盾や不確実性は断定しすぎないでください`,
+      `- ノート参照は入力に記載された正式なパスを使い、短縮した名前のリンクを作らないでください`,
       `- 研究・医療・法律・金融・社会問題などは要検証と書いてください`,
       `- 個人日記や内省系ノートでは診断的・断定的表現を避けてください`,
       `- 次のアクションは必ず出力してください`,
@@ -357,6 +365,7 @@ function buildCollectionReviewPrompt(
     ``,
     `## Suggested Links`,
     `Suggest related note pairs with link type (supports / contradicts / duplicates / extends / same_theme) and reason.`,
+    `Show a short supporting passage from each note for each relationship; if evidence is insufficient, mark it as needing verification.`,
     ``,
     `## Suggested Knowledge Map / MOC`,
     `Suggest a MOC title, proposed sections, and related notes.`,
@@ -386,6 +395,7 @@ function buildCollectionReviewPrompt(
     `- Do not produce output that assumes source notes will be modified`,
     `- Write as suggestions, not automatic actions`,
     `- Do not overstate contradictions or uncertainties`,
+    `- Reference notes by their exact paths from the input; do not invent shortened link targets`,
     `- For research, medical, legal, financial, or social topics, note that verification is needed`,
     `- For personal diaries or reflective notes, avoid diagnostic or definitive statements`,
     `- Always include Suggested Next Actions`,
@@ -394,6 +404,20 @@ function buildCollectionReviewPrompt(
     ``,
     notesBlock,
   ].join('\n');
+}
+
+export function resolveCollectionLinks(content: string, sourceNotes: string[]): string {
+  const paths = sourceNotes.map((path) => path.replace(/\.md$/i, ''));
+  return content.replace(/\[\[([^\]\n]+)\]\]/g, (_match, inner: string) => {
+    const [target, alias] = inner.split('|', 2);
+    const cleanTarget = target.trim().replace(/\.md$/i, '');
+    if (!cleanTarget || cleanTarget.includes('#')) return alias || cleanTarget;
+    const exact = paths.filter((path) => path === cleanTarget || path.split('/').pop() === cleanTarget);
+    const matches = exact.length ? exact : paths.filter((path) => path.split('/').pop()?.startsWith(cleanTarget));
+    if (matches.length !== 1) return alias || cleanTarget;
+    const display = (alias || cleanTarget.split('/').pop() || cleanTarget).replace(/[\[\]|]/g, '');
+    return `[[${matches[0]}|${display}]]`;
+  });
 }
 
 export async function writeCollectionReviewNote(
@@ -405,22 +429,16 @@ export async function writeCollectionReviewNote(
   sourceFolder: string,
 ): Promise<string> {
   const now = new Date().toISOString();
-  const sourceNotesYaml = sourceNotes.map((p) => `  - "${p}"`).join('\n');
+  const frontmatter = stringifyYamlRecord({
+    inbox_curator_review_type: 'collection',
+    created_by: 'inbox-curator',
+    created_at: now,
+    source_type: sourceType,
+    source_folder: sourceFolder,
+    source_notes: sourceNotes,
+  });
 
-  const frontmatter = [
-    '---',
-    'inbox_curator_review_type: collection',
-    'created_by: inbox-curator',
-    `created_at: ${now}`,
-    `source_type: ${sourceType}`,
-    `source_folder: "${sourceFolder}"`,
-    'source_notes:',
-    sourceNotesYaml,
-    '---',
-    '',
-  ].join('\n');
-
-  const fullContent = frontmatter + content;
+  const fullContent = `---\n${frontmatter}\n---\n${resolveCollectionLinks(content, sourceNotes)}`;
   const filePath = await resolveUniqueFilePath(app, outputFolder);
 
   try {

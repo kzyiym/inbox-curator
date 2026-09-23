@@ -229,6 +229,7 @@ export type ReviewResultMappingResult = ReviewResultMappingError | ReviewResultM
 
 export interface ReviewResultMappingContext {
   source: ReviewSourceInfo;
+  sourceContent?: string;
   contentType?: ReviewContentType;
   inputProfile?: ReviewInputProfile;
   fetchStatus?: ReviewFetchStatus;
@@ -242,6 +243,14 @@ export interface ReviewResultMappingContext {
   extractionMethod?: string;
   inputReductionInfo?: InputContentReductionInfo;
   promptLanguage?: 'english' | 'japanese';
+}
+
+function isReportedNews(content: string): boolean {
+  return /(?:記者は|新聞社|日本経済新聞|日経新聞|news article|reported by)/i.test(content);
+}
+
+function needsSourceVerification(content: string): boolean {
+  return /(?:人口統計|出生率|少子化|学力低下|不登校|教育政策|教育改革|SNS禁止|因果関係|健康効果|投資助言|税制|social policy|demographic|birth rate|causal claim)/i.test(content);
 }
 
 export function mapToReviewResult(raw: unknown, context: ReviewResultMappingContext): ReviewResultMappingResult {
@@ -266,6 +275,12 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
   const verdict = asRecord(raw.verdict);
   const scores = asRecord(raw.scores);
   const flags = asRecord(raw.flags);
+  const verificationNeeded = normalizeStringArray(raw.verificationNeeded, 1000);
+  const evidenceBasis = normalizeStringArray(raw.evidenceBasis, 1000);
+  if (context.sourceContent && isReportedNews(context.sourceContent)) {
+    const nonNewsBasis = evidenceBasis.filter((basis) => !/^(?:community.article|personal.blog|news.article|ニュース記事)$/i.test(basis));
+    evidenceBasis.splice(0, evidenceBasis.length, 'news_article', ...nonNewsBasis);
+  }
 
   const candidate: ReviewResult = {
     source: {
@@ -303,18 +318,19 @@ export function mapToReviewResult(raw: unknown, context: ReviewResultMappingCont
     practicalityReview: truncateString(pickString(raw.practicalityReview, ''), 10000),
     decisionReason: raw.decisionReason !== undefined ? truncateString(pickString(raw.decisionReason, ''), 1000) : undefined,
     retentionReasons: normalizeStringArray(raw.retentionReasons, 1000),
-    evidenceBasis: normalizeStringArray(raw.evidenceBasis, 1000),
+    evidenceBasis,
     structuredSummary: normalizeStructuredSummary(raw.structuredSummary),
     strengths: normalizeStringArray(raw.strengths, 1000),
     risksOrGaps: normalizeStringArray(raw.risksOrGaps, 1000),
-    verificationNeeded: normalizeStringArray(raw.verificationNeeded, 1000),
+    verificationNeeded,
     nextActions: normalizeStringArray(raw.nextActions, 1000),
     actionItems: normalizeActionItems(raw.actionItems),
     conceptCandidates: (() => { const cc = normalizeConceptCandidates(raw.conceptCandidates); return cc.length > 0 ? cc : undefined; })(),
     suggestedTags: normalizeStringArray(raw.suggestedTags, 1000),
     suggestedFolder: raw.suggestedFolder !== undefined ? truncateString(pickString(raw.suggestedFolder, ''), 300) : undefined,
     flags: {
-      needsVerification: pickBoolean(flags.needsVerification, false),
+      needsVerification: pickBoolean(flags.needsVerification, true) || verificationNeeded.length > 0 ||
+        Boolean(context.sourceContent && needsSourceVerification(context.sourceContent)),
       deleteCandidate: pickBoolean(flags.deleteCandidate, false),
     },
     ...(typeof context.extractionConfidence === 'number' ? { extractionConfidence: context.extractionConfidence } : {}),

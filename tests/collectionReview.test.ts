@@ -6,7 +6,10 @@ import {
   hasCollectionReviewFrontmatter,
   writeCollectionReviewNote,
   getFolderMarkdownFilesForCollectionReview,
+  resolveCollectionLinks,
 } from '../src/collectionReview';
+import { buildReviewSourceInfo } from '../src/reviewPipeline';
+import { parseYamlRecord } from '../src/utils/yaml';
 import type { CollectionReviewPipelineOptions } from '../src/types';
 
 function createMockApp(vaultFiles: Map<string, { content: string; isFolder?: boolean }> = new Map()) {
@@ -197,6 +200,30 @@ describe('hasCollectionReviewFrontmatter', () => {
 });
 
 describe('writeCollectionReviewNote', () => {
+  it('escapes paths in YAML and resolves unique shortened links', async () => {
+    const files = new Map<string, { content: string; isFolder?: boolean }>();
+    const sourceNotes = ['Clippings/An "example" with a long title.md', 'Clippings/Other.md'];
+    const outputPath = await writeCollectionReviewNote(
+      createMockApp(files) as any,
+      'Collection Reviews',
+      'See [[An "example"]] and [[Other]]. Missing: [[Unknown]].',
+      sourceNotes,
+      'selected_notes',
+      '',
+    );
+    const content = files.get(outputPath)?.content ?? '';
+    expect(parseYamlRecord(content.split('---')[1]).source_notes).toEqual(sourceNotes);
+    expect(content).toContain('[[Clippings/An "example" with a long title|An "example"]]');
+    expect(content).toContain('[[Clippings/Other|Other]]');
+    expect(content).not.toContain('[[Unknown]]');
+  });
+
+  it('does not link an ambiguous abbreviated title', () => {
+    expect(resolveCollectionLinks('[[Shared]]', [
+      'A/Shared first.md', 'B/Shared second.md',
+    ])).toBe('Shared');
+  });
+
   it('writes note with correct frontmatter including source_notes', async () => {
     const files = new Map<string, { content: string; isFolder?: boolean }>();
     const app = createMockApp(files);
@@ -239,7 +266,7 @@ describe('writeCollectionReviewNote', () => {
 
     const content = files.get(outputPath)?.content ?? '';
     expect(content).toContain('source_type: folder');
-    expect(content).toContain('source_folder: "Inbox"');
+    expect(parseYamlRecord(content.split('---')[1]).source_folder).toBe('Inbox');
   });
 
   it('creates unique filenames when conflict exists', async () => {
@@ -678,22 +705,26 @@ describe('buildCollectionReviewInput error cases', () => {
 });
 
 describe('existing review priority', () => {
-  it('uses existing review content when available', async () => {
+  it('uses the recorded output path only when the review and current source hashes agree', async () => {
     const { buildCollectionReviewInput } = await import('../src/collectionReview');
 
     const files = new Map<string, { content: string; isFolder?: boolean }>();
-    files.set('Inbox/a.md', { content: '---\ntitle: A\n---\nNote A body content here.' });
-    files.set('Inbox/a.ai-review.md', {
-      content: '# Review of A\n\nThis is the existing review for note A.',
-    });
-    files.set('Inbox/b.md', { content: '---\ntitle: B\n---\nNote B body content here.' });
-
-    const app = createMockApp(files);
     const tfA = new TFile();
     tfA.path = 'Inbox/a.md';
     tfA.basename = 'a';
     tfA.extension = 'md';
     tfA.name = 'a.md';
+    const body = 'Note A body content here.';
+    const sourceContent = `---\ntitle: A\n---\n${body}`;
+    const hash = buildReviewSourceInfo(tfA, 'AI Reviews', sourceContent).sourceHash;
+    const reviewedSource = `---\ntitle: A\nai_review_output_path: AI Reviews/a.ai-review.md\nai_review_source_hash: ${hash}\n---\n${body}`;
+    files.set('Inbox/a.md', { content: reviewedSource });
+    files.set('AI Reviews/a.ai-review.md', {
+      content: `---\nsource_path: Inbox/a.md\nsource_hash: ${hash}\n---\n# Review of A\n\nThis is the existing review for note A.`,
+    });
+    files.set('Inbox/b.md', { content: '---\ntitle: B\n---\nNote B body content here.' });
+
+    const app = createMockApp(files);
     const tfB = new TFile();
     tfB.path = 'Inbox/b.md';
     tfB.basename = 'b';
@@ -709,12 +740,28 @@ describe('existing review priority', () => {
       expect(noteA).toBeDefined();
       expect(noteA!.hasExistingReview).toBe(true);
       expect(noteA!.existingReviewContent).toContain('existing review for note A');
+      expect(result.prompt).toContain('Source note excerpt:');
+      expect(result.prompt).toContain('Note A body content here.');
 
       const noteB = result.notesInput.find((n) => n.notePath === 'Inbox/b.md');
       expect(noteB).toBeDefined();
       expect(noteB!.hasExistingReview).toBe(false);
       expect(noteB!.excerpt).toBeTruthy();
     }
+
+    files.set('Inbox/a.md', { content: `${reviewedSource}\nNew claim.` });
+    const stale = await buildCollectionReviewInput(app as any, [tfA, tfB], options);
+    expect(stale.ok).toBe(true);
+    if (stale.ok) {
+      expect(stale.notesInput[0].hasExistingReview).toBe(false);
+      expect(stale.prompt).toContain('New claim.');
+    }
+
+    files.set('Inbox/a.md', { content: reviewedSource });
+    files.set('AI Reviews/a.ai-review.md', { content: '---\nsource_path: Inbox/a.md\nsource_hash: old-hash\n---\nStale review' });
+    const staleReview = await buildCollectionReviewInput(app as any, [tfA, tfB], options);
+    expect(staleReview.ok).toBe(true);
+    if (staleReview.ok) expect(staleReview.notesInput[0].hasExistingReview).toBe(false);
   });
 
   it('falls back to excerpt when no existing review and useExistingReviewsFirst is false', async () => {
@@ -754,7 +801,7 @@ describe('existing review priority', () => {
     }
   });
 
-  it('includes short excerpt even when existing review is available, if includeExcerptWhenNeeded is true', async () => {
+  it('falls back to the source excerpt for a legacy review without hash metadata', async () => {
     const { buildCollectionReviewInput } = await import('../src/collectionReview');
 
     const files = new Map<string, { content: string; isFolder?: boolean }>();
@@ -785,8 +832,7 @@ describe('existing review priority', () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       const noteA = result.notesInput.find((n) => n.notePath === 'Inbox/a.md');
-      expect(noteA!.hasExistingReview).toBe(true);
-      expect(noteA!.existingReviewContent).toContain('Existing review');
+      expect(noteA!.hasExistingReview).toBe(false);
       expect(noteA!.excerpt).toBeTruthy();
     }
   });
