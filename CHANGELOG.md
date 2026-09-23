@@ -10,6 +10,7 @@
 - Input insufficiency: notes with no readable body, or URL-only notes whose fetch failed, are skipped before the API call (no auto-sort, no API cost). Short but valid notes are still reviewed.
 - Custom review prompt can now carry interests or current tasks, used mainly for the reading decision.
 - Persist `ai_review_reading_decision` to source note frontmatter.
+- Opt-in single-note diagnostic capture (`Review current note (diagnostic capture)`): records the exact system/user prompt, raw AI response, and normalized result to a local git-ignored file (`.inbox-curator/diagnostics/`). It does not write or overwrite a review note, does not update the source note, and does not run auto-sort. Secrets are masked.
 
 ## 1.1.0
 

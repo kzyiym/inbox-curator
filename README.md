@@ -41,6 +41,7 @@ For details, see [Auto-sort Safety](#auto-sort-safety) below.
 ## Known Limitations
 
 - AI-generated reviews may be incomplete or inaccurate.
+- AI-generated summaries can be vague or, rarely, invert the author's claim; the model output is passed through unchanged. Use `Inbox Curator: Review current note (diagnostic capture)` to inspect a single review's exact prompt, raw response, and normalized result.
 - URL extraction may fail on paywalled, script-heavy, or blocked pages.
 - PDF text extraction is experimental (first 5 pages, up to 10,000 characters).
 - Image review requires a multimodal-capable model and is limited to 3 images (1 MB each).
