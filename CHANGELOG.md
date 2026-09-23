@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0
+
+- Reading decision: each review now starts with `Read the source` / `Summary is enough` / `Reference when needed` / `Hold`, plus a one-sentence, article-specific reason. It is independent from the filing action and does not change auto-sort behavior.
+- Streamlined review output: merged overlapping sections into Key Points (max 3) and Takeaways (max 2, omitted when empty). Removed the duplicate Overview / Why It Matters / Suggested Use sections.
+- Prompt and schema cleanup: the AI is no longer asked to generate `detailedSummary`, `practicalityReview`, `retentionReasons`, `strengths`, `risksOrGaps`, `nextActions`, or `decisionReason`. Legacy responses and existing reviews still render via fallbacks; old reviews show the reading decision as `Not assessed`.
+- Personal experience and opinion content are no longer treated as low value solely for being subjective. Author claims are described as claims, not verified facts, and unsupported usefulness/novelty is not invented.
+- Caveats are now content-based. Removed the generic "recheck the official source" boilerplate that was previously added based only on source type (`personal_blog` / `news_article`).
+- Input insufficiency: notes with no readable body, or URL-only notes whose fetch failed, are skipped before the API call (no auto-sort, no API cost). Short but valid notes are still reviewed.
+- Custom review prompt can now carry interests or current tasks, used mainly for the reading decision.
+- Persist `ai_review_reading_decision` to source note frontmatter.
+
 ## 1.1.0
 
 - Action allowlist: per-action toggles (Archive, Read Later, Task, Delete Candidate) that gate auto-execution and panel apply without changing review output.
