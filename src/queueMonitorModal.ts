@@ -18,6 +18,15 @@ export interface QueueMonitorCallbacks {
 }
 
 const REFRESH_INTERVAL_MS = 1000;
+const FOCUS_ATTR = 'data-queue-focus';
+const LIST_ATTR = 'data-queue-list';
+
+interface QueueViewState {
+  scrollTop: number;
+  focusedKey: string | null;
+  hadFocus: boolean;
+  listScroll: Map<string, number>;
+}
 
 /**
  * Read-only view of the in-memory review queue plus a few safe controls.
@@ -29,6 +38,12 @@ const REFRESH_INTERVAL_MS = 1000;
  * Failure rows show a classified reason code rendered as a fixed localized
  * message. Raw error strings are never shown, so note content and provider
  * response fragments cannot leak into the UI; details stay in the logs.
+ *
+ * The view refreshes on a timer, but a rebuild only happens when the queue
+ * state actually changes. When it does rebuild, scroll position and keyboard
+ * focus are preserved; if the focused action disappears (a cancelled or
+ * finished row), focus moves to a remaining safe control so keyboard
+ * navigation is not dropped.
  */
 export class QueueMonitorModal extends Modal {
   private refreshTimer: number | null = null;
@@ -51,92 +66,156 @@ export class QueueMonitorModal extends Modal {
     this.contentEl.empty();
   }
 
-  private render(): void {
-    const snapshot = this.callbacks.getSnapshot();
-    const signature = JSON.stringify({
+  private buildSignature(snapshot: ReviewQueueSnapshot): string {
+    return JSON.stringify({
       paused: snapshot.paused,
       pending: snapshot.pendingJobs.map((job) => job.id),
       running: snapshot.runningJobs.map((job) => job.id),
       failed: snapshot.failedJobs.map((job) => `${job.notePath}:${job.reasonCode}:${job.timestamp}`),
     });
+  }
+
+  private render(): void {
+    const snapshot = this.callbacks.getSnapshot();
+    const signature = this.buildSignature(snapshot);
     if (signature === this.lastSignature) {
       return;
     }
     this.lastSignature = signature;
 
+    const viewState = this.captureViewState();
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass('inbox-curator-queue-monitor');
+    contentEl.tabIndex = -1;
 
+    this.renderHeader(snapshot);
+    this.renderBody(snapshot);
+
+    this.restoreViewState(viewState);
+  }
+
+  private renderHeader(snapshot: ReviewQueueSnapshot): void {
+    const { contentEl } = this;
     contentEl.createEl('h3', { text: t('queue.title') });
     contentEl.createEl('p', { text: t('queue.desc'), cls: 'setting-item-description' });
-    contentEl.createEl('p', {
-      text: t('queue.summary', {
-        pending: snapshot.pending,
-        running: snapshot.running,
-        failed: snapshot.failedJobs.length,
-        max: snapshot.maxConcurrentJobs,
-      }),
-      cls: 'inbox-curator-queue-summary',
+
+    const summary = contentEl.createDiv({ cls: 'inbox-curator-queue-summary' });
+    this.createBadge(summary, t('queue.badge.pending'), snapshot.pending);
+    this.createBadge(summary, t('queue.badge.running'), snapshot.running);
+    this.createBadge(
+      summary,
+      t('queue.badge.failed'),
+      snapshot.failedJobs.length,
+      snapshot.failedJobs.length > 0 ? 'is-failed' : undefined,
+    );
+    if (snapshot.paused) {
+      this.createBadge(summary, t('queue.badge.paused'), undefined, 'is-paused');
+    }
+    summary.createEl('span', {
+      text: t('queue.maxConcurrency', { max: snapshot.maxConcurrentJobs }),
+      cls: 'inbox-curator-queue-max',
     });
 
     if (snapshot.paused) {
-      contentEl.createEl('p', { text: t('queue.paused'), cls: 'inbox-curator-queue-paused' });
-      contentEl.createEl('p', { text: t('queue.pausedDetail'), cls: 'setting-item-description' });
+      const paused = contentEl.createDiv({ cls: 'inbox-curator-queue-paused' });
+      paused.createEl('p', { text: t('queue.paused') });
+      paused.createEl('p', { text: t('queue.pausedDetail') });
     }
 
     const controls = new Setting(contentEl);
     if (snapshot.paused) {
-      controls.addButton((btn) =>
+      controls.addButton((btn) => {
         btn
           .setButtonText(t('queue.button.resume'))
           .setCta()
           .onClick(() => {
             this.callbacks.resume();
             this.render();
-          }),
-      );
+          });
+        btn.buttonEl?.setAttribute(FOCUS_ATTR, 'resume');
+      });
     } else {
-      controls.addButton((btn) =>
+      controls.addButton((btn) => {
         btn.setButtonText(t('queue.button.pause')).onClick(() => {
           this.callbacks.pause();
           this.render();
-        }),
-      );
+        });
+        btn.buttonEl?.setAttribute(FOCUS_ATTR, 'pause');
+      });
     }
-    controls.addButton((btn) =>
-      btn.setButtonText(t('queue.button.refresh')).onClick(() => this.render()),
-    );
-
-    this.renderRunning(snapshot);
-    this.renderPending(snapshot);
-    this.renderFailed(snapshot);
+    controls.addButton((btn) => {
+      btn.setButtonText(t('queue.button.refresh')).onClick(() => this.render());
+      btn.buttonEl?.setAttribute(FOCUS_ATTR, 'refresh');
+    });
   }
 
-  private renderRunning(snapshot: ReviewQueueSnapshot): void {
-    this.contentEl.createEl('h4', { text: t('queue.section.running') });
-    if (snapshot.runningJobs.length === 0) {
-      this.contentEl.createEl('p', { text: t('queue.empty'), cls: 'setting-item-description' });
+  private createBadge(parent: HTMLElement, label: string, count?: number, modifier?: string): void {
+    const badge = parent.createEl('span', { cls: 'inbox-curator-queue-badge' });
+    if (modifier) {
+      badge.addClass(modifier);
+    }
+    badge.createEl('span', { text: label, cls: 'inbox-curator-queue-badge-label' });
+    if (typeof count === 'number') {
+      badge.createEl('span', { text: String(count), cls: 'inbox-curator-queue-badge-count' });
+    }
+  }
+
+  private renderBody(snapshot: ReviewQueueSnapshot): void {
+    const hasAny = snapshot.pending > 0 || snapshot.running > 0 || snapshot.failedJobs.length > 0;
+    if (!hasAny) {
+      this.contentEl.createEl('p', { text: t('queue.emptyAll'), cls: 'inbox-curator-queue-empty' });
       return;
     }
 
-    const list = this.contentEl.createEl('ul', { cls: 'inbox-curator-queue-list' });
+    if (snapshot.running > 0) {
+      this.renderRunning(snapshot);
+    }
+    if (snapshot.pending > 0) {
+      this.renderPending(snapshot);
+    }
+    if (snapshot.failedJobs.length > 0) {
+      this.renderFailed(snapshot);
+    }
+  }
+
+  private createSection(label: string, count: number): HTMLElement {
+    const section = this.contentEl.createDiv({ cls: 'inbox-curator-queue-section' });
+    const header = section.createEl('h4', { cls: 'inbox-curator-queue-section-title' });
+    header.createEl('span', { text: label, cls: 'inbox-curator-queue-section-label' });
+    header.createEl('span', { text: String(count), cls: 'inbox-curator-queue-section-count' });
+    return section;
+  }
+
+  private renderRunning(snapshot: ReviewQueueSnapshot): void {
+    const section = this.createSection(t('queue.section.running'), snapshot.runningJobs.length);
+    section.createEl('p', { text: t('queue.runningHint'), cls: 'inbox-curator-queue-hint' });
+    const list = section.createDiv({ cls: 'inbox-curator-queue-list' });
+    list.setAttribute(LIST_ATTR, 'running');
     for (const job of snapshot.runningJobs) {
-      list.createEl('li', { text: this.fileLabel(job.notePath), title: job.notePath });
+      const row = list.createDiv({ cls: 'inbox-curator-queue-row' });
+      row.createEl('span', {
+        text: this.fileLabel(job.notePath),
+        title: job.notePath,
+        cls: 'inbox-curator-queue-row-name',
+      });
     }
   }
 
   private renderPending(snapshot: ReviewQueueSnapshot): void {
-    this.contentEl.createEl('h4', { text: t('queue.section.pending') });
-    if (snapshot.pendingJobs.length === 0) {
-      this.contentEl.createEl('p', { text: t('queue.empty'), cls: 'setting-item-description' });
-      return;
-    }
-
+    const section = this.createSection(t('queue.section.pending'), snapshot.pendingJobs.length);
+    const list = section.createDiv({ cls: 'inbox-curator-queue-list' });
+    list.setAttribute(LIST_ATTR, 'pending');
     for (const job of snapshot.pendingJobs) {
-      const row = this.contentEl.createDiv({ cls: 'inbox-curator-queue-row' });
-      row.createEl('span', { text: this.fileLabel(job.notePath), title: job.notePath });
-      const button = row.createEl('button', { text: t('queue.button.cancel') });
+      const row = list.createDiv({ cls: 'inbox-curator-queue-row' });
+      row.createEl('span', {
+        text: this.fileLabel(job.notePath),
+        title: job.notePath,
+        cls: 'inbox-curator-queue-row-name',
+      });
+      const actions = row.createDiv({ cls: 'inbox-curator-queue-actions' });
+      const button = actions.createEl('button', { text: t('queue.button.cancel') });
+      button.setAttribute(FOCUS_ATTR, `cancel:${job.id}`);
       button.addEventListener('click', () => {
         const cancelled = this.callbacks.cancelPendingJob(job.id);
         if (!cancelled) {
@@ -148,26 +227,29 @@ export class QueueMonitorModal extends Modal {
   }
 
   private renderFailed(snapshot: ReviewQueueSnapshot): void {
-    this.contentEl.createEl('h4', { text: t('queue.section.failed') });
-    if (snapshot.failedJobs.length === 0) {
-      this.contentEl.createEl('p', { text: t('queue.empty'), cls: 'setting-item-description' });
-      return;
-    }
-
-    this.contentEl.createEl('p', { text: t('queue.retryHint'), cls: 'setting-item-description' });
+    const section = this.createSection(t('queue.section.failed'), snapshot.failedJobs.length);
+    section.createEl('p', { text: t('queue.retryHint'), cls: 'inbox-curator-queue-hint' });
+    const list = section.createDiv({ cls: 'inbox-curator-queue-list' });
+    list.setAttribute(LIST_ATTR, 'failed');
     for (const job of snapshot.failedJobs) {
-      this.renderFailedRow(job);
+      this.renderFailedRow(list, job);
     }
-    this.contentEl.createEl('p', { text: t('queue.failureDetailHint'), cls: 'setting-item-description' });
+    section.createEl('p', { text: t('queue.failureDetailHint'), cls: 'inbox-curator-queue-hint' });
   }
 
-  private renderFailedRow(job: QueueFailedJob): void {
-    const row = this.contentEl.createDiv({ cls: 'inbox-curator-queue-row' });
+  private renderFailedRow(list: HTMLElement, job: QueueFailedJob): void {
+    const row = list.createDiv({ cls: 'inbox-curator-queue-row' });
     const info = row.createDiv({ cls: 'inbox-curator-queue-failure' });
-    info.createEl('span', { text: this.fileLabel(job.notePath), title: job.notePath });
-    info.createEl('span', { text: this.failureLabel(job.reasonCode), cls: 'inbox-curator-meta-info' });
+    info.createEl('span', {
+      text: this.fileLabel(job.notePath),
+      title: job.notePath,
+      cls: 'inbox-curator-queue-row-name',
+    });
+    info.createEl('span', { text: this.failureLabel(job.reasonCode), cls: 'inbox-curator-queue-reason' });
 
-    const button = row.createEl('button', { text: t('queue.button.retry') });
+    const actions = row.createDiv({ cls: 'inbox-curator-queue-actions' });
+    const button = actions.createEl('button', { text: t('queue.button.retry') });
+    button.setAttribute(FOCUS_ATTR, `retry:${job.notePath}`);
     button.addEventListener('click', () => {
       void this.retry(job);
     });
@@ -181,6 +263,77 @@ export class QueueMonitorModal extends Modal {
       new Notice(t('queue.retrySkipped', { reason: this.retryReasonLabel(outcome.reason) }));
     }
     this.render();
+  }
+
+  private captureViewState(): QueueViewState {
+    const active = this.contentEl.ownerDocument.activeElement as HTMLElement | null;
+    const hadFocus = active !== null && this.contentEl.contains(active);
+    const focusedKey = hadFocus ? active?.getAttribute(FOCUS_ATTR) ?? null : null;
+
+    const listScroll = new Map<string, number>();
+    this.contentEl.querySelectorAll<HTMLElement>(`[${LIST_ATTR}]`).forEach((el) => {
+      const key = el.getAttribute(LIST_ATTR);
+      if (key) {
+        listScroll.set(key, el.scrollTop);
+      }
+    });
+
+    return { scrollTop: this.contentEl.scrollTop, focusedKey, hadFocus, listScroll };
+  }
+
+  private restoreViewState(state: QueueViewState): void {
+    this.contentEl.scrollTop = state.scrollTop;
+    for (const [key, value] of state.listScroll) {
+      const el = this.findByAttribute(LIST_ATTR, key);
+      if (el) {
+        el.scrollTop = value;
+      }
+    }
+
+    if (!state.hadFocus) {
+      return;
+    }
+
+    const target = state.focusedKey ? this.findByAttribute(FOCUS_ATTR, state.focusedKey) : null;
+    if (target) {
+      target.focus({ preventScroll: true });
+      return;
+    }
+
+    // The focused row disappeared (cancelled, retried, or finished). Move focus
+    // to a remaining safe control so keyboard navigation does not stop.
+    const fallback = this.findFallbackFocusTarget();
+    if (fallback) {
+      fallback.focus({ preventScroll: true });
+      return;
+    }
+
+    // Keep focus inside the modal even when every action row vanished.
+    this.contentEl.focus({ preventScroll: true });
+  }
+
+  private findByAttribute(attribute: string, value: string): HTMLElement | null {
+    const elements = this.contentEl.querySelectorAll<HTMLElement>(`[${attribute}]`);
+    for (const element of Array.from(elements)) {
+      if (element.getAttribute(attribute) === value) {
+        return element;
+      }
+    }
+    return null;
+  }
+
+  private findFallbackFocusTarget(): HTMLElement | null {
+    for (const key of ['resume', 'pause', 'refresh']) {
+      const target = this.findByAttribute(FOCUS_ATTR, key);
+      if (target) {
+        return target;
+      }
+    }
+
+    return (
+      this.contentEl.querySelector<HTMLElement>(`[${FOCUS_ATTR}^="cancel:"]`) ??
+      this.contentEl.querySelector<HTMLElement>(`[${FOCUS_ATTR}^="retry:"]`)
+    );
   }
 
   private retryReasonLabel(reason: ReviewRetrySkipReason | undefined): string {

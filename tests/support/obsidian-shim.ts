@@ -88,12 +88,16 @@ export class Setting {
     });
     return this;
   }
-  addButton(callback?: (component: { setButtonText: () => unknown; onClick: () => unknown; setCta: () => unknown }) => unknown) {
-    callback?.({
-      setButtonText: () => this,
-      onClick: () => this,
-      setCta: () => this,
-    });
+  addButton(callback?: (component: { setButtonText: () => unknown; onClick: () => unknown; setCta: () => unknown; setTooltip: () => unknown; setIcon: () => unknown; buttonEl: HTMLButtonElement }) => unknown) {
+    const component = {
+      setButtonText: () => component,
+      onClick: () => component,
+      setCta: () => component,
+      setTooltip: () => component,
+      setIcon: () => component,
+      buttonEl: document.createElement('button'),
+    };
+    callback?.(component);
     return this;
   }
 }
@@ -126,6 +130,69 @@ export const apiVersion = '1.0.0';
 if (typeof window !== 'undefined' && window.HTMLElement) {
   (window.HTMLElement.prototype as any).empty = function(this: HTMLElement) {
     this.innerHTML = '';
+    return this;
+  };
+
+  (window.HTMLElement.prototype as any).createEl = function(
+    this: HTMLElement,
+    tag: string,
+    options?: {
+      cls?: string | string[];
+      text?: string | number | null;
+      title?: string;
+      attr?: Record<string, string | number | null | undefined>;
+    },
+  ) {
+    const el = document.createElement(tag);
+    if (options) {
+      const cls = options.cls;
+      if (typeof cls === 'string') {
+        el.className = cls;
+      } else if (Array.isArray(cls)) {
+        el.className = cls.join(' ');
+      }
+      if (options.text !== undefined && options.text !== null) {
+        el.textContent = String(options.text);
+      }
+      if (options.title) {
+        el.setAttribute('title', options.title);
+      }
+      if (options.attr) {
+        for (const [key, value] of Object.entries(options.attr)) {
+          if (value !== null && value !== undefined) {
+            el.setAttribute(key, String(value));
+          }
+        }
+      }
+    }
+    this.appendChild(el);
+    return el;
+  };
+
+  (window.HTMLElement.prototype as any).createDiv = function(
+    this: HTMLElement,
+    options?: Parameters<HTMLElement['createEl']>[1],
+  ) {
+    return (this as any).createEl('div', options);
+  };
+
+  (window.HTMLElement.prototype as any).addClass = function(
+    this: HTMLElement,
+    ...classes: (string | string[] | undefined)[]
+  ) {
+    for (const entry of classes) {
+      const list = Array.isArray(entry) ? entry : [entry];
+      for (const cls of list) {
+        if (cls) {
+          this.classList.add(cls);
+        }
+      }
+    }
+    return this;
+  };
+
+  (window.HTMLElement.prototype as any).setText = function(this: HTMLElement, text: string) {
+    this.textContent = text;
     return this;
   };
 }
