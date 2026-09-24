@@ -159,6 +159,7 @@ This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/c
 | Command ID | Display Name | Description |
 |---|---|---|
 | `review-current-note` | Review current note | AI-review the currently active note |
+| `review-current-note-diagnostics` | Review current note (diagnostic capture) | Capture the exact prompt and raw response for the active note (writes no review note, no auto-sort) |
 | `process-watched-folder` | Process watched folder | Batch-review all unprocessed notes in the watched folder |
 | `execute-proposed-action` | Execute proposed action for current note | Execute the AI-recommended action on the active note |
 | `undo-last-auto-sort` | Undo last auto-sort run | Revert the most recent auto-sort run |
