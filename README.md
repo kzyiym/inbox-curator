@@ -55,6 +55,7 @@ For details, see [Auto-sort Safety](#auto-sort-safety) below.
 - **AI Note Review**: Sends note content to a configurable AI provider and receives structured JSON verdicts with scores, summaries, credibility assessments, tags, and action recommendations.
 - **Reading Decision**: Each review starts with a reading decision — `Read the source`, `Summary is enough`, `Reference when needed`, or `Hold` — with a one-sentence, article-specific reason. This is separate from the filing action and does not change auto-sort behavior.
 - **Batch Processing**: Processes multiple files sequentially with configurable limits and rate limiting to prevent API token exhaustion.
+- **Review Queue Monitor**: Inspect pending, running, and failed reviews in one panel. Pause/resume the queue (in-flight API requests continue), cancel individual pending jobs, and retry failed notes with their original processing conditions. Failure rows show a classified reason only; details stay in the logs.
 - **URL Fetching & Article Extraction**: Detects URL-only notes, fetches HTML metadata (og:title, description), and extracts readable article text.
 - **Attachment Awareness**: Detects linked attachments (images, audio, PDF, etc.). Supports sending images to multimodal models (OpenAI, Gemini, Anthropic) for visual review (up to 3 images, max 1MB payload per image). Features optional temporary in-memory resizing/compression for larger source files (up to 10MB) to fit within this 1MB limit without modifying original Vault files.
 - **Experimental PDF Text Extraction**: Reads local PDF attachments (first 5 pages, up to 10,000 chars) using Obsidian's built-in PDF.js.
@@ -167,7 +168,16 @@ This plugin pairs perfectly with **[Obsidian Web Clipper](https://obsidian.com/c
 | `review-selected-notes-as-collection` | Review selected notes as a collection | Cross-note analysis of selected notes |
 | `review-folder-as-collection` | Review folder as a collection | Cross-note analysis of a folder's contents |
 | `open-action-review-panel` | Open action review panel | Review proposed actions for watched-folder notes and apply the ones you approve |
+| `open-queue-monitor` | Open review queue monitor | View pending, running, and failed reviews; pause/resume, cancel pending jobs, and retry failed notes |
 | `dry-run-auto-sort` | Dry-run auto-sort (preview) | Preview what auto-sort would do without applying any changes |
+
+### Review Queue Monitor
+
+`Inbox Curator: Open review queue monitor` shows the in-memory review queue: how many notes are pending and running, and which notes failed. Running jobs are listed but cannot be cancelled — their API request is already in flight. Pending jobs can be cancelled individually. **Pause queue** stops new jobs from starting until you resume; it does not interrupt in-flight API requests.
+
+Failed notes can be retried. A retry re-runs the review with the note's original processing conditions, so a watched-folder job may auto-sort again (subject to the existing confidence, allowlist, and prompt-injection checks). Retrying skips the API call when the note no longer exists or is already reviewed (`ai_review_source_hash` matches). Failure rows show only a classified reason (for example rate limit, timeout, invalid response); full details remain in `.inbox-curator/logs/`.
+
+The queue is in-memory only. Closing Obsidian discards pending and failed entries; already-reviewed notes are not re-run on restart.
  
 ---
 
@@ -344,6 +354,8 @@ src/
 ├── attachmentContext.ts       # Attachment detection
 ├── actionLayer.ts             # Action execution
 ├── actionConfirmationModal.ts # Confirmation modal for destructive actions
+├── actionReviewModal.ts       # Action review / dry-run modal
+├── queueMonitorModal.ts       # Review queue monitor modal
 ├── undoAutoSort.ts            # Undo last auto-sort run
 ├── frontmatter.ts             # Frontmatter read/write
 ├── connectionTest.ts          # API connection tester
@@ -352,6 +364,7 @@ src/
 │   ├── queueTypes.ts          # Queue data types
 │   ├── job.ts                 # Job creation
 │   ├── reviewQueue.ts         # Async job queue
+│   ├── queueFailureReason.ts  # Classified, display-safe failure reasons
 │   ├── rateLimiter.ts         # Rate limiting
 │   └── retry.ts               # Exponential backoff
 ├── i18n/
@@ -401,8 +414,7 @@ The current review, action approval, and reversible auto-sort foundation is impl
 Planned work is prioritized as:
 
 1. Reuse existing Vault folder and tag vocabulary, with folder/tag pickers.
-2. Add operations management UI for queue status, failed-review retry, and undo history.
-3. Add related-note discovery, link suggestions, and similar-note grouping.
+2. Add related-note discovery, link suggestions, and similar-note grouping.
 
 See [GitHub Issues](https://github.com/kzyiym/inbox-curator/issues) for public tracking.
 

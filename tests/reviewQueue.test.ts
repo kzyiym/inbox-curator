@@ -517,4 +517,59 @@ describe('ReviewQueue bounded parallelism', () => {
     expect(events).toContain('dispatch_started');
     expect(events).toContain('job_succeeded');
   });
+
+  it('cancels only pending jobs and refuses running jobs via cancelPendingJob', async () => {
+    const controlled = createControlledProcessor();
+    const queue = new ReviewQueue(controlled.processor, { maxConcurrentJobs: 1 });
+
+    const runningJob = createReviewJob('manual-folder', 'Inbox/running.md');
+    const pendingJob = createReviewJob('manual-folder', 'Inbox/pending.md');
+
+    const running = queue.enqueue(runningJob);
+    const pending = queue.enqueue(pendingJob);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(queue.getSnapshot().running).toBe(1);
+    expect(queue.getSnapshot().pending).toBe(1);
+
+    // Running job is not a cancel target.
+    expect(queue.cancelPendingJob(runningJob.id)).toBe(false);
+    expect(queue.getSnapshot().running).toBe(1);
+
+    expect(queue.cancelPendingJob(pendingJob.id)).toBe(true);
+    expect(queue.getSnapshot().pending).toBe(0);
+
+    const pendingResult = await pending.promise;
+    expect(pendingResult.status).toBe('cancelled');
+
+    controlled.release('Inbox/running.md');
+    const runningResult = await running.promise;
+    expect(runningResult.status).toBe('processed');
+  });
+
+  it('tracks failed jobs and clears them on retry without restoring on cancel', async () => {
+    const queue = new ReviewQueue(
+      async () => ({ status: 'failed', error: 'boom', reasonCode: 'internal_error' }),
+      { maxConcurrentJobs: 1 },
+    );
+
+    const first = queue.enqueue(createReviewJob('manual-folder', 'Inbox/fail.md'));
+    await first.promise;
+
+    expect(queue.getSnapshot().failedJobs).toEqual([
+      expect.objectContaining({ notePath: 'Inbox/fail.md', reasonCode: 'internal_error' }),
+    ]);
+
+    // Re-queueing the note clears the stale failure.
+    queue.pause();
+    const retryJob = createReviewJob('auto-create', 'Inbox/fail.md');
+    const retry = queue.enqueue(retryJob);
+    expect(retry.accepted).toBe(true);
+    expect(queue.getSnapshot().failedJobs).toHaveLength(0);
+
+    // Cancelling the re-queued job does not resurrect the previous failure.
+    expect(queue.cancelPendingJob(retryJob.id)).toBe(true);
+    expect(queue.getSnapshot().failedJobs).toHaveLength(0);
+  });
 });

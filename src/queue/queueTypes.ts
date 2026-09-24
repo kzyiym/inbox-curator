@@ -1,3 +1,5 @@
+import type { QueueFailureReasonCode } from './queueFailureReason';
+
 export type ReviewJobSource = 'manual-current' | 'manual-folder' | 'auto-create' | 'auto-modify' | 'polling';
 
 export type ReviewJobStatus = 'pending' | 'running' | 'processed' | 'skipped' | 'failed' | 'cancelled';
@@ -19,6 +21,7 @@ export interface ReviewJobResult {
   error?: string;
   retryable?: boolean;
   attempts?: number;
+  reasonCode?: QueueFailureReasonCode;
 }
 
 export interface QueueHistoryEntry {
@@ -29,6 +32,23 @@ export interface QueueHistoryEntry {
   timestamp: number;
   error?: string;
   attempts?: number;
+  reasonCode?: QueueFailureReasonCode;
+}
+
+/**
+ * A note whose most recent job ended in failure.
+ *
+ * This is a view of the *current* processing state, not an append-only history:
+ * the entry is cleared as soon as the note is queued again, and it is not
+ * restored if that re-queued job is later cancelled.
+ */
+export interface QueueFailedJob {
+  notePath: string;
+  source: ReviewJobSource;
+  reasonCode: QueueFailureReasonCode;
+  retryable?: boolean;
+  attempts?: number;
+  timestamp: number;
 }
 
 export interface ReviewQueueSnapshot {
@@ -44,6 +64,7 @@ export interface ReviewQueueSnapshot {
   paused: boolean;
   pendingJobs: ReviewJob[];
   runningJobs: ReviewJob[];
+  failedJobs: QueueFailedJob[];
   history: QueueHistoryEntry[];
 }
 
@@ -51,6 +72,13 @@ export interface ReviewQueueEnqueueResult {
   accepted: boolean;
   duplicate: boolean;
   promise: Promise<ReviewJobResult>;
+}
+
+export type ReviewRetrySkipReason = 'file-missing' | 'already-reviewed' | 'already-queued' | 'queue-stopping';
+
+export interface ReviewRetryOutcome {
+  accepted: boolean;
+  reason?: ReviewRetrySkipReason;
 }
 
 export type ReviewJobProcessor = (job: ReviewJob) => Promise<ReviewJobResult>;

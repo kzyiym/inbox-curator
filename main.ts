@@ -6,7 +6,9 @@ import { ProcessingNoticeManager } from './src/processingNotice';
 import { createReviewJob, generateRunId } from './src/queue/job';
 import { ReviewRateLimiter } from './src/queue/rateLimiter';
 import { ReviewQueue } from './src/queue/reviewQueue';
-import type { ReviewJob, ReviewJobResult, ReviewJobSource, ReviewQueueLogEntry } from './src/queue/queueTypes';
+import type { ReviewJob, ReviewJobResult, ReviewJobSource, ReviewQueueLogEntry, ReviewRetryOutcome } from './src/queue/queueTypes';
+import { classifyQueueFailure } from './src/queue/queueFailureReason';
+import { QueueMonitorModal } from './src/queueMonitorModal';
 import { buildReviewSourceInfo, runReviewPipeline, type ReviewPipelineOptions } from './src/reviewPipeline';
 import { DEFAULT_SETTINGS, InboxCuratorSettings, InboxCuratorSettingTab } from './src/settings';
 import { executeProposedAction } from './src/actionLayer';
@@ -702,6 +704,7 @@ export default class InboxCuratorPlugin extends Plugin {
       return {
         status: 'failed',
         error: 'Markdown note not found',
+        reasonCode: 'file_missing',
       };
     }
 
@@ -761,6 +764,13 @@ export default class InboxCuratorPlugin extends Plugin {
           status: 'failed',
           error: result.error,
           retryable: result.retryable,
+          reasonCode: classifyQueueFailure({
+            stage: result.stage,
+            status: result.status,
+            retryable: result.retryable,
+            errorCode: result.errorCode,
+            message: result.error,
+          }),
         };
       }
 
@@ -840,6 +850,7 @@ export default class InboxCuratorPlugin extends Plugin {
             status: 'failed',
             error: 'Could not restore the processing marker before automatic action execution.',
             retryable: false,
+            reasonCode: 'marker_restore_failed',
           };
         }
 
@@ -900,6 +911,7 @@ export default class InboxCuratorPlugin extends Plugin {
             status: 'failed',
             error: `Auto-execute action ${action} failed: ${actionResult.error}`,
             retryable: false,
+            reasonCode: 'auto_execute_failed',
           };
         }
 
@@ -1005,6 +1017,7 @@ export default class InboxCuratorPlugin extends Plugin {
       return {
         status: 'failed',
         error: error instanceof Error ? error.message : 'Unknown error',
+        reasonCode: 'internal_error',
       };
     } finally {
       if (originalPath && this.isProcessingMarkerPath(file.path)) {
@@ -1884,6 +1897,58 @@ export default class InboxCuratorPlugin extends Plugin {
       applySelected: (selected) => this.applyProposedActionsFromPanel(selected),
       refresh: () => collectProposedActions(this.app, this.settings),
     }).open();
+  }
+
+  openQueueMonitor(): void {
+    const queue = this.reviewQueue;
+    new QueueMonitorModal(this.app, {
+      getSnapshot: () => queue.getSnapshot(),
+      pause: () => queue.pause(),
+      resume: () => queue.resume(),
+      cancelPendingJob: (id) => queue.cancelPendingJob(id),
+      retryFailed: (notePath, source) => this.retryFailedReview(notePath, source),
+    }).open();
+  }
+
+  /**
+   * Re-queues a previously failed note.
+   *
+   * The original job source is preserved, so a retried watched-folder job keeps
+   * its normal auto-sort behavior (subject to the existing safety checks). The
+   * note is skipped without an API call when it no longer exists or is already
+   * reviewed (frontmatter `ai_review_source_hash` matches), and duplicate
+   * enqueues are rejected by the queue's path deduplication.
+   */
+  async retryFailedReview(notePath: string, source: ReviewJobSource): Promise<ReviewRetryOutcome> {
+    const file = this.resolveMarkdownFile(notePath);
+    if (!file) {
+      return { accepted: false, reason: 'file-missing' };
+    }
+
+    if (await this.shouldSkipWatchedFile(file)) {
+      return { accepted: false, reason: 'already-reviewed' };
+    }
+
+    const job = createReviewJob(source, file.path);
+    const queued = this.reviewQueue.enqueue(job);
+    if (!queued.accepted) {
+      return {
+        accepted: false,
+        reason: queued.duplicate ? 'already-queued' : 'queue-stopping',
+      };
+    }
+
+    void logOperation(this.app, {
+      timestamp: new Date().toISOString(),
+      level: 'INFO',
+      event: 'queue_retry_requested',
+      operationId: job.operationId,
+      notePath: file.path,
+      details: { triggerType: source },
+    });
+
+    this.attachBackgroundReviewResultLogging(file, queued.promise);
+    return { accepted: true };
   }
 
   async applyProposedActionsFromPanel(items: ProposedActionItem[]): Promise<void> {

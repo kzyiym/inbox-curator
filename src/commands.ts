@@ -82,6 +82,14 @@ export function registerInboxCuratorCommands(plugin: InboxCuratorPlugin): void {
   });
 
   plugin.addCommand({
+    id: 'open-queue-monitor',
+    name: t('commands.openQueueMonitor'),
+    callback: () => {
+      plugin.openQueueMonitor();
+    },
+  });
+
+  plugin.addCommand({
     id: 'dry-run-auto-sort',
     name: t('commands.dryRunAutoSort'),
     callback: async () => {
