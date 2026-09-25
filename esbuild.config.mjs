@@ -9,7 +9,7 @@ const context = await esbuild.context({
   format: 'cjs',
   platform: 'browser',
   target: 'es2020',
-  external: ['obsidian', 'electron'],
+  external: ['obsidian', 'electron', 'node:child_process', 'node:fs', 'node:os', 'node:path'],
   sourcemap: false,
   logLevel: 'info',
 });
