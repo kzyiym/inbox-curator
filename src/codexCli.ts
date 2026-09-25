@@ -406,14 +406,14 @@ export function buildCodexLoginArgs(): string[] {
 
 export function parseCodexLoginStatus(text: string): CodexLoginMode {
   const value = text || '';
-  if (/not logged in|no credentials|not authenticated|missing bearer/i.test(value)) {
+  if (/not logged in|not signed in|logged out|signed out|no credentials|not authenticated|missing bearer|no active (session|account)/i.test(value)) {
     return 'not_logged_in';
-  }
-  if (/chatgpt/i.test(value)) {
-    return 'chatgpt';
   }
   if (/api[- ]?key|openai_api_key/i.test(value)) {
     return 'api_key';
+  }
+  if (/chatgpt|logged in|signed in|authenticated/i.test(value)) {
+    return 'chatgpt';
   }
   return 'unknown';
 }
@@ -456,7 +456,7 @@ export function execCodexLoginStatus(options: {
         clearTimeout(timer);
       }
       const mode = parseCodexLoginStatus(`${stdout}\n${stderr}`);
-      resolve({ ok: exitCode === 0 && mode === 'chatgpt', mode, stdout, stderr, exitCode });
+      resolve({ ok: mode === 'chatgpt', mode, stdout, stderr, exitCode });
     };
 
     if (options.timeoutMs && options.timeoutMs > 0) {

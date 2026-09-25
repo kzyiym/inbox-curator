@@ -447,6 +447,9 @@ describe('parseCodexLoginStatus', () => {
     expect(parseCodexLoginStatus('Logged in using ChatGPT')).toBe('chatgpt');
     expect(parseCodexLoginStatus('Logged in using an API key')).toBe('api_key');
     expect(parseCodexLoginStatus('Not logged in')).toBe('not_logged_in');
+    expect(parseCodexLoginStatus('You are not signed in')).toBe('not_logged_in');
+    expect(parseCodexLoginStatus('Signed in')).toBe('chatgpt');
+    expect(parseCodexLoginStatus('Authenticated with ChatGPT')).toBe('chatgpt');
     expect(parseCodexLoginStatus('something unexpected')).toBe('unknown');
   });
 });
