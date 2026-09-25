@@ -200,8 +200,21 @@ describe('resolveCodexExecutable', () => {
   it('includes known install directories even without PATH entries', () => {
     const dirs = getCodexSearchDirs({}, 'linux', '/home/user');
     expect(dirs).toContain('/home/user/.local/bin');
+    expect(dirs).toContain('/home/user/.bun/bin');
+    expect(dirs).toContain('/home/user/.volta/bin');
     expect(dirs).toContain('/opt/homebrew/bin');
     expect(dirs).toContain('/usr/local/bin');
+  });
+
+  it('finds a Bun-installed codex on macOS without PATH', () => {
+    const target = '/Users/user/.bun/bin/codex';
+    const found = resolveCodexExecutable({
+      env: {},
+      platform: 'darwin',
+      homeDir: '/Users/user',
+      fileExists: (path) => path === target,
+    });
+    expect(found).toBe(target);
   });
 });
 

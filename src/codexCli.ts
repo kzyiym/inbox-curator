@@ -149,12 +149,27 @@ export function getCodexSearchDirs(env: NodeJS.ProcessEnv, platform: NodeJS.Plat
     }
     if (env.LOCALAPPDATA) {
       dirs.push(joinFor(platform, env.LOCALAPPDATA, 'Programs', 'codex', 'bin'));
+      dirs.push(joinFor(platform, env.LOCALAPPDATA, 'Programs', 'codex'));
+      dirs.push(joinFor(platform, env.LOCALAPPDATA, 'Volta', 'bin'));
+      dirs.push(joinFor(platform, env.LOCALAPPDATA, 'pnpm'));
+      dirs.push(joinFor(platform, env.LOCALAPPDATA, 'pnpm', 'bin'));
     }
+    if (env.ProgramData) {
+      dirs.push(joinFor(platform, env.ProgramData, 'chocolatey', 'bin'));
+    }
+    dirs.push(joinFor(platform, homeDir, '.volta', 'bin'));
     dirs.push(joinFor(platform, homeDir, '.codex', 'bin'));
+    dirs.push(joinFor(platform, homeDir, 'scoop', 'shims'));
   } else {
     dirs.push(joinFor(platform, homeDir, '.local', 'bin'));
+    dirs.push(joinFor(platform, homeDir, '.bun', 'bin'));
+    dirs.push(joinFor(platform, homeDir, '.volta', 'bin'));
+    dirs.push(joinFor(platform, homeDir, '.npm-global', 'bin'));
+    dirs.push(joinFor(platform, homeDir, '.local', 'share', 'pnpm'));
+    dirs.push(joinFor(platform, homeDir, 'Library', 'pnpm'));
     dirs.push('/opt/homebrew/bin');
     dirs.push('/usr/local/bin');
+    dirs.push('/home/linuxbrew/.linuxbrew/bin');
   }
   dirs.push(...splitFor(platform, env.PATH || env.Path));
   return Array.from(new Set(dirs));
