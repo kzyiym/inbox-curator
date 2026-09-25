@@ -700,7 +700,9 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             const result = await checkCodexCliConnection({
               executablePath: settings.codexCliExecutablePath,
             });
-            new Notice(result.ok ? t('settings.codexCli.check.ok') : t('settings.codexCli.check.failed', { error: result.error }));
+            new Notice(result.ok
+              ? (result.version ? `${t('settings.codexCli.check.ok')} (${result.version})` : t('settings.codexCli.check.ok'))
+              : t('settings.codexCli.check.failed', { error: result.error }));
           })(); }),
         );
     }

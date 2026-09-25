@@ -1,7 +1,14 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execCodex, execCodexLoginStatus, resolveCodexExecutable, type CodexFailureCode } from './codexCli';
+import {
+  classifyCodexFailure,
+  execCodex,
+  execCodexLoginStatus,
+  execCodexVersion,
+  resolveCodexExecutable,
+  type CodexFailureCode,
+} from './codexCli';
 import type { ProviderChatMessage } from './providerClient';
 import { sanitizeSensitiveData } from './utils/sensitiveData';
 
@@ -24,18 +31,28 @@ export interface CodexConnectionResult {
   ok: boolean;
   error: string;
   executablePath?: string;
+  version?: string;
 }
 
 const CODEX_FAILURE_TEXT: Record<CodexFailureCode, string> = {
   not_installed: 'Codex CLI executable was not found.',
+  runtime_missing: 'Codex CLI could not start because its runtime (node or bun) was not found on PATH.',
   not_logged_in: 'Codex CLI is not logged in.',
   usage_limit: 'Codex usage limit reached.',
   auth_expired: 'Codex CLI authentication expired.',
+  host_skill_invalid: 'A Codex skill or plugin failed to load. Fix or remove the broken skill/plugin.',
+  under_development_feature: 'Codex rejected an under-development feature flag.',
+  git_repo_required: 'Codex requires a Git repository in the working directory.',
+  config_error: 'Codex configuration could not be parsed.',
   timeout: 'Codex CLI timed out.',
   aborted: 'Codex CLI execution was cancelled.',
   invalid_output: 'Codex CLI returned no review output.',
   unknown: 'Codex CLI execution failed.',
 };
+
+function redactedExcerpt(...parts: Array<string | undefined>): string {
+  return sanitizeSensitiveData(parts.filter((part) => Boolean(part)).join('\n').replace(/\s+/g, ' ').trim()).slice(0, 600);
+}
 
 export function flattenMessagesToPrompt(messages: ProviderChatMessage[]): string {
   const sections: string[] = [];
@@ -92,11 +109,14 @@ async function resolveChatGptLogin(executablePath: string, options: {
   if (login.mode === 'not_logged_in') {
     return { ok: false, error: 'Codex CLI is not logged in.', responseBody: 'not_logged_in' };
   }
-  const excerpt = sanitizeSensitiveData(`${login.stdout}\n${login.stderr}`.replace(/\s+/g, ' ').trim()).slice(0, 160);
+  const combined = `${login.stdout}\n${login.stderr}`;
+  const classified = classifyCodexFailure({ exitCode: login.exitCode, stderr: combined });
+  const code: CodexFailureCode = classified === 'unknown' ? 'not_logged_in' : classified;
+  const excerpt = redactedExcerpt(login.stdout, login.stderr);
   return {
     ok: false,
-    error: `Codex CLI login status could not be verified as a ChatGPT login (exit ${login.exitCode ?? 'none'})${excerpt ? `: ${excerpt}` : ' (no output)'}.`,
-    responseBody: 'unknown',
+    error: `${CODEX_FAILURE_TEXT[code]} (exit ${login.exitCode ?? 'none'})${excerpt ? `: ${excerpt}` : ' (no output)'}`,
+    responseBody: code,
   };
 }
 
@@ -138,19 +158,19 @@ export async function runCodexReview(options: CodexReviewOptions): Promise<Codex
 
     if (!result.ok) {
       const code = result.errorCode ?? 'unknown';
-      const stderrExcerpt = sanitizeSensitiveData((result.stderr || '').replace(/\s+/g, ' ').trim()).slice(0, 600);
-      const stdoutExcerpt = sanitizeSensitiveData((result.stdout || '').replace(/\s+/g, ' ').trim()).slice(0, 300);
+      const detailExcerpt = redactedExcerpt(result.errorDetail, result.stderr);
+      const stdoutExcerpt = redactedExcerpt(result.stdout);
       const parts = [`exit ${result.exitCode ?? 'none'}`, `stdout ${result.stdout.length} bytes`];
-      if (stderrExcerpt) {
-        parts.push(`stderr: ${stderrExcerpt}`);
+      if (detailExcerpt) {
+        parts.push(`detail: ${detailExcerpt}`);
       } else if (stdoutExcerpt) {
-        parts.push(`stdout: ${stdoutExcerpt}`);
+        parts.push(`stdout: ${stdoutExcerpt.slice(0, 300)}`);
       }
       return { ok: false, error: `${CODEX_FAILURE_TEXT[code]} (${parts.join(', ')})`, responseBody: code };
     }
 
     if (!result.finalMessage || result.finalMessage.trim().length === 0) {
-      const excerpt = sanitizeSensitiveData((result.stderr || '').replace(/\s+/g, ' ').trim()).slice(0, 600);
+      const excerpt = redactedExcerpt(result.errorDetail, result.stderr);
       return {
         ok: false,
         error: `${CODEX_FAILURE_TEXT.invalid_output} (exit ${result.exitCode ?? 'none'}, stdout ${result.stdout.length} bytes)${excerpt ? `: ${excerpt}` : ''}`,
@@ -174,6 +194,19 @@ export async function checkCodexCliConnection(options: {
     return { ok: false, error: CODEX_FAILURE_TEXT.not_installed };
   }
 
+  const version = await execCodexVersion({
+    executablePath,
+    env: options.env,
+    platform: options.platform,
+    timeoutMs: 20000,
+  });
+  if (!version.ok) {
+    const classified = classifyCodexFailure({ exitCode: version.exitCode, stderr: `${version.stdout}\n${version.stderr}` });
+    const code: CodexFailureCode = classified === 'unknown' ? 'runtime_missing' : classified;
+    const excerpt = redactedExcerpt(version.stdout, version.stderr).slice(0, 300);
+    return { ok: false, error: `${CODEX_FAILURE_TEXT[code]}${excerpt ? `: ${excerpt}` : ''}` };
+  }
+
   const loginResult = await resolveChatGptLogin(executablePath, {
     env: options.env,
     platform: options.platform,
@@ -182,5 +215,5 @@ export async function checkCodexCliConnection(options: {
     return { ok: false, error: loginResult.error };
   }
 
-  return { ok: true, error: '', executablePath };
+  return { ok: true, error: '', executablePath, version: version.version };
 }

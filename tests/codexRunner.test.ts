@@ -1,18 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { resolveCodexExecutableMock, execCodexMock, execCodexLoginStatusMock } = vi.hoisted(() => ({
+const { resolveCodexExecutableMock, execCodexMock, execCodexLoginStatusMock, execCodexVersionMock, classifyCodexFailureMock } = vi.hoisted(() => ({
   resolveCodexExecutableMock: vi.fn(),
   execCodexMock: vi.fn(),
   execCodexLoginStatusMock: vi.fn(),
+  execCodexVersionMock: vi.fn(),
+  classifyCodexFailureMock: vi.fn(),
 }));
 
 vi.mock('../src/codexCli', () => ({
   resolveCodexExecutable: resolveCodexExecutableMock,
   execCodex: execCodexMock,
   execCodexLoginStatus: execCodexLoginStatusMock,
+  execCodexVersion: execCodexVersionMock,
+  classifyCodexFailure: classifyCodexFailureMock,
 }));
 
-import { flattenMessagesToPrompt, runCodexReview } from '../src/codexRunner';
+import { checkCodexCliConnection, flattenMessagesToPrompt, runCodexReview } from '../src/codexRunner';
 
 const baseReviewOptions = {
   messages: [{ role: 'user' as const, content: 'NOTE_CONTENT_SECRET' }],
@@ -23,9 +27,13 @@ beforeEach(() => {
   resolveCodexExecutableMock.mockReset();
   execCodexMock.mockReset();
   execCodexLoginStatusMock.mockReset();
+  execCodexVersionMock.mockReset();
+  classifyCodexFailureMock.mockReset();
   resolveCodexExecutableMock.mockReturnValue('/usr/local/bin/codex');
+  execCodexVersionMock.mockResolvedValue({ ok: true, version: 'codex-cli 0.157.0', stdout: 'codex-cli 0.157.0', stderr: '', exitCode: 0 });
   execCodexLoginStatusMock.mockResolvedValue({ ok: true, mode: 'chatgpt', stdout: '', stderr: '', exitCode: 0 });
   execCodexMock.mockResolvedValue({ ok: true, exitCode: 0, stdout: '', stderr: '', finalMessage: '{"summary":"ok"}' });
+  classifyCodexFailureMock.mockReturnValue('unknown');
 });
 
 describe('flattenMessagesToPrompt', () => {
@@ -103,5 +111,29 @@ describe('runCodexReview', () => {
     const result = await runCodexReview(baseReviewOptions);
     expect(result.ok ? '' : result.responseBody).toBe('timeout');
     expect(result.ok ? '' : result.error).toContain('Codex CLI timed out.');
+  });
+});
+
+describe('checkCodexCliConnection', () => {
+  it('reports runtime_missing when the version probe fails', async () => {
+    execCodexVersionMock.mockResolvedValue({
+      ok: false,
+      version: undefined,
+      stdout: '',
+      stderr: 'env: node: No such file or directory',
+      exitCode: 127,
+    });
+    classifyCodexFailureMock.mockReturnValue('runtime_missing');
+
+    const result = await checkCodexCliConnection({});
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('runtime');
+    expect(execCodexLoginStatusMock).not.toHaveBeenCalled();
+  });
+
+  it('returns ok with the version when ChatGPT login is confirmed', async () => {
+    const result = await checkCodexCliConnection({});
+    expect(result.ok).toBe(true);
+    expect(result.version).toBe('codex-cli 0.157.0');
   });
 });

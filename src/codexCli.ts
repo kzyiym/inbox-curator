@@ -5,9 +5,14 @@ import { dirname, join } from 'node:path';
 
 export type CodexFailureCode =
   | 'not_installed'
+  | 'runtime_missing'
   | 'not_logged_in'
   | 'usage_limit'
   | 'auth_expired'
+  | 'host_skill_invalid'
+  | 'under_development_feature'
+  | 'git_repo_required'
+  | 'config_error'
   | 'timeout'
   | 'aborted'
   | 'invalid_output'
@@ -19,6 +24,7 @@ export interface CodexExecResult {
   stdout: string;
   stderr: string;
   finalMessage?: string;
+  errorDetail?: string;
   errorCode?: CodexFailureCode;
 }
 
@@ -68,9 +74,9 @@ export function buildCodexArgs(options: {
   const args = [
     'exec',
     '-c',
-    'features.skip_host_skill_discovery=true',
-    '-c',
     'features.plugins=false',
+    '-c',
+    'features.remote_plugin=false',
     '--sandbox',
     'read-only',
     '--skip-git-repo-check',
@@ -292,6 +298,38 @@ export function parseCodexJsonlFinalMessage(stdout: string): string | undefined 
   return finalMessage;
 }
 
+export function parseCodexJsonlErrors(stdout: string): string[] {
+  const errors: string[] = [];
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line.startsWith('{')) {
+      continue;
+    }
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!event || typeof event !== 'object') {
+      continue;
+    }
+    const record = event as Record<string, unknown>;
+    const item = record.item as Record<string, unknown> | undefined;
+    if (record.type === 'item.completed' && item && item.type === 'error' && typeof item.message === 'string') {
+      errors.push(item.message);
+    } else if (record.type === 'error' && typeof record.message === 'string') {
+      errors.push(record.message);
+    } else if (record.type === 'turn.failed') {
+      const error = record.error as Record<string, unknown> | undefined;
+      if (error && typeof error.message === 'string') {
+        errors.push(error.message);
+      }
+    }
+  }
+  return errors;
+}
+
 export function parseCodexStructuredOutput(text: string | undefined): unknown | undefined {
   if (!text) {
     return undefined;
@@ -316,6 +354,15 @@ export function classifyCodexFailure(input: {
     return 'aborted';
   }
   const text = input.stderr || '';
+  if (/under-development features enabled/i.test(text)) {
+    return 'under_development_feature';
+  }
+  if (/failed to load skill|invalid yaml|invalid frontmatter|failed to load plugin/i.test(text)) {
+    return 'host_skill_invalid';
+  }
+  if (/env: (node|bun): no such file|(^|\s)(node|bun): (command )?not found/i.test(text)) {
+    return 'runtime_missing';
+  }
   if (/command not found|not recognized as an internal|enoent|no such file or directory|is not defined/i.test(text)) {
     return 'not_installed';
   }
@@ -327,6 +374,12 @@ export function classifyCodexFailure(input: {
   }
   if (/expired|unauthorized|\b401\b|invalid token|reauth|re-authenticate/i.test(text)) {
     return 'auth_expired';
+  }
+  if (/not inside a trusted directory|not a git repository|git repository/i.test(text)) {
+    return 'git_repo_required';
+  }
+  if (/invalid config|config\.toml|strict-config|unknown field|failed to parse/i.test(text)) {
+    return 'config_error';
   }
   return 'unknown';
 }
@@ -443,11 +496,13 @@ export function execCodex(options: CodexExecOptions): Promise<CodexExecResult> {
 
     child.on('close', (code) => {
       const finalMessage = parseCodexJsonlFinalMessage(stdout);
+      const jsonlErrors = parseCodexJsonlErrors(stdout);
+      const errorDetail = [stderr, ...jsonlErrors].filter((part) => part.length > 0).join('\n');
       const errorCode =
         code === 0 && !timedOut && !aborted
           ? undefined
-          : classifyCodexFailure({ exitCode: code, stderr, timedOut, aborted });
-      finish({ exitCode: code, finalMessage, errorCode });
+          : classifyCodexFailure({ exitCode: code, stderr: errorDetail, timedOut, aborted });
+      finish({ exitCode: code, finalMessage, errorCode, errorDetail });
     });
 
     try {
@@ -486,17 +541,24 @@ export function parseCodexLoginStatus(text: string): CodexLoginMode {
   return 'unknown';
 }
 
-export function execCodexLoginStatus(options: {
+export interface CodexCommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+}
+
+function runCodexCommand(options: {
   executablePath: string;
+  args: string[];
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   timeoutMs?: number;
-}): Promise<CodexLoginStatusResult> {
+}): Promise<CodexCommandResult> {
   return new Promise((resolve) => {
     const env = scrubCodexEnv(options.env ?? process.env);
     const platform = options.platform ?? process.platform;
     withAugmentedPath(env, options.executablePath, platform);
-    const invocation = buildSpawnInvocation(options.executablePath, buildCodexLoginArgs(), platform, env.ComSpec);
+    const invocation = buildSpawnInvocation(options.executablePath, options.args, platform, env.ComSpec);
 
     let child: ChildProcess;
     try {
@@ -507,7 +569,7 @@ export function execCodexLoginStatus(options: {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
     } catch {
-      resolve({ ok: false, mode: 'unknown', stdout: '', stderr: '', exitCode: null });
+      resolve({ stdout: '', stderr: '', exitCode: null });
       return;
     }
 
@@ -524,8 +586,7 @@ export function execCodexLoginStatus(options: {
       if (timer) {
         clearTimeout(timer);
       }
-      const mode = parseCodexLoginStatus(`${stdout}\n${stderr}`);
-      resolve({ ok: mode === 'chatgpt', mode, stdout, stderr, exitCode });
+      resolve({ stdout, stderr, exitCode });
     };
 
     if (options.timeoutMs && options.timeoutMs > 0) {
@@ -547,4 +608,52 @@ export function execCodexLoginStatus(options: {
     child.on('error', () => finish(null));
     child.on('close', (code) => finish(code));
   });
+}
+
+export async function execCodexLoginStatus(options: {
+  executablePath: string;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  timeoutMs?: number;
+}): Promise<CodexLoginStatusResult> {
+  const result = await runCodexCommand({
+    executablePath: options.executablePath,
+    args: buildCodexLoginArgs(),
+    env: options.env,
+    platform: options.platform,
+    timeoutMs: options.timeoutMs,
+  });
+  const mode = parseCodexLoginStatus(`${result.stdout}\n${result.stderr}`);
+  return { ok: mode === 'chatgpt', mode, stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
+}
+
+export interface CodexVersionResult {
+  ok: boolean;
+  version: string | undefined;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+}
+
+export async function execCodexVersion(options: {
+  executablePath: string;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  timeoutMs?: number;
+}): Promise<CodexVersionResult> {
+  const result = await runCodexCommand({
+    executablePath: options.executablePath,
+    args: ['--version'],
+    env: options.env,
+    platform: options.platform,
+    timeoutMs: options.timeoutMs,
+  });
+  const text = `${result.stdout}\n${result.stderr}`.trim();
+  return {
+    ok: result.exitCode === 0 && text.length > 0,
+    version: text.split(/\r?\n/)[0]?.trim() || undefined,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+  };
 }

@@ -19,6 +19,7 @@ import {
   getCodexSearchDirs,
   getProcessTreeKillPlan,
   parseCodexJsonlFinalMessage,
+  parseCodexJsonlErrors,
   parseCodexLoginStatus,
   parseCodexStructuredOutput,
   resolveCodexExecutable,
@@ -77,9 +78,9 @@ describe('buildCodexArgs', () => {
     expect(args).toEqual([
       'exec',
       '-c',
-      'features.skip_host_skill_discovery=true',
-      '-c',
       'features.plugins=false',
+      '-c',
+      'features.remote_plugin=false',
       '--sandbox',
       'read-only',
       '--skip-git-repo-check',
@@ -103,9 +104,9 @@ describe('buildCodexArgs', () => {
     expect(args).toEqual([
       'exec',
       '-c',
-      'features.skip_host_skill_discovery=true',
-      '-c',
       'features.plugins=false',
+      '-c',
+      'features.remote_plugin=false',
       '--sandbox',
       'read-only',
       '--skip-git-repo-check',
@@ -245,6 +246,24 @@ describe('parseCodexJsonlFinalMessage', () => {
   });
 });
 
+describe('parseCodexJsonlErrors', () => {
+  it('extracts error events emitted on stdout', () => {
+    const stdout = [
+      '{"type":"thread.started","thread_id":"abc"}',
+      '{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Under-development features enabled: skip_host_skill_discovery."}}',
+      '{"type":"turn.failed","error":{"message":"boom"}}',
+    ].join('\n');
+    expect(parseCodexJsonlErrors(stdout)).toEqual([
+      'Under-development features enabled: skip_host_skill_discovery.',
+      'boom',
+    ]);
+  });
+
+  it('returns an empty array when there are no error events', () => {
+    expect(parseCodexJsonlErrors('{"type":"turn.completed"}')).toEqual([]);
+  });
+});
+
 describe('parseCodexStructuredOutput', () => {
   it('parses a JSON object', () => {
     expect(parseCodexStructuredOutput('{"summary":"ok"}')).toEqual({ summary: 'ok' });
@@ -274,6 +293,19 @@ describe('classifyCodexFailure', () => {
 
   it('falls back to unknown', () => {
     expect(classifyCodexFailure({ exitCode: 3, stderr: 'unexpected boom' })).toBe('unknown');
+  });
+
+  it('classifies environment and startup failures', () => {
+    expect(
+      classifyCodexFailure({ exitCode: 1, stderr: 'Under-development features enabled: skip_host_skill_discovery.' }),
+    ).toBe('under_development_feature');
+    expect(
+      classifyCodexFailure({ exitCode: 1, stderr: 'failed to load skill /x/SKILL.md: invalid YAML' }),
+    ).toBe('host_skill_invalid');
+    expect(classifyCodexFailure({ exitCode: 127, stderr: 'env: node: No such file or directory' })).toBe('runtime_missing');
+    expect(
+      classifyCodexFailure({ exitCode: 1, stderr: 'Not inside a trusted directory and --skip-git-repo-check was not specified.' }),
+    ).toBe('git_repo_required');
   });
 });
 
