@@ -138,9 +138,15 @@ export async function runCodexReview(options: CodexReviewOptions): Promise<Codex
 
     if (!result.ok) {
       const code = result.errorCode ?? 'unknown';
-      const excerpt = sanitizeSensitiveData((result.stderr || '').replace(/\s+/g, ' ').trim()).slice(0, 600);
-      const detail = ` (exit ${result.exitCode ?? 'none'})${excerpt ? `: ${excerpt}` : ''}`;
-      return { ok: false, error: `${CODEX_FAILURE_TEXT[code]}${detail}`, responseBody: code };
+      const stderrExcerpt = sanitizeSensitiveData((result.stderr || '').replace(/\s+/g, ' ').trim()).slice(0, 600);
+      const stdoutExcerpt = sanitizeSensitiveData((result.stdout || '').replace(/\s+/g, ' ').trim()).slice(0, 300);
+      const parts = [`exit ${result.exitCode ?? 'none'}`, `stdout ${result.stdout.length} bytes`];
+      if (stderrExcerpt) {
+        parts.push(`stderr: ${stderrExcerpt}`);
+      } else if (stdoutExcerpt) {
+        parts.push(`stdout: ${stdoutExcerpt}`);
+      }
+      return { ok: false, error: `${CODEX_FAILURE_TEXT[code]} (${parts.join(', ')})`, responseBody: code };
     }
 
     if (!result.finalMessage || result.finalMessage.trim().length === 0) {
