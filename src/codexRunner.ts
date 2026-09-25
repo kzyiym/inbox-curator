@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execCodex, execCodexLoginStatus, resolveCodexExecutable, type CodexFailureCode } from './codexCli';
 import type { ProviderChatMessage } from './providerClient';
+import { sanitizeSensitiveData } from './utils/sensitiveData';
 
 export interface CodexReviewOptions {
   messages: ProviderChatMessage[];
@@ -91,9 +92,10 @@ async function resolveChatGptLogin(executablePath: string, options: {
   if (login.mode === 'not_logged_in') {
     return { ok: false, error: 'Codex CLI is not logged in.', responseBody: 'not_logged_in' };
   }
+  const excerpt = sanitizeSensitiveData(`${login.stdout}\n${login.stderr}`.replace(/\s+/g, ' ').trim()).slice(0, 160);
   return {
     ok: false,
-    error: 'Codex CLI login status could not be verified as a ChatGPT login.',
+    error: `Codex CLI login status could not be verified as a ChatGPT login (exit ${login.exitCode ?? 'none'})${excerpt ? `: ${excerpt}` : ' (no output)'}.`,
     responseBody: 'unknown',
   };
 }
