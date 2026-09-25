@@ -289,6 +289,7 @@ describe('execCodex', () => {
     expect(spawnOptions.shell).toBe(false);
     expect(spawnOptions.cwd).toBe('/tmp/inbox-curator-iso');
     expect(spawnOptions.env.OPENAI_API_KEY).toBeUndefined();
+    expect(String(spawnOptions.env.PATH)).toContain('/usr/local/bin');
 
     child.stdout.emit('data', jsonlAgentMessage('{"summary":"ok"}'));
     child.emit('close', 0);

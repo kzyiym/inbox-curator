@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 export type CodexFailureCode =
   | 'not_installed'
@@ -175,6 +176,68 @@ export function getCodexSearchDirs(env: NodeJS.ProcessEnv, platform: NodeJS.Plat
   return Array.from(new Set(dirs));
 }
 
+function getRuntimeBinDirs(platform: NodeJS.Platform, homeDir: string): string[] {
+  const dirs: string[] = [];
+  if (platform === 'win32') {
+    if (process.env.APPDATA) {
+      dirs.push(join(process.env.APPDATA, 'npm'));
+    }
+    if (process.env.LOCALAPPDATA) {
+      dirs.push(join(process.env.LOCALAPPDATA, 'Programs', 'nodejs'));
+      dirs.push(join(process.env.LOCALAPPDATA, 'Volta', 'bin'));
+      dirs.push(join(process.env.LOCALAPPDATA, 'pnpm'));
+    }
+    dirs.push(join(homeDir, '.volta', 'bin'));
+    return dirs;
+  }
+  dirs.push(join(homeDir, '.bun', 'bin'));
+  dirs.push(join(homeDir, '.volta', 'bin'));
+  dirs.push(join(homeDir, '.local', 'bin'));
+  dirs.push('/opt/homebrew/bin');
+  dirs.push('/usr/local/bin');
+  const nvmBase = join(homeDir, '.nvm', 'versions', 'node');
+  try {
+    for (const entry of readdirSync(nvmBase)) {
+      dirs.push(join(nvmBase, entry, 'bin'));
+    }
+  } catch {
+    void 0;
+  }
+  const fnmBase = join(homeDir, 'Library', 'Application Support', 'fnm', 'node-versions');
+  try {
+    for (const entry of readdirSync(fnmBase)) {
+      dirs.push(join(fnmBase, entry, 'installation', 'bin'));
+    }
+  } catch {
+    void 0;
+  }
+  return dirs;
+}
+
+function withAugmentedPath(
+  env: NodeJS.ProcessEnv,
+  executablePath: string,
+  platform: NodeJS.Platform,
+): NodeJS.ProcessEnv {
+  const sep = platform === 'win32' ? ';' : ':';
+  const homeDir = homedir();
+  const current = env.PATH ?? env.Path ?? '';
+  const dirs: string[] = [];
+  if (executablePath) {
+    dirs.push(dirname(executablePath));
+  }
+  dirs.push(...getRuntimeBinDirs(platform, homeDir));
+  if (current) {
+    dirs.push(...current.split(sep));
+  }
+  const augmented = Array.from(new Set(dirs.filter((dir) => dir.length > 0))).join(sep);
+  env.PATH = augmented;
+  if (platform === 'win32' && env.Path !== undefined) {
+    env.Path = augmented;
+  }
+  return env;
+}
+
 export function resolveCodexExecutable(options: CodexResolveOptions = {}): string | null {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
@@ -268,6 +331,7 @@ export function execCodex(options: CodexExecOptions): Promise<CodexExecResult> {
   return new Promise((resolve) => {
     const env = scrubCodexEnv(options.env ?? process.env);
     const platform = options.platform ?? process.platform;
+    withAugmentedPath(env, options.executablePath, platform);
     const args = buildCodexArgs({
       outputSchemaPath: options.outputSchemaPath,
       outputLastMessagePath: options.outputLastMessagePath,
@@ -427,6 +491,7 @@ export function execCodexLoginStatus(options: {
   return new Promise((resolve) => {
     const env = scrubCodexEnv(options.env ?? process.env);
     const platform = options.platform ?? process.platform;
+    withAugmentedPath(env, options.executablePath, platform);
     const invocation = buildSpawnInvocation(options.executablePath, buildCodexLoginArgs(), platform, env.ComSpec);
 
     let child: ChildProcess;
