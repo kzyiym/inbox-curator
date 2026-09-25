@@ -102,6 +102,6 @@ describe('runCodexReview', () => {
     execCodexMock.mockResolvedValue({ ok: false, exitCode: null, stdout: '', stderr: '', errorCode: 'timeout' });
     const result = await runCodexReview(baseReviewOptions);
     expect(result.ok ? '' : result.responseBody).toBe('timeout');
-    expect(result.ok ? '' : result.error).toBe('Codex CLI timed out.');
+    expect(result.ok ? '' : result.error).toContain('Codex CLI timed out.');
   });
 });
