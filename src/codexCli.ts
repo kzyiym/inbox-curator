@@ -13,6 +13,7 @@ export type CodexFailureCode =
   | 'under_development_feature'
   | 'git_repo_required'
   | 'config_error'
+  | 'model_not_found'
   | 'timeout'
   | 'aborted'
   | 'invalid_output'
@@ -380,6 +381,9 @@ export function classifyCodexFailure(input: {
   }
   if (/invalid config|config\.toml|strict-config|unknown field|failed to parse/i.test(text)) {
     return 'config_error';
+  }
+  if (/model metadata for .* not found|model .* not found|unknown model/i.test(text)) {
+    return 'model_not_found';
   }
   return 'unknown';
 }

@@ -306,6 +306,9 @@ describe('classifyCodexFailure', () => {
     expect(
       classifyCodexFailure({ exitCode: 1, stderr: 'Not inside a trusted directory and --skip-git-repo-check was not specified.' }),
     ).toBe('git_repo_required');
+    expect(
+      classifyCodexFailure({ exitCode: 1, stderr: 'Model metadata for `gpt-4o-mini` not found.' }),
+    ).toBe('model_not_found');
   });
 });
 

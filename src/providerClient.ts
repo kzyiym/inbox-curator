@@ -167,7 +167,7 @@ export async function postProviderChat(request: ProviderChatRequest): Promise<Pr
         messages: request.messages,
         consentAccepted: request.codexCli?.consentAccepted === true,
         executablePath: request.codexCli?.executablePath,
-        model: request.codexCli?.model || request.model,
+        model: request.codexCli?.model || undefined,
         timeoutMs: request.codexCli?.timeoutMs ?? request.timeoutMs,
         signal: request.codexCli?.signal,
       });

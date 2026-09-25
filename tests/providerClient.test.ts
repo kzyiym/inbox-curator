@@ -169,6 +169,22 @@ describe('Codex CLI provider dispatch', () => {
     );
   });
 
+  it('does not send the API model name to Codex when no Codex model is set', async () => {
+    runCodexReviewMock.mockReset();
+    runCodexReviewMock.mockResolvedValue({ ok: true, content: '{}' });
+
+    await postProviderChat({
+      provider: 'codex-cli',
+      endpointUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o-mini',
+      apiKey: '',
+      messages: [{ role: 'user', content: 'hello' }],
+      codexCli: { consentAccepted: true },
+    });
+
+    expect(runCodexReviewMock).toHaveBeenCalledWith(expect.objectContaining({ model: undefined }));
+  });
+
   it('returns runCodexReview failures unchanged', async () => {
     runCodexReviewMock.mockReset();
     runCodexReviewMock.mockResolvedValue({ ok: false, error: 'not logged in', responseBody: 'not_logged_in' });

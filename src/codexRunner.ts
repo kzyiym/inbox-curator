@@ -44,6 +44,7 @@ const CODEX_FAILURE_TEXT: Record<CodexFailureCode, string> = {
   under_development_feature: 'Codex rejected an under-development feature flag.',
   git_repo_required: 'Codex requires a Git repository in the working directory.',
   config_error: 'Codex configuration could not be parsed.',
+  model_not_found: 'The Codex model was not recognized. Leave the Codex model field empty to use the default.',
   timeout: 'Codex CLI timed out.',
   aborted: 'Codex CLI execution was cancelled.',
   invalid_output: 'Codex CLI returned no review output.',
@@ -153,7 +154,7 @@ export async function runCodexReview(options: CodexReviewOptions): Promise<Codex
       platform: options.platform,
       timeoutMs: options.timeoutMs,
       signal: options.signal,
-      model: options.model,
+      model: options.model?.trim() || undefined,
     });
 
     if (!result.ok) {
