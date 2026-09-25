@@ -67,6 +67,10 @@ export function buildCodexArgs(options: {
 }): string[] {
   const args = [
     'exec',
+    '-c',
+    'features.skip_host_skill_discovery=true',
+    '-c',
+    'features.plugins=false',
     '--sandbox',
     'read-only',
     '--skip-git-repo-check',
