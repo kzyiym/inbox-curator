@@ -479,6 +479,16 @@ export async function runCollectionReviewPipeline(
       timeoutMs: options.requestTimeoutMs,
       maxOutputTokens: options.maxOutputTokens,
       openAiTokenLimitParam: options.openAiTokenLimitParam,
+      ...(options.provider === 'codex-cli'
+        ? {
+            codexCli: {
+              consentAccepted: options.codexCliConsentAccepted === true,
+              executablePath: options.codexCliExecutablePath,
+              model: options.codexCliModel,
+              timeoutMs: options.codexCliTimeoutMs,
+            },
+          }
+        : {}),
     });
 
     if (!apiResult.ok) {

@@ -9,6 +9,7 @@ import { postGeminiChat } from './gemini';
 import { postAnthropicChat } from './anthropic';
 import { isImageNotSupportedErrorText } from './providerErrorClassifier';
 import { sanitizeSensitiveData } from './utils/sensitiveData';
+import { runCodexReview } from './codexRunner';
 
 export interface ChatContentTextPart {
   type: 'text';
@@ -25,6 +26,14 @@ export interface ChatContentImagePart {
 export type ChatContentPart = ChatContentTextPart | ChatContentImagePart;
 export type ProviderChatMessageContent = string | ChatContentPart[];
 
+export interface CodexChatOptions {
+  consentAccepted: boolean;
+  executablePath?: string;
+  model?: string;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
 export interface ProviderChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: ProviderChatMessageContent;
@@ -40,6 +49,7 @@ export interface ProviderChatRequest {
   timeoutMs?: number;
   maxOutputTokens?: number;
   openAiTokenLimitParam?: 'max_tokens' | 'max_completion_tokens' | 'none';
+  codexCli?: CodexChatOptions;
 }
 
 export interface ProviderChatSuccess {
@@ -71,6 +81,8 @@ export function buildProviderChatUrl(provider: InboxCuratorProvider, endpointUrl
       return `${base}/v1beta/models`;
     case 'anthropic-native':
       return `${base}/v1/messages`;
+    case 'codex-cli':
+      return 'codex-cli://local';
     default: {
       const unsupportedProvider: never = provider;
       return unsupportedProvider;
@@ -98,6 +110,13 @@ export function classifyProviderFailure(provider: InboxCuratorProvider, failure:
         return { retryable: true, reason: 'Server error' };
       }
       return { retryable: false, reason: `HTTP ${status}` };
+    }
+    case 'codex-cli': {
+      const code = failure.responseBody;
+      if (code === 'usage_limit' || code === 'timeout') {
+        return { retryable: true, reason: code };
+      }
+      return { retryable: false, reason: code ?? failure.error };
     }
     default: {
       const unsupportedProvider: never = provider;
@@ -143,6 +162,22 @@ export async function postProviderChat(request: ProviderChatRequest): Promise<Pr
         maxOutputTokens: request.maxOutputTokens,
       });
       break;
+    case 'codex-cli': {
+      const reviewResult = await runCodexReview({
+        messages: request.messages,
+        consentAccepted: request.codexCli?.consentAccepted === true,
+        executablePath: request.codexCli?.executablePath,
+        model: request.codexCli?.model || request.model,
+        timeoutMs: request.codexCli?.timeoutMs ?? request.timeoutMs,
+        signal: request.codexCli?.signal,
+      });
+      if (reviewResult.ok) {
+        result = { ok: true, status: 200, content: reviewResult.content };
+      } else {
+        result = { ok: false, error: reviewResult.error, responseBody: reviewResult.responseBody };
+      }
+      break;
+    }
     default: {
       const unsupportedProvider: never = request.provider;
       return unsupportedProvider;

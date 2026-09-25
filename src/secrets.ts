@@ -27,6 +27,9 @@ export function getApiKeySecretId(provider: string): string {
   if (provider === 'anthropic-native') {
     return 'inbox-curator-api-key-anthropic';
   }
+  if (provider === 'codex-cli') {
+    return 'inbox-curator-codex-cli';
+  }
   return 'inbox-curator-api-key-openai';
 }
 

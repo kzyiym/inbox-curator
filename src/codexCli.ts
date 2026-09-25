@@ -71,6 +71,7 @@ export function buildCodexArgs(options: {
     '--skip-git-repo-check',
     '--ephemeral',
     '--ignore-user-config',
+    '--ignore-rules',
   ];
   if (options.jsonEvents !== false) {
     args.push('--json');
@@ -371,5 +372,95 @@ export function execCodex(options: CodexExecOptions): Promise<CodexExecResult> {
     } catch {
       child.stdin?.destroy();
     }
+  });
+}
+
+export type CodexLoginMode = 'chatgpt' | 'api_key' | 'not_logged_in' | 'unknown';
+
+export interface CodexLoginStatusResult {
+  ok: boolean;
+  mode: CodexLoginMode;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+}
+
+export function buildCodexLoginArgs(): string[] {
+  return ['login', 'status'];
+}
+
+export function parseCodexLoginStatus(text: string): CodexLoginMode {
+  const value = text || '';
+  if (/not logged in|no credentials|not authenticated|missing bearer/i.test(value)) {
+    return 'not_logged_in';
+  }
+  if (/chatgpt/i.test(value)) {
+    return 'chatgpt';
+  }
+  if (/api[- ]?key|openai_api_key/i.test(value)) {
+    return 'api_key';
+  }
+  return 'unknown';
+}
+
+export function execCodexLoginStatus(options: {
+  executablePath: string;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  timeoutMs?: number;
+}): Promise<CodexLoginStatusResult> {
+  return new Promise((resolve) => {
+    const env = scrubCodexEnv(options.env ?? process.env);
+    const platform = options.platform ?? process.platform;
+    const invocation = buildSpawnInvocation(options.executablePath, buildCodexLoginArgs(), platform, env.ComSpec);
+
+    let child: ChildProcess;
+    try {
+      child = spawn(invocation.command, invocation.args, {
+        env,
+        shell: false,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+    } catch {
+      resolve({ ok: false, mode: 'unknown', stdout: '', stderr: '', exitCode: null });
+      return;
+    }
+
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (exitCode: number | null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      const mode = parseCodexLoginStatus(`${stdout}\n${stderr}`);
+      resolve({ ok: exitCode === 0 && mode === 'chatgpt', mode, stdout, stderr, exitCode });
+    };
+
+    if (options.timeoutMs && options.timeoutMs > 0) {
+      timer = setTimeout(() => {
+        try {
+          child.kill('SIGKILL');
+        } catch {
+          void 0;
+        }
+      }, options.timeoutMs);
+    }
+
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on('data', (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', () => finish(null));
+    child.on('close', (code) => finish(code));
   });
 }

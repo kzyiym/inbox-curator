@@ -10,13 +10,16 @@ vi.mock('node:child_process', () => ({
 
 import {
   buildCodexArgs,
+  buildCodexLoginArgs,
   buildSpawnInvocation,
   classifyCodexFailure,
   execCodex,
+  execCodexLoginStatus,
   getCodexExecutableNames,
   getCodexSearchDirs,
   getProcessTreeKillPlan,
   parseCodexJsonlFinalMessage,
+  parseCodexLoginStatus,
   parseCodexStructuredOutput,
   resolveCodexExecutable,
   scrubCodexEnv,
@@ -78,10 +81,10 @@ describe('buildCodexArgs', () => {
       '--skip-git-repo-check',
       '--ephemeral',
       '--ignore-user-config',
+      '--ignore-rules',
       '--json',
       '-',
     ]);
-    expect(args).not.toContain('--ignore-rules');
     expect(args).not.toContain('--full-auto');
     expect(args.join(' ')).not.toContain('NOTE_BODY_SECRET');
   });
@@ -100,6 +103,7 @@ describe('buildCodexArgs', () => {
       '--skip-git-repo-check',
       '--ephemeral',
       '--ignore-user-config',
+      '--ignore-rules',
       '--json',
       '--model',
       'gpt-5-codex',
@@ -422,5 +426,73 @@ describe('execCodex', () => {
     child.emit('close', null);
     const result = await promise;
     expect(result.errorCode).toBe('aborted');
+  });
+});
+
+describe('parseCodexLoginStatus', () => {
+  it('recognizes ChatGPT, API key, and logged-out states', () => {
+    expect(parseCodexLoginStatus('Logged in using ChatGPT')).toBe('chatgpt');
+    expect(parseCodexLoginStatus('Logged in using an API key')).toBe('api_key');
+    expect(parseCodexLoginStatus('Not logged in')).toBe('not_logged_in');
+    expect(parseCodexLoginStatus('something unexpected')).toBe('unknown');
+  });
+});
+
+describe('execCodexLoginStatus', () => {
+  it('runs "login status" without an API key and confirms ChatGPT', async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child as any);
+
+    const promise = execCodexLoginStatus({
+      executablePath: '/usr/local/bin/codex',
+      platform: 'linux',
+      env: { PATH: '/usr/bin', OPENAI_API_KEY: 'sk-should-be-removed' },
+    });
+
+    const [command, args, spawnOptions] = spawnMock.mock.calls[0] as [string, string[], Record<string, any>];
+    expect(command).toBe('/usr/local/bin/codex');
+    expect(args).toEqual(buildCodexLoginArgs());
+    expect(spawnOptions.env.OPENAI_API_KEY).toBeUndefined();
+
+    child.stdout.emit('data', 'Logged in using ChatGPT\n');
+    child.emit('close', 0);
+
+    const result = await promise;
+    expect(result.ok).toBe(true);
+    expect(result.mode).toBe('chatgpt');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('rejects API key authentication', async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child as any);
+
+    const promise = execCodexLoginStatus({ executablePath: '/usr/bin/codex', platform: 'linux' });
+    child.stdout.emit('data', 'Logged in using an API key\n');
+    child.emit('close', 0);
+
+    const result = await promise;
+    expect(result.ok).toBe(false);
+    expect(result.mode).toBe('api_key');
+  });
+
+  it('routes Windows .cmd shims through cmd.exe', async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child as any);
+
+    const promise = execCodexLoginStatus({
+      executablePath: 'C:\\Volta\\bin\\codex.cmd',
+      platform: 'win32',
+      env: { ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
+    });
+
+    const [command, args] = spawnMock.mock.calls[0] as [string, string[]];
+    expect(command).toBe('C:\\Windows\\System32\\cmd.exe');
+    expect(args).toEqual(['/d', '/s', '/c', 'C:\\Volta\\bin\\codex.cmd', 'login', 'status']);
+
+    child.emit('close', 126);
+    const result = await promise;
+    expect(result.ok).toBe(false);
+    expect(result.mode).toBe('unknown');
   });
 });

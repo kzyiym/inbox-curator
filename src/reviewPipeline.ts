@@ -41,6 +41,10 @@ export interface ReviewPipelineOptions {
   provider: InboxCuratorProvider;
   endpointUrl: string;
   model: string;
+  codexCliConsentAccepted?: boolean;
+  codexCliExecutablePath?: string;
+  codexCliModel?: string;
+  codexCliTimeoutMs?: number;
   fetchUrlMetadata: boolean;
   extractUrlArticleText: boolean;
   maxExtractedCharacters: number;
@@ -69,6 +73,10 @@ export interface ReviewModelInputPayload {
   provider: InboxCuratorProvider;
   endpointUrl: string;
   model: string;
+  codexCliConsentAccepted?: boolean;
+  codexCliExecutablePath?: string;
+  codexCliModel?: string;
+  codexCliTimeoutMs?: number;
   noteContent: string;
   noteCharacterCount: number;
   notePreview: string;
@@ -628,6 +636,10 @@ export async function buildReviewModelInputPayload(
     provider: options.provider,
     endpointUrl: options.endpointUrl.trim() || 'https://api.openai.com/v1',
     model: options.model.trim() || 'gpt-4o-mini',
+    codexCliConsentAccepted: options.codexCliConsentAccepted,
+    codexCliExecutablePath: options.codexCliExecutablePath,
+    codexCliModel: options.codexCliModel,
+    codexCliTimeoutMs: options.codexCliTimeoutMs,
     noteContent: finalContent,
     noteCharacterCount: finalContent.length,
     notePreview: buildNotePreview(previewSource),
@@ -1148,19 +1160,32 @@ async function getReviewRawResponse(
   modelInput: ReviewModelInputPayload,
   capture?: (data: ReviewDiagnosticPrompts) => void,
 ): Promise<ReviewRawResponse> {
-  const apiKey = await getApiKey(app, modelInput.provider);
-  if (!apiKey) {
-    throw new ReviewPipelineError('API key is not saved in SecretStorage.', {
+  const isCodexCli = modelInput.provider === 'codex-cli';
+  if (isCodexCli && !modelInput.codexCliConsentAccepted) {
+    throw new ReviewPipelineError('Codex CLI provider requires explicit consent in settings.', {
       retryable: false,
       stage: 'request',
+      errorCode: 'codex_consent_required',
     });
+  }
+
+  let apiKey = '';
+  if (!isCodexCli) {
+    const storedApiKey = await getApiKey(app, modelInput.provider);
+    if (!storedApiKey) {
+      throw new ReviewPipelineError('API key is not saved in SecretStorage.', {
+        retryable: false,
+        stage: 'request',
+      });
+    }
+    apiKey = storedApiKey;
   }
 
   const prompt = buildReviewPrompt(modelInput);
 
   let userContent: import('./providerClient').ProviderChatMessageContent = prompt.user;
   let imageAttachmentCount = 0;
-  if (modelInput.readImages && Array.isArray(modelInput.attachments)) {
+  if (!isCodexCli && modelInput.readImages && Array.isArray(modelInput.attachments)) {
     const attachments = modelInput.attachments;
     const images = await loadAndConvertImages(app, attachments, modelInput.optimizeImagesForAi);
     imageAttachmentCount = images.length;
@@ -1227,6 +1252,16 @@ async function getReviewRawResponse(
     timeoutMs: modelInput.requestTimeoutMs,
     maxOutputTokens: modelInput.maxOutputTokens,
     openAiTokenLimitParam: modelInput.openAiTokenLimitParam,
+    ...(isCodexCli
+      ? {
+          codexCli: {
+            consentAccepted: true,
+            executablePath: modelInput.codexCliExecutablePath,
+            model: modelInput.codexCliModel,
+            timeoutMs: modelInput.codexCliTimeoutMs,
+          },
+        }
+      : {}),
   });
 
   const durationMs = Date.now() - requestStartedAt;

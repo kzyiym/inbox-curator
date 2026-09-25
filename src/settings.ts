@@ -1,6 +1,7 @@
 import { apiVersion, App, normalizePath, Notice, PluginSettingTab, Setting, TFolder } from 'obsidian';
 import type InboxCuratorPlugin from '../main';
 import { testConnection } from './connectionTest';
+import { checkCodexCliConnection } from './codexRunner';
 import { buildApiKeyMask, deleteApiKey, getApiKey, getApiKeySecretId, hasApiKey, isMaskedApiKeyValue, saveApiKey, isSecretStorageAvailable } from './secrets';
 import { t } from './i18n';
 import { clearErrorLogs, getErrorLogFolderPath, getErrorLogStats, logError } from './utils/errorLog';
@@ -12,7 +13,7 @@ import type { ReviewConfidence } from './reviewNormalizer';
 import { buildOpenAiCompatibleTokenLimitDetectionKey } from './openAiCompatible';
 import { validateFolderPath } from './utils/folder';
 
-export type InboxCuratorProvider = 'openai-compatible' | 'gemini-native' | 'anthropic-native';
+export type InboxCuratorProvider = 'openai-compatible' | 'gemini-native' | 'anthropic-native' | 'codex-cli';
 
 export interface InboxCuratorSettings {
   watchedFolder: string;
@@ -20,6 +21,10 @@ export interface InboxCuratorSettings {
   provider: InboxCuratorProvider;
   endpointUrl: string;
   model: string;
+  codexCliConsentAccepted: boolean;
+  codexCliExecutablePath: string;
+  codexCliModel: string;
+  codexCliTimeoutMs: number;
   maxNotesPerRun: number;
   maxConcurrentReviews: number;
   requestsPerMinute: number;
@@ -90,6 +95,10 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   provider: 'openai-compatible',
   endpointUrl: 'https://api.openai.com/v1',
   model: 'gpt-4o-mini',
+  codexCliConsentAccepted: false,
+  codexCliExecutablePath: '',
+  codexCliModel: '',
+  codexCliTimeoutMs: 120000,
   maxNotesPerRun: 10,
   maxConcurrentReviews: 1,
   requestsPerMinute: 10,
@@ -328,6 +337,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           .addOption('openai-compatible', 'OpenAI Compatible')
           .addOption('gemini-native', 'Gemini Native')
           .addOption('anthropic-native', 'Anthropic Native')
+          .addOption('codex-cli', t('settings.provider.codexCli'))
           .setValue(settings.provider)
           .onChange(async (value) => {
             settings.provider = value as InboxCuratorProvider;
@@ -335,14 +345,18 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
               'openai-compatible': 'https://api.openai.com/v1',
               'gemini-native': 'https://generativelanguage.googleapis.com',
               'anthropic-native': 'https://api.anthropic.com',
+              'codex-cli': DEFAULT_SETTINGS.endpointUrl,
             };
             const defaultModels: Record<InboxCuratorProvider, string> = {
               'openai-compatible': 'gpt-4o-mini',
               'gemini-native': 'gemini-1.5-flash',
               'anthropic-native': 'claude-3-5-sonnet-latest',
+              'codex-cli': DEFAULT_SETTINGS.model,
             };
-            settings.endpointUrl = defaultEndpoints[settings.provider];
-            settings.model = defaultModels[settings.provider];
+            if (settings.provider !== 'codex-cli') {
+              settings.endpointUrl = defaultEndpoints[settings.provider];
+              settings.model = defaultModels[settings.provider];
+            }
             await this.plugin.saveSettings();
             this.display();
           }),
@@ -397,6 +411,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       }
     }
 
+    if (settings.provider !== 'codex-cli') {
     new Setting(apiCard)
       .setName(t('settings.model.label'))
       .setDesc(t('settings.model.desc'))
@@ -520,11 +535,13 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             'openai-compatible': 'https://api.openai.com/v1',
             'gemini-native': 'https://generativelanguage.googleapis.com',
             'anthropic-native': 'https://api.anthropic.com',
+            'codex-cli': DEFAULT_SETTINGS.endpointUrl,
           };
           const defaultModels: Record<InboxCuratorProvider, string> = {
             'openai-compatible': 'gpt-4o-mini',
             'gemini-native': 'gemini-1.5-flash',
             'anthropic-native': 'claude-3-5-sonnet-latest',
+            'codex-cli': DEFAULT_SETTINGS.model,
           };
 
           const apiKeyCandidate = hasEditedApiKey && draftValue ? draftValue : await getApiKey(this.app, settings.provider);
@@ -608,6 +625,85 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         })
       : t('settings.connectionTest.lastStatusNone');
     apiCard.createDiv({ cls: 'inbox-curator-meta-info', text: lastStatusText });
+    }
+
+    if (settings.provider === 'codex-cli') {
+      const codexCallout = apiCard.createDiv({ cls: 'inbox-curator-callout' });
+      codexCallout.createEl('p', { text: t('settings.codexCli.warning') });
+      codexCallout.createEl('p', { text: t('settings.codexCli.docsHint') });
+
+      new Setting(apiCard)
+        .setName(t('settings.codexCli.consent.label'))
+        .setDesc(t('settings.codexCli.consent.desc'))
+        .addToggle((toggle) =>
+          toggle.setValue(settings.codexCliConsentAccepted).onChange(async (value) => {
+            settings.codexCliConsentAccepted = value;
+            await this.plugin.saveSettings();
+          }),
+        );
+
+      new Setting(apiCard)
+        .setName(t('settings.codexCli.executablePath.label'))
+        .setDesc(t('settings.codexCli.executablePath.desc'))
+        .addText((text) =>
+          text
+            .setPlaceholder(t('settings.codexCli.executablePath.placeholder'))
+            .setValue(settings.codexCliExecutablePath)
+            .onChange(async (value) => {
+              settings.codexCliExecutablePath = value.trim();
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(apiCard)
+        .setName(t('settings.codexCli.model.label'))
+        .setDesc(t('settings.codexCli.model.desc'))
+        .addText((text) =>
+          text
+            .setPlaceholder(t('settings.codexCli.model.placeholder'))
+            .setValue(settings.codexCliModel)
+            .onChange(async (value) => {
+              settings.codexCliModel = value.trim();
+              await this.plugin.saveSettings();
+            }),
+        );
+
+      new Setting(apiCard)
+        .setName(t('settings.codexCli.timeout.label'))
+        .setDesc(t('settings.codexCli.timeout.desc'))
+        .addText((text) => {
+          text.inputEl.type = 'number';
+          text.inputEl.min = '10000';
+          text.inputEl.max = '600000';
+          text.setPlaceholder(String(DEFAULT_SETTINGS.codexCliTimeoutMs));
+          text.setValue(String(settings.codexCliTimeoutMs));
+          text.onChange(async (value) => {
+            settings.codexCliTimeoutMs = clampInteger(Number(value), 10000, 600000, DEFAULT_SETTINGS.codexCliTimeoutMs);
+            await this.plugin.saveSettings();
+          });
+        });
+
+      const codexGuide = apiCard.createDiv({ cls: 'inbox-curator-callout inbox-curator-callout-info' });
+      codexGuide.createEl('p', { text: t('settings.codexCli.installGuide') });
+      codexGuide.createEl('p', { text: t('settings.codexCli.loginGuide') });
+      codexGuide.createEl('p', { text: t('settings.codexCli.usageNote') });
+
+      new Setting(apiCard)
+        .setName(t('settings.codexCli.check.label'))
+        .setDesc(t('settings.codexCli.check.desc'))
+        .addButton((button) =>
+          button.setButtonText(t('settings.codexCli.check.button')).onClick(() => { void (async () => {
+            if (!settings.codexCliConsentAccepted) {
+              new Notice(t('notice.codexCli.consentRequired'));
+              return;
+            }
+            const result = await checkCodexCliConnection({
+              executablePath: settings.codexCliExecutablePath,
+            });
+            new Notice(result.ok ? t('settings.codexCli.check.ok') : t('settings.codexCli.check.failed', { error: result.error }));
+          })(); }),
+        );
+    }
 
     // ── 2. Logs ──
     const logCard = this.createCardContainer(containerEl, '📋 ' + t('settings.logs.sectionTitle'), t('settings.logs.sectionDesc'));

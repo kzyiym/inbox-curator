@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getApiKey, saveApiKey, deleteApiKey } from '../src/secrets';
-import { classifyProviderFailure, maskBase64 } from '../src/providerClient';
+import { buildProviderChatUrl, classifyProviderFailure, maskBase64, postProviderChat } from '../src/providerClient';
 import { buildGeminiUrl } from '../src/gemini';
+
+const { runCodexReviewMock } = vi.hoisted(() => ({ runCodexReviewMock: vi.fn() }));
+
+vi.mock('../src/codexRunner', () => ({
+  runCodexReview: runCodexReviewMock,
+}));
 
 function createMockSecretStorage() {
   const secrets = new Map<string, string>();
@@ -125,5 +131,56 @@ describe('Provider Extension and SecretStorage legacy compatibility', () => {
     expect(masked.messages[1].content[1].image_url.url).toBe('data:image/png;base64,[OMITTED]');
     expect(masked.nested.error).toContain('data:image/png;base64,[OMITTED]');
     expect(masked.nested.data).toContain('...[OMITTED]');
+  });
+});
+
+describe('Codex CLI provider dispatch', () => {
+  it('builds a local pseudo URL for codex-cli', () => {
+    expect(buildProviderChatUrl('codex-cli', '')).toBe('codex-cli://local');
+  });
+
+  it('classifies codex failures by response code', () => {
+    expect(classifyProviderFailure('codex-cli', { ok: false, error: 'x', responseBody: 'usage_limit' })).toEqual({
+      retryable: true,
+      reason: 'usage_limit',
+    });
+    expect(classifyProviderFailure('codex-cli', { ok: false, error: 'consent', responseBody: 'consent_required' })).toEqual({
+      retryable: false,
+      reason: 'consent_required',
+    });
+  });
+
+  it('dispatches to runCodexReview and returns its content', async () => {
+    runCodexReviewMock.mockReset();
+    runCodexReviewMock.mockResolvedValue({ ok: true, content: '{"summary":"ok"}' });
+
+    const result = await postProviderChat({
+      provider: 'codex-cli',
+      endpointUrl: '',
+      model: '',
+      apiKey: '',
+      messages: [{ role: 'user', content: 'hello' }],
+      codexCli: { consentAccepted: true, executablePath: '/usr/local/bin/codex', timeoutMs: 1234 },
+    });
+
+    expect(result).toEqual({ ok: true, status: 200, content: '{"summary":"ok"}' });
+    expect(runCodexReviewMock).toHaveBeenCalledWith(
+      expect.objectContaining({ consentAccepted: true, executablePath: '/usr/local/bin/codex', timeoutMs: 1234 }),
+    );
+  });
+
+  it('returns runCodexReview failures unchanged', async () => {
+    runCodexReviewMock.mockReset();
+    runCodexReviewMock.mockResolvedValue({ ok: false, error: 'not logged in', responseBody: 'not_logged_in' });
+
+    const result = await postProviderChat({
+      provider: 'codex-cli',
+      endpointUrl: '',
+      model: '',
+      apiKey: '',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    expect(result).toEqual({ ok: false, error: 'not logged in', responseBody: 'not_logged_in' });
   });
 });

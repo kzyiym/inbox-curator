@@ -429,6 +429,10 @@ export default class InboxCuratorPlugin extends Plugin {
       provider: this.settings.provider,
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
+      codexCliConsentAccepted: this.settings.codexCliConsentAccepted,
+      codexCliExecutablePath: this.settings.codexCliExecutablePath,
+      codexCliModel: this.settings.codexCliModel,
+      codexCliTimeoutMs: this.settings.codexCliTimeoutMs,
       maxNotesPerRun: this.settings.maxNotesPerRun,
       maxConcurrentReviews: this.settings.maxConcurrentReviews,
       requestsPerMinute: this.settings.requestsPerMinute,
@@ -550,6 +554,10 @@ export default class InboxCuratorPlugin extends Plugin {
       provider: this.settings.provider,
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
+      codexCliConsentAccepted: this.settings.codexCliConsentAccepted,
+      codexCliExecutablePath: this.settings.codexCliExecutablePath,
+      codexCliModel: this.settings.codexCliModel,
+      codexCliTimeoutMs: this.settings.codexCliTimeoutMs,
       fetchUrlMetadata: this.settings.fetchUrlMetadata,
       extractUrlArticleText: this.settings.extractUrlArticleText,
       maxExtractedCharacters: this.settings.maxExtractedCharacters,
@@ -1713,10 +1721,18 @@ export default class InboxCuratorPlugin extends Plugin {
     }
 
     const provider = this.settings.provider;
-    const apiKey = await getApiKey(this.app, provider);
-    if (!apiKey) {
-      new Notice(t('notice.collectionReview.noApiKey'));
+    if (provider === 'codex-cli' && !this.settings.codexCliConsentAccepted) {
+      new Notice(t('notice.codexCli.consentRequired'));
       return;
+    }
+    let apiKey = '';
+    if (provider !== 'codex-cli') {
+      const storedApiKey = await getApiKey(this.app, provider);
+      if (!storedApiKey) {
+        new Notice(t('notice.collectionReview.noApiKey'));
+        return;
+      }
+      apiKey = storedApiKey;
     }
 
     const budget = resolveReviewContextBudget(
@@ -1752,6 +1768,10 @@ export default class InboxCuratorPlugin extends Plugin {
         endpointUrl: this.settings.endpointUrl,
         model: this.settings.model,
         apiKey,
+        codexCliConsentAccepted: this.settings.codexCliConsentAccepted,
+        codexCliExecutablePath: this.settings.codexCliExecutablePath,
+        codexCliModel: this.settings.codexCliModel,
+        codexCliTimeoutMs: this.settings.codexCliTimeoutMs,
         maxNotes: this.settings.collectionReviewMaxNotes,
         maxExcerptCharsPerNote: this.settings.collectionReviewMaxExcerptCharsPerNote,
         useExistingReviewsFirst: this.settings.collectionReviewUseExistingReviewsFirst,

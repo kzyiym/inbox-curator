@@ -148,6 +148,10 @@ export interface CollectionReviewPipelineOptions {
   endpointUrl: string;
   model: string;
   apiKey: string;
+  codexCliConsentAccepted?: boolean;
+  codexCliExecutablePath?: string;
+  codexCliModel?: string;
+  codexCliTimeoutMs?: number;
   maxNotes: number;
   maxExcerptCharsPerNote: number;
   useExistingReviewsFirst: boolean;

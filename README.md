@@ -18,7 +18,7 @@ Whether your inbox is filled with saved web articles, raw AI chat logs, rough qu
 
 Inbox Curator runs locally inside your Obsidian vault.
 
-When AI review is enabled, selected note content and enabled attachment context (images, PDF text) are sent directly from your device to your configured AI provider (OpenAI, Gemini, or Anthropic). The developer does not receive, proxy, store, or monitor your notes, API keys, or usage data.
+When AI review is enabled, selected note content and enabled attachment context (images, PDF text) are sent directly from your device to your configured AI provider (OpenAI, Gemini, or Anthropic), or to the Codex CLI running under your own ChatGPT login. The developer does not receive, proxy, store, or monitor your notes, API keys, or usage data.
 
 The plugin core contains no telemetry. Optional external pages (FAQ, Ko-fi, analytics) are separate from the plugin core and are disclosed in [External Service Disclosures](#external-service-disclosures) below.
 
@@ -73,14 +73,18 @@ For details, see [Auto-sort Safety](#auto-sort-safety) below.
 
 ## Requirements
 
-An account and API key from one of the following AI providers:
+An account and API key from one of the following AI providers, or the Codex CLI signed in with your ChatGPT account:
 
 - **OpenAI** (or any OpenAI-compatible endpoint)
 - **Google Gemini** (Native Gemini API)
 - **Anthropic Claude** (Native Anthropic API)
+- **Codex CLI** (optional, desktop only): install the Codex CLI separately and sign in with `codex login`. No API key is read or stored by the plugin.
 
 > [!IMPORTANT]
-> This plugin calls external AI APIs, which may incur usage costs depending on your provider's pricing plan.
+> This plugin calls external AI services, which may incur usage costs depending on your provider's pricing plan. Codex CLI usage counts against your ChatGPT/Codex plan limits.
+
+> [!WARNING]
+> Codex CLI mode runs an external program on your computer. It runs read-only and without loading your user configuration, but Codex cannot be restricted to specific read paths: it may access files on this computer that the current user can read — not only the selected note — and may send their contents to the AI. Enable it only if you understand and accept that risk. The plugin never installs, updates, or downloads the Codex CLI.
 
 ---
 
@@ -90,14 +94,15 @@ In compliance with the Obsidian Community Plugin Guidelines, here is the full di
 
 - **Network Connections & External Services**: 
   - **AI Provider APIs**: Note contents, Base64-encoded image payloads, or experimental PDF texts are sent directly from your local device to your configured AI provider endpoint (OpenAI, Gemini, or Anthropic). No intermediary servers are involved.
+  - **Codex CLI (Optional)**: When the Codex CLI provider is enabled, the plugin launches the externally installed `codex` command as a child process and passes note content over standard input. Codex runs read-only and without loading your user configuration, but it is not restricted to specific read paths and may access files that the current OS user can read outside your vault, sending their contents to OpenAI. The plugin never reads or stores Codex credentials or tokens.
   - **URL Article Fetching**: If a note consists only of a URL, the plugin directly fetches the raw HTML from the target web server to parse og:metadata and article text locally on your device.
   - **Ko-fi Widget (External Donation Service)**: Loaded strictly on the local FAQ page (`site/index.html`) via an iframe from `https://ko-fi.com` to display optional developer donation options. If blocked or declined, a safe HTTPS direct text link is provided as a fallback. The plugin's core functions are fully available without any donation.
   - **Google Analytics 4 (GA4) (External Analytics - FAQ Page Only)**: The local help/FAQ page (`site/index.html`) utilizes Google Analytics (tracking ID `G-H0NMPE813V`) strictly for collecting anonymous traffic statistics (page views, language, and theme choices) to improve documentation clarity.
     - **Opt-In Basis (Disabled by Default)**: Tracking is strictly opt-in and disabled by default. No scripts are loaded or data sent unless you explicitly consent via the toast banner shown on your first visit, or enable it using the toggle checkbox in the Privacy section. You can revoke permission at any time.
     - **No Impact on Usage**: Declining or blocking Google Analytics has **zero impact** on the functionality of the FAQ page or the plugin itself; all features remain 100% available. No note contents, credentials, or runtime telemetry from the plugin are ever transmitted.
-- **Account Requirements**: You must possess a developer account and API key from OpenAI, Gemini, or Anthropic to configure reviews. The plugin itself requires no registration or subscription.
+- **Account Requirements**: You must possess a developer account and API key from OpenAI, Gemini, or Anthropic — or sign in to the Codex CLI with a ChatGPT account — to configure reviews. The plugin itself requires no registration or subscription.
 - **Server-side Telemetry**: The plugin core is **100% telemetry-free**. The developer does not collect, monitor, store, or transmit any analytical data, usage statistics, note contents, or error logs outside of your vault. The optional FAQ page (`site/index.html`) is the only exception, which uses Google Analytics 4 for anonymous traffic statistics on an opt-in basis (disabled by default).
-- **Vault Access Limits**: The plugin interacts exclusively with files and directories located inside your Obsidian Vault (primarily within the configured *Watched Folder*). It utilizes Obsidian's standard `app.vault` API and does not access any data or files on your system outside of your vault.
+- **Vault Access Limits**: For the API providers (OpenAI, Gemini, Anthropic), the plugin interacts only with files and directories inside your Obsidian Vault (primarily the configured *Watched Folder*) through Obsidian's standard `app.vault` API. **Codex CLI mode is different**: the plugin launches the external Codex CLI, which operates outside the vault and may read files on your computer that the current user can read, beyond the selected note. See the Codex CLI warning in [Requirements](#requirements).
 - **Data & Credentials Storage**:
   - **API Keys**: Stored securely using Obsidian's native `SecretStorage` API. They are never written to `data.json` or synchronized across devices. If unavailable, keys are kept temporarily in-memory during the session.
   - **Review Logs**: Review verdicts are written strictly as local Markdown files (`*.ai-review.md`) in your vault.
