@@ -2,7 +2,7 @@
 
 # Inbox Curator — Auto-sort your Inbox
 
-AI-powered note review and auto-sort plugin for Obsidian. Automatically reviews, summarizes, and organizes notes in your inbox folder using LLM APIs (OpenAI, Gemini, or Anthropic).
+AI-powered note review and auto-sort plugin for Obsidian. Automatically reviews, summarizes, and organizes notes in your inbox folder using LLM APIs (OpenAI, Gemini, or Anthropic) or the Codex CLI signed in with your ChatGPT account.
 
 Whether your inbox is filled with saved web articles, raw AI chat logs, rough quick notes, or simple URL links, Inbox Curator helps you process them in bulk — then auto-sorts them into Archive, Read Later, or Tasks.
 
@@ -545,7 +545,7 @@ Failed reviews are logged to rotating error log files in `.inbox-curator/logs/`.
 
 ### Are my notes sent to the developer?
 
-No. Note content, images, and PDF text are sent directly from your device to your configured AI provider (OpenAI, Gemini, or Anthropic). No intermediary servers are involved. The developer cannot access your notes or API keys.
+No. Note content, images, and PDF text are sent directly from your device to your configured AI provider (OpenAI, Gemini, or Anthropic) or, when the Codex CLI provider is enabled, to the Codex CLI running under your own ChatGPT login. No intermediary servers are involved. The developer cannot access your notes or API keys.
 
 ---
 
