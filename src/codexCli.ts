@@ -236,7 +236,7 @@ export function classifyCodexFailure(input: {
   if (/command not found|not recognized as an internal|enoent|no such file or directory|is not defined/i.test(text)) {
     return 'not_installed';
   }
-  if (/not logged in|login required|please (run )?log ?in|codex login|no credentials/i.test(text)) {
+  if (/not logged in|login required|please (run )?log ?in|codex login|no credentials|missing bearer|missing authentication|missing credentials/i.test(text)) {
     return 'not_logged_in';
   }
   if (/usage limit|rate limit|quota|too many requests|\b429\b/i.test(text)) {
@@ -259,9 +259,10 @@ export function execCodex(options: CodexExecOptions): Promise<CodexExecResult> {
       jsonEvents: options.jsonEvents,
     });
 
+    const invocation = buildSpawnInvocation(options.executablePath, args, platform, env.ComSpec);
     let child: ChildProcess;
     try {
-      child = spawn(options.executablePath, args, {
+      child = spawn(invocation.command, invocation.args, {
         cwd: options.cwd,
         env,
         shell: false,

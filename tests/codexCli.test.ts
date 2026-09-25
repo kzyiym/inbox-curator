@@ -242,6 +242,9 @@ describe('classifyCodexFailure', () => {
     expect(classifyCodexFailure({ exitCode: 1, stderr: 'Not logged in. Please run codex login.' })).toBe('not_logged_in');
     expect(classifyCodexFailure({ exitCode: 1, stderr: 'You have reached your usage limit.' })).toBe('usage_limit');
     expect(classifyCodexFailure({ exitCode: 1, stderr: 'Your authentication token has expired.' })).toBe('auth_expired');
+    expect(
+      classifyCodexFailure({ exitCode: 126, stderr: '401 Unauthorized: Missing bearer or basic authentication in header' }),
+    ).toBe('not_logged_in');
   });
 
   it('falls back to unknown', () => {
@@ -277,6 +280,33 @@ describe('execCodex', () => {
     expect(result.ok).toBe(true);
     expect(result.exitCode).toBe(0);
     expect(result.finalMessage).toBe('{"summary":"ok"}');
+  });
+
+  it('routes Windows .cmd shims through cmd.exe instead of spawning them directly', async () => {
+    const child = new FakeChild();
+    spawnMock.mockReturnValue(child as any);
+
+    const promise = execCodex({
+      executablePath: 'C:\\Users\\user\\AppData\\Local\\Volta\\bin\\codex.cmd',
+      prompt: 'body',
+      cwd: 'C:\\tmp\\iso',
+      platform: 'win32',
+      env: { ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
+    });
+
+    const [command, args] = spawnMock.mock.calls[0] as [string, string[]];
+    expect(command).toBe('C:\\Windows\\System32\\cmd.exe');
+    expect(args.slice(0, 4)).toEqual([
+      '/d',
+      '/s',
+      '/c',
+      'C:\\Users\\user\\AppData\\Local\\Volta\\bin\\codex.cmd',
+    ]);
+    expect(args).toContain('exec');
+
+    child.emit('close', 0);
+    const result = await promise;
+    expect(result.ok).toBe(true);
   });
 
   it('classifies a non-zero exit from stderr', async () => {
