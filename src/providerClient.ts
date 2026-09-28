@@ -8,6 +8,7 @@ import type { InboxCuratorProvider } from './settings';
 import { postGeminiChat } from './gemini';
 import { postAnthropicChat } from './anthropic';
 import { isImageNotSupportedErrorText } from './providerErrorClassifier';
+import { isCodexCliRunnable, runCodexExec, type CodexCliSettings } from './codexCli';
 import { sanitizeSensitiveData } from './utils/sensitiveData';
 
 export interface ChatContentTextPart {
@@ -40,6 +41,29 @@ export interface ProviderChatRequest {
   timeoutMs?: number;
   maxOutputTokens?: number;
   openAiTokenLimitParam?: 'max_tokens' | 'max_completion_tokens' | 'none';
+  codexCli?: {
+    settings: CodexCliSettings;
+    isUnloaded?: () => boolean;
+    background?: boolean;
+  };
+}
+
+function buildCodexPrompt(messages: ProviderChatMessage[]): string {
+  const parts: string[] = [];
+  for (const message of messages) {
+    const text = messageContentToText(message.content);
+    if (!text) continue;
+    parts.push(`${message.role.toUpperCase()}:\n${text}`);
+  }
+  return parts.join('\n\n');
+}
+
+function messageContentToText(content: ProviderChatMessageContent): string {
+  if (typeof content === 'string') return content;
+  return content
+    .filter((part): part is ChatContentTextPart => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n');
 }
 
 export interface ProviderChatSuccess {
@@ -71,6 +95,8 @@ export function buildProviderChatUrl(provider: InboxCuratorProvider, endpointUrl
       return `${base}/v1beta/models`;
     case 'anthropic-native':
       return `${base}/v1/messages`;
+    case 'codex-cli':
+      return '';
     default: {
       const unsupportedProvider: never = provider;
       return unsupportedProvider;
@@ -99,6 +125,8 @@ export function classifyProviderFailure(provider: InboxCuratorProvider, failure:
       }
       return { retryable: false, reason: `HTTP ${status}` };
     }
+    case 'codex-cli':
+      return { retryable: false, reason: failure.error };
     default: {
       const unsupportedProvider: never = provider;
       return unsupportedProvider;
@@ -143,6 +171,29 @@ export async function postProviderChat(request: ProviderChatRequest): Promise<Pr
         maxOutputTokens: request.maxOutputTokens,
       });
       break;
+    case 'codex-cli': {
+      const codex = request.codexCli;
+      if (!codex || !isCodexCliRunnable(codex.settings)) {
+        result = { ok: false, error: 'Codex CLI is not enabled. Enable it in settings and accept the consent notice.' };
+        break;
+      }
+      if (codex.background && !codex.settings.allowBackground) {
+        result = { ok: false, error: 'Codex CLI background runs are disabled. Enable background runs in settings.' };
+        break;
+      }
+      const run = await runCodexExec({
+        prompt: buildCodexPrompt(request.messages),
+        model: codex.settings.model || request.model,
+        binaryPath: codex.settings.binaryPath,
+        timeoutMs: request.timeoutMs,
+        isUnloaded: codex.isUnloaded,
+        background: codex.background,
+      });
+      result = run.ok
+        ? { ok: true, status: 0, content: run.content }
+        : { ok: false, error: run.error };
+      break;
+    }
     default: {
       const unsupportedProvider: never = request.provider;
       return unsupportedProvider;

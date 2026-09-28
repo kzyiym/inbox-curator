@@ -57,6 +57,8 @@ export interface ReviewPipelineOptions {
   maxOutputTokens: number;
   openAiTokenLimitParam?: 'max_tokens' | 'max_completion_tokens' | 'none';
   diagnosticCapture?: boolean;
+  codexCli?: import('./codexCli').CodexCliSettings;
+  isBackgroundAutoJob?: boolean;
 }
 
 export interface ReviewModelInputPayload {
@@ -90,6 +92,9 @@ export interface ReviewModelInputPayload {
   customReviewPrompt?: string;
   maxOutputTokens: number;
   openAiTokenLimitParam?: 'max_tokens' | 'max_completion_tokens' | 'none';
+  codexCli?: import('./codexCli').CodexCliSettings;
+  isBackgroundAutoJob?: boolean;
+  isUnloaded?: () => boolean;
 }
 
 export interface ReviewPipelineSuccess {
@@ -649,6 +654,9 @@ export async function buildReviewModelInputPayload(
     customReviewPrompt: options.customReviewPrompt,
     maxOutputTokens: options.maxOutputTokens,
     openAiTokenLimitParam: options.openAiTokenLimitParam,
+    ...(options.codexCli ? { codexCli: options.codexCli } : {}),
+    isBackgroundAutoJob: options.isBackgroundAutoJob,
+    isUnloaded: options.isUnloaded,
   };
 }
 
@@ -1148,8 +1156,9 @@ async function getReviewRawResponse(
   modelInput: ReviewModelInputPayload,
   capture?: (data: ReviewDiagnosticPrompts) => void,
 ): Promise<ReviewRawResponse> {
-  const apiKey = await getApiKey(app, modelInput.provider);
-  if (!apiKey) {
+  const isCodexCli = modelInput.provider === 'codex-cli';
+  const apiKey = isCodexCli ? '' : (await getApiKey(app, modelInput.provider)) ?? '';
+  if (!isCodexCli && !apiKey) {
     throw new ReviewPipelineError('API key is not saved in SecretStorage.', {
       retryable: false,
       stage: 'request',
@@ -1227,6 +1236,9 @@ async function getReviewRawResponse(
     timeoutMs: modelInput.requestTimeoutMs,
     maxOutputTokens: modelInput.maxOutputTokens,
     openAiTokenLimitParam: modelInput.openAiTokenLimitParam,
+    codexCli: modelInput.codexCli
+      ? { settings: modelInput.codexCli, isUnloaded: modelInput.isUnloaded, background: modelInput.isBackgroundAutoJob }
+      : undefined,
   });
 
   const durationMs = Date.now() - requestStartedAt;

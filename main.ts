@@ -434,6 +434,11 @@ export default class InboxCuratorPlugin extends Plugin {
       provider: this.settings.provider,
       endpointUrl: this.settings.endpointUrl,
       model: this.settings.model,
+      codexCliEnabled: this.settings.codexCliEnabled,
+      codexCliConsentAcknowledged: this.settings.codexCliConsentAcknowledged,
+      codexCliAllowBackground: this.settings.codexCliAllowBackground,
+      codexCliBinaryPath: this.settings.codexCliBinaryPath,
+      codexCliModel: this.settings.codexCliModel,
       maxNotesPerRun: this.settings.maxNotesPerRun,
       maxConcurrentReviews: this.settings.maxConcurrentReviews,
       requestsPerMinute: this.settings.requestsPerMinute,
@@ -558,14 +563,14 @@ export default class InboxCuratorPlugin extends Plugin {
       fetchUrlMetadata: this.settings.fetchUrlMetadata,
       extractUrlArticleText: this.settings.extractUrlArticleText,
       maxExtractedCharacters: this.settings.maxExtractedCharacters,
-      readImages: this.settings.readImages,
-      optimizeImagesForAi: this.settings.optimizeImagesForAi,
+      readImages: this.settings.provider === 'codex-cli' ? false : this.settings.readImages,
+      optimizeImagesForAi: this.settings.provider === 'codex-cli' ? false : this.settings.optimizeImagesForAi,
       readVideos: this.settings.readVideos,
       reviewMode: this.settings.reviewMode,
       requestTimeoutMs: this.settings.requestTimeoutMs,
       promptLanguage: this.settings.promptLanguage,
       customReviewPrompt: this.settings.customReviewPrompt,
-      extractPdfText: this.settings.extractPdfText,
+      extractPdfText: this.settings.provider === 'codex-cli' ? false : this.settings.extractPdfText,
       isUnloaded: () => this.isUnloaded,
       maxInputContentChars: budget.maxInputContentChars,
       maxOutputTokens: budget.maxOutputTokens,
@@ -575,6 +580,13 @@ export default class InboxCuratorPlugin extends Plugin {
         this.settings.openAiCompatibleDetectedTokenLimitKey,
         buildOpenAiCompatibleTokenLimitDetectionKey(this.settings.endpointUrl, this.settings.model),
       ),
+      codexCli: this.settings.provider === 'codex-cli' ? {
+        enabled: this.settings.codexCliEnabled,
+        consentAcknowledged: this.settings.codexCliConsentAcknowledged,
+        allowBackground: this.settings.codexCliAllowBackground,
+        binaryPath: this.settings.codexCliBinaryPath,
+        model: this.settings.codexCliModel,
+      } : undefined,
     };
   }
 
@@ -734,6 +746,7 @@ export default class InboxCuratorPlugin extends Plugin {
       pipelineOptions.operationId = job.operationId;
       pipelineOptions.sourcePathOverride = originalPath;
       pipelineOptions.allowRemoteUrlFetch = !isBackgroundAutoJob;
+      pipelineOptions.isBackgroundAutoJob = isBackgroundAutoJob;
       const result = await runReviewPipeline(this.app, file, pipelineOptions);
       if (this.isUnloaded) {
         return { status: 'cancelled', error: 'Plugin unloaded' };
@@ -1752,10 +1765,19 @@ export default class InboxCuratorPlugin extends Plugin {
     }
 
     const provider = this.settings.provider;
-    const apiKey = await getApiKey(this.app, provider);
-    if (!apiKey) {
-      new Notice(t('notice.collectionReview.noApiKey'));
-      return;
+    let apiKey = '';
+    if (provider === 'codex-cli') {
+      if (!this.settings.codexCliEnabled || !this.settings.codexCliConsentAcknowledged) {
+        new Notice(t('notice.codexCli.notEnabled'));
+        return;
+      }
+    } else {
+      const key = await getApiKey(this.app, provider);
+      if (!key) {
+        new Notice(t('notice.collectionReview.noApiKey'));
+        return;
+      }
+      apiKey = key;
     }
 
     const budget = resolveReviewContextBudget(
@@ -1789,8 +1811,15 @@ export default class InboxCuratorPlugin extends Plugin {
         outputFolder: this.settings.collectionReviewOutputFolder,
         provider: this.settings.provider,
         endpointUrl: this.settings.endpointUrl,
-        model: this.settings.model,
+        model: this.settings.provider === 'codex-cli' ? (this.settings.codexCliModel || this.settings.model) : this.settings.model,
         apiKey,
+        codexCli: this.settings.provider === 'codex-cli' ? {
+          enabled: this.settings.codexCliEnabled,
+          consentAcknowledged: this.settings.codexCliConsentAcknowledged,
+          allowBackground: this.settings.codexCliAllowBackground,
+          binaryPath: this.settings.codexCliBinaryPath,
+          model: this.settings.codexCliModel,
+        } : undefined,
         maxNotes: this.settings.collectionReviewMaxNotes,
         maxExcerptCharsPerNote: this.settings.collectionReviewMaxExcerptCharsPerNote,
         useExistingReviewsFirst: this.settings.collectionReviewUseExistingReviewsFirst,

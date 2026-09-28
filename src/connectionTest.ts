@@ -6,6 +6,7 @@ import {
   type OpenAiCompatibleTokenLimitParam,
 } from './openAiCompatible';
 import { buildProviderChatUrl, postProviderChat } from './providerClient';
+import { getCodexLoginStatus, type CodexCliSettings } from './codexCli';
 import type { InboxCuratorProvider } from './settings';
 
 export interface ConnectionTestOptions {
@@ -15,6 +16,7 @@ export interface ConnectionTestOptions {
   apiKey: string;
   timeoutMs?: number;
   openAiTokenLimitParam?: OpenAiCompatibleTokenLimitParam;
+  codexCli?: CodexCliSettings;
 }
 
 export interface ConnectionTestSuccess {
@@ -54,6 +56,25 @@ export async function testConnection(options: ConnectionTestOptions): Promise<Co
       { role: 'user' as const, content: 'Reply with OK.' },
     ],
   };
+
+  if (options.provider === 'codex-cli') {
+    const codex = options.codexCli;
+    if (!codex || !codex.enabled || !codex.consentAcknowledged) {
+      return { ok: false, error: 'Codex CLI is not enabled in settings.', finalUrl, requestBody };
+    }
+    const status = await getCodexLoginStatus(codex.binaryPath || undefined);
+    if (!status.ok) {
+      return {
+        ok: false,
+        error: status.authMode === 'api-key'
+          ? 'Codex CLI is authenticated with an API key. ChatGPT login is required.'
+          : 'Codex CLI is not logged in with ChatGPT.',
+        finalUrl,
+        requestBody,
+      };
+    }
+    return { ok: true, message: 'Codex CLI: logged in using ChatGPT.', status: 0, finalUrl, requestBody };
+  }
 
   if (options.provider === 'openai-compatible') {
     const validation = validateOpenAiCompatibleEndpoint(options.endpointUrl);

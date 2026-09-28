@@ -473,12 +473,13 @@ export async function runCollectionReviewPipeline(
       provider: options.provider as InboxCuratorProvider,
       endpointUrl: options.endpointUrl,
       model: options.model,
-      apiKey: options.apiKey,
+      apiKey: options.apiKey ?? '',
       messages,
       temperature: 0.3,
       timeoutMs: options.requestTimeoutMs,
       maxOutputTokens: options.maxOutputTokens,
       openAiTokenLimitParam: options.openAiTokenLimitParam,
+      codexCli: options.codexCli ? { settings: options.codexCli, isUnloaded: options.isUnloaded } : undefined,
     });
 
     if (!apiResult.ok) {

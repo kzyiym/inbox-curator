@@ -301,6 +301,8 @@ Use `Open action review panel` to see every watched-folder note that carries a p
 
 **Endpoint security (OpenAI-compatible).** Remote endpoints must use HTTPS. Plain HTTP is permitted only for literal loopback addresses (`localhost`, `127.0.0.0/8`, `::1`); with a local HTTP endpoint your API key is sent unencrypted to the local process, so use it only on a machine you trust. Endpoint URLs containing credentials (`user:password@`) are rejected, and OpenAI-compatible requests never follow redirects, so an endpoint cannot bounce your API key or note content to another host.
 
+**ChatGPT (Codex CLI) provider (optional, off by default).** Runs your locally installed `codex` CLI with your ChatGPT login — **no API key is stored or used**, and API-key authentication is refused. Enabling it requires an explicit consent notice: the CLI runs as a local process and **may read files outside your vault**. Each review runs from a temporary directory outside the vault with `--ephemeral --ignore-user-config --sandbox read-only --skip-git-repo-check --disable plugins --disable apps --disable hooks`, and the note content is passed **only on stdin** (never in command-line arguments or logs). The provider is text-only: image attachments and PDF text extraction are disabled. Background/automatic runs are off unless you enable them separately in settings. Obsidian must be able to find `codex` on its PATH or you must set an absolute path in settings. **Windows is not supported in this version.**
+
 ---
 
 ## Architecture Overview

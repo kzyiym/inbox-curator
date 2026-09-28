@@ -11,8 +11,10 @@ import type { OpenAiCompatibleTokenLimitParam, DetectedOpenAiCompatibleTokenLimi
 import type { ReviewConfidence } from './reviewNormalizer';
 import { buildOpenAiCompatibleTokenLimitDetectionKey, OPENAI_COMPATIBLE_ENDPOINT_ERROR_PREFIX, validateOpenAiCompatibleEndpoint } from './openAiCompatible';
 import { validateFolderPath } from './utils/folder';
+import { getCodexLoginStatus } from './codexCli';
+import { CodexCliConsentModal } from './codexCliConsentModal';
 
-export type InboxCuratorProvider = 'openai-compatible' | 'gemini-native' | 'anthropic-native';
+export type InboxCuratorProvider = 'openai-compatible' | 'gemini-native' | 'anthropic-native' | 'codex-cli';
 
 export interface InboxCuratorSettings {
   watchedFolder: string;
@@ -20,6 +22,11 @@ export interface InboxCuratorSettings {
   provider: InboxCuratorProvider;
   endpointUrl: string;
   model: string;
+  codexCliEnabled: boolean;
+  codexCliConsentAcknowledged: boolean;
+  codexCliAllowBackground: boolean;
+  codexCliBinaryPath: string;
+  codexCliModel: string;
   maxNotesPerRun: number;
   maxConcurrentReviews: number;
   requestsPerMinute: number;
@@ -90,6 +97,11 @@ export const DEFAULT_SETTINGS: InboxCuratorSettings = {
   provider: 'openai-compatible',
   endpointUrl: 'https://api.openai.com/v1',
   model: 'gpt-4o-mini',
+  codexCliEnabled: false,
+  codexCliConsentAcknowledged: false,
+  codexCliAllowBackground: false,
+  codexCliBinaryPath: '',
+  codexCliModel: '',
   maxNotesPerRun: 10,
   maxConcurrentReviews: 1,
   requestsPerMinute: 10,
@@ -361,6 +373,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
           .addOption('openai-compatible', 'OpenAI Compatible')
           .addOption('gemini-native', 'Gemini Native')
           .addOption('anthropic-native', 'Anthropic Native')
+          .addOption('codex-cli', 'ChatGPT (Codex CLI)')
           .setValue(settings.provider)
           .onChange(async (value) => {
             settings.provider = value as InboxCuratorProvider;
@@ -368,11 +381,13 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
               'openai-compatible': 'https://api.openai.com/v1',
               'gemini-native': 'https://generativelanguage.googleapis.com',
               'anthropic-native': 'https://api.anthropic.com',
+              'codex-cli': '',
             };
             const defaultModels: Record<InboxCuratorProvider, string> = {
               'openai-compatible': 'gpt-4o-mini',
               'gemini-native': 'gemini-1.5-flash',
               'anthropic-native': 'claude-3-5-sonnet-latest',
+              'codex-cli': '',
             };
             settings.endpointUrl = defaultEndpoints[settings.provider];
             settings.model = defaultModels[settings.provider];
@@ -436,6 +451,78 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       }
     }
 
+    if (settings.provider === 'codex-cli') {
+      const codexCallout = apiCard.createDiv({ cls: 'inbox-curator-callout' });
+      codexCallout.createEl('p', { text: t('settings.codexCli.consentBody') });
+
+      new Setting(apiCard)
+        .setName(t('settings.codexCli.enable.label'))
+        .setDesc(t('settings.codexCli.enable.desc'))
+        .addToggle((toggle) =>
+          toggle.setValue(settings.codexCliEnabled).onChange(async (value) => {
+            if (value) {
+              const consented = await new Promise<boolean>((resolve) => {
+                new CodexCliConsentModal(this.app, () => resolve(true), () => resolve(false)).open();
+              });
+              if (!consented) {
+                this.display();
+                return;
+              }
+              settings.codexCliEnabled = true;
+              settings.codexCliConsentAcknowledged = true;
+            } else {
+              settings.codexCliEnabled = false;
+            }
+            await this.plugin.saveSettings();
+            this.display();
+          }),
+        );
+
+      new Setting(apiCard)
+        .setName(t('settings.codexCli.background.label'))
+        .setDesc(t('settings.codexCli.background.desc'))
+        .addToggle((toggle) =>
+          toggle.setValue(settings.codexCliAllowBackground).onChange(async (value) => {
+            settings.codexCliAllowBackground = value;
+            await this.plugin.saveSettings();
+          }),
+        );
+
+      new Setting(apiCard)
+        .setName(t('settings.codexCli.binaryPath.label'))
+        .setDesc(t('settings.codexCli.binaryPath.desc'))
+        .addText((text) =>
+          text.setPlaceholder('codex').setValue(settings.codexCliBinaryPath).onChange(async (value) => {
+            settings.codexCliBinaryPath = value.trim();
+            await this.plugin.saveSettings();
+          }),
+        );
+
+      new Setting(apiCard)
+        .setName(t('settings.codexCli.model.label'))
+        .setDesc(t('settings.codexCli.model.desc'))
+        .addText((text) =>
+          text.setPlaceholder('gpt-5-codex').setValue(settings.codexCliModel).onChange(async (value) => {
+            settings.codexCliModel = value.trim();
+            await this.plugin.saveSettings();
+          }),
+        );
+
+      const codexStatusEl = apiCard.createDiv({ cls: 'inbox-curator-meta-info', text: t('settings.codexCli.status.checking') });
+      void getCodexLoginStatus(settings.codexCliBinaryPath || undefined).then((status) => {
+        const message = status.ok
+          ? t('settings.codexCli.status.chatgpt')
+          : status.authMode === 'api-key'
+            ? t('settings.codexCli.status.apiKey')
+            : t('settings.codexCli.status.loggedOut');
+        codexStatusEl.setText(message);
+      });
+    }
+
+    let draftValue = '';
+    let hasEditedApiKey = false;
+
+    if (settings.provider !== 'codex-cli') {
     new Setting(apiCard)
       .setName(t('settings.model.label'))
       .setDesc(t('settings.model.desc'))
@@ -464,9 +551,6 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         text: badgeText,
       });
     });
-
-    let draftValue = '';
-    let hasEditedApiKey = false;
 
     apiKeySetting.addText((text) => {
       text.inputEl.type = 'text';
@@ -548,6 +632,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
         }
       })(); }),
     );
+    }
 
     new Setting(apiCard)
       .setName(t('settings.connectionTest.label'))
@@ -559,27 +644,50 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             'openai-compatible': 'https://api.openai.com/v1',
             'gemini-native': 'https://generativelanguage.googleapis.com',
             'anthropic-native': 'https://api.anthropic.com',
+            'codex-cli': '',
           };
           const defaultModels: Record<InboxCuratorProvider, string> = {
             'openai-compatible': 'gpt-4o-mini',
             'gemini-native': 'gemini-1.5-flash',
             'anthropic-native': 'claude-3-5-sonnet-latest',
+            'codex-cli': '',
           };
 
-          const apiKeyCandidate = hasEditedApiKey && draftValue ? draftValue : await getApiKey(this.app, settings.provider);
-          if (!apiKeyCandidate || isMaskedApiKeyValue(apiKeyCandidate)) {
-            new Notice(t('settings.connectionTest.failedMissingKey'));
-            return;
+          let result: Awaited<ReturnType<typeof testConnection>>;
+          if (settings.provider === 'codex-cli') {
+            if (!settings.codexCliEnabled || !settings.codexCliConsentAcknowledged) {
+              new Notice(t('notice.codexCli.notEnabled'));
+              return;
+            }
+            result = await testConnection({
+              provider: settings.provider,
+              endpointUrl: '',
+              model: settings.codexCliModel.trim(),
+              apiKey: '',
+              timeoutMs: settings.requestTimeoutMs,
+              codexCli: {
+                enabled: settings.codexCliEnabled,
+                consentAcknowledged: settings.codexCliConsentAcknowledged,
+                allowBackground: settings.codexCliAllowBackground,
+                binaryPath: settings.codexCliBinaryPath,
+                model: settings.codexCliModel,
+              },
+            });
+          } else {
+            const apiKeyCandidate = hasEditedApiKey && draftValue ? draftValue : await getApiKey(this.app, settings.provider);
+            if (!apiKeyCandidate || isMaskedApiKeyValue(apiKeyCandidate)) {
+              new Notice(t('settings.connectionTest.failedMissingKey'));
+              return;
+            }
+            result = await testConnection({
+              provider: settings.provider,
+              endpointUrl: settings.endpointUrl.trim() || defaultEndpoints[settings.provider],
+              model: settings.model.trim() || defaultModels[settings.provider],
+              apiKey: apiKeyCandidate,
+              timeoutMs: settings.requestTimeoutMs,
+              openAiTokenLimitParam: settings.openAiCompatibleTokenLimitParam,
+            });
           }
-
-          const result = await testConnection({
-            provider: settings.provider,
-            endpointUrl: settings.endpointUrl.trim() || defaultEndpoints[settings.provider],
-            model: settings.model.trim() || defaultModels[settings.provider],
-            apiKey: apiKeyCandidate,
-            timeoutMs: settings.requestTimeoutMs,
-            openAiTokenLimitParam: settings.openAiCompatibleTokenLimitParam,
-          });
 
           if (result.ok === true) {
             this.lastConnectionStatus = { ok: true, model: settings.model, time: new Date().toISOString() };
@@ -594,7 +702,7 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
             });
 
             // Save detected token limit param for OpenAI-compatible (auto mode only)
-            if (result.detectedTokenLimitParam && settings.openAiCompatibleTokenLimitParam === 'auto') {
+            if (result.detectedTokenLimitParam && settings.openAiCompatibleTokenLimitParam === 'auto' && settings.provider === 'openai-compatible') {
               settings.openAiCompatibleDetectedTokenLimitParam = result.detectedTokenLimitParam;
               settings.openAiCompatibleDetectedTokenLimitAt = new Date().toISOString();
               settings.openAiCompatibleDetectedTokenLimitKey = buildOpenAiCompatibleTokenLimitDetectionKey(settings.endpointUrl, settings.model);

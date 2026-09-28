@@ -147,7 +147,8 @@ export interface CollectionReviewPipelineOptions {
   provider: string;
   endpointUrl: string;
   model: string;
-  apiKey: string;
+  apiKey?: string;
+  codexCli?: import('./codexCli').CodexCliSettings;
   maxNotes: number;
   maxExcerptCharsPerNote: number;
   useExistingReviewsFirst: boolean;
