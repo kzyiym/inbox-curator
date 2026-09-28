@@ -9,7 +9,8 @@ import { ReviewQueue } from './src/queue/reviewQueue';
 import type { ReviewJob, ReviewJobResult, ReviewJobSource, ReviewQueueLogEntry } from './src/queue/queueTypes';
 import { buildReviewSourceInfo, runReviewPipeline, type ReviewPipelineOptions } from './src/reviewPipeline';
 import { DEFAULT_SETTINGS, InboxCuratorSettings, InboxCuratorSettingTab } from './src/settings';
-import { executeProposedAction } from './src/actionLayer';
+import { collectDeleteCandidateTargets, executeProposedAction } from './src/actionLayer';
+import { DeleteCandidateBatchConfirmModal } from './src/deleteCandidateBatchModal';
 import { appendAutoExecuteResult } from './src/reviewWriter';
 import { type ReviewAction, type ReviewConfidence } from './src/reviewNormalizer';
 import { computeActionDecision, isActionAllowed } from './src/actionDecision';
@@ -1842,8 +1843,38 @@ export default class InboxCuratorPlugin extends Plugin {
       return;
     }
 
+    const allowedActions = getAllowedReviewActions(this.settings);
+    const deleteCandidateTargets = allowedActions.includes('delete_candidate')
+      ? await collectDeleteCandidateTargets(this.app, files, {
+          deleteCandidateFolder: this.settings.deleteCandidateFolder,
+        })
+      : [];
+
+    if (deleteCandidateTargets.length > 0) {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        new DeleteCandidateBatchConfirmModal(
+          this.app,
+          deleteCandidateTargets.map((target) => ({
+            notePath: target.notePath,
+            destinationFolder: target.destinationFolder,
+          })),
+          () => resolve(true),
+          () => resolve(false),
+        ).open();
+      });
+
+      if (!confirmed) {
+        new Notice(t('notice.deleteCandidateBatchCancelled'));
+        return;
+      }
+    }
+
+    const deleteCandidateByPath = new Map(deleteCandidateTargets.map((target) => [target.file.path, target]));
+    const nonDeleteCandidateAllowedActions = allowedActions.filter((action) => action !== 'delete_candidate');
+
     for (const file of files) {
       try {
+        const deleteCandidateTarget = deleteCandidateByPath.get(file.path);
         const result = await executeProposedAction(this.app, file, {
           outputFolder: this.settings.reviewOutputFolder,
           readLaterFolder: this.settings.readLaterFolder,
@@ -1851,7 +1882,10 @@ export default class InboxCuratorPlugin extends Plugin {
           deleteCandidateFolder: this.settings.deleteCandidateFolder,
           suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
           skipConfirmation: true,
-          allowedActions: getAllowedReviewActions(this.settings),
+          allowedActions: deleteCandidateTarget ? allowedActions : nonDeleteCandidateAllowedActions,
+          ...(deleteCandidateTarget
+            ? { expectedAction: 'delete_candidate' as const, expectedDestinationPath: deleteCandidateTarget.destinationPath ?? null }
+            : {}),
         });
 
         if (result.status === 'executed') {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TFolder, TFile } from 'obsidian';
-import { executeProposedAction, isFolderPathWithinBase } from '../src/actionLayer';
+import { collectDeleteCandidateTargets, executeProposedAction, isFolderPathWithinBase } from '../src/actionLayer';
 
 let mockConfirmModalBehavior: 'confirm' | 'cancel' = 'confirm';
 vi.mock('../src/actionConfirmationModal', () => {
@@ -955,5 +955,120 @@ Hello World`,
     expect(isFolderPathWithinBase('ArchiveExtra/note.md', 'Archive')).toBe(false);
     expect(isFolderPathWithinBase('Archive2', 'Archive')).toBe(false);
     expect(isFolderPathWithinBase('Other/Archive/note.md', 'Archive')).toBe(false);
+  });
+});
+
+describe('collectDeleteCandidateTargets', () => {
+  it('returns only delete_candidate files with their destination and does not mutate', async () => {
+    const deleteFile = createMockFile(
+      'Inbox/del.md',
+      `---
+ai_review_recommended_action: delete_candidate
+---
+Body`,
+    );
+    const archiveFile = createMockFile(
+      'Inbox/arch.md',
+      `---
+ai_review_recommended_action: archive
+---
+Body`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/del.md', deleteFile);
+    files.set('Inbox/arch.md', archiveFile);
+
+    const mock = createMockApp(files);
+    const targets = await collectDeleteCandidateTargets(mock.app, [deleteFile, archiveFile], {
+      deleteCandidateFolder: 'Delete Candidates',
+    });
+
+    expect(targets).toHaveLength(1);
+    expect(targets[0].notePath).toBe('Inbox/del.md');
+    expect(targets[0].destinationPath).toBe('Delete Candidates/del.md');
+    expect(targets[0].destinationFolder).toBe('Delete Candidates');
+    expect(mock.renamedFiles).toHaveLength(0);
+    expect(mock.trashedFiles).toHaveLength(0);
+    expect(mock.createdFolders).toHaveLength(0);
+  });
+
+  it('reports no destination when the quarantine folder is not configured', async () => {
+    const deleteFile = createMockFile(
+      'Inbox/del.md',
+      `---
+ai_review_recommended_action: delete_candidate
+---
+Body`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/del.md', deleteFile);
+
+    const mock = createMockApp(files);
+    const targets = await collectDeleteCandidateTargets(mock.app, [deleteFile], {});
+
+    expect(targets).toHaveLength(1);
+    expect(targets[0].destinationPath).toBeUndefined();
+    expect(targets[0].destinationFolder).toBe('');
+    expect(mock.renamedFiles).toHaveLength(0);
+    expect(mock.trashedFiles).toHaveLength(0);
+  });
+});
+
+describe('executeProposedAction delete_candidate staleness guards', () => {
+  it('skips when the action changed before execution', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+---
+Body`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      deleteCandidateFolder: 'Delete Candidates',
+      skipConfirmation: true,
+      expectedAction: 'delete_candidate',
+      expectedDestinationPath: 'Delete Candidates/my-note.md',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(mock.renamedFiles).toHaveLength(0);
+    expect(mock.trashedFiles).toHaveLength(0);
+  });
+
+  it('skips when the destination changed before execution', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: delete_candidate
+---
+Body`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      deleteCandidateFolder: 'Delete Candidates',
+      skipConfirmation: true,
+      expectedAction: 'delete_candidate',
+      expectedDestinationPath: 'Quarantine/my-note.md',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(result.error).toContain('destination changed');
+    expect(mock.renamedFiles).toHaveLength(0);
+    expect(mock.trashedFiles).toHaveLength(0);
   });
 });

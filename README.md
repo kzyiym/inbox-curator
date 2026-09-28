@@ -417,7 +417,7 @@ Inbox Curator is designed to automate your inbox, not just summarize it. It can 
 To keep automation reversible:
 
 - It **never deletes notes automatically**.
-- Delete candidates are **suggested only**.
+- Delete candidates are **suggested only**. Applying them moves notes to a quarantine folder (they are never deleted), and applying delete candidates to multiple selected notes asks for confirmation listing each target before anything moves; cancelling moves nothing.
 - Auto-sort actions are **recorded** in `.inbox-curator/auto-sort-history.json`.
 - **Recent auto-sort runs can be undone** with the `Inbox Curator: Undo last auto-sort run` command.
 - **Tasks require higher confidence** (High) than Archive or Read Later (Medium or High).

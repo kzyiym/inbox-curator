@@ -107,6 +107,48 @@ export function resolveActionDestination(
   return { conflict: false };
 }
 
+export interface DeleteCandidateTarget {
+  file: TFile;
+  notePath: string;
+  destinationPath?: string;
+  destinationFolder: string;
+}
+
+/**
+ * Non-mutating pre-scan of the given files for delete_candidate recommendations.
+ * Used to build a batch confirmation before any quarantine move happens.
+ */
+export async function collectDeleteCandidateTargets(
+  app: App,
+  files: TFile[],
+  options: { deleteCandidateFolder?: string },
+): Promise<DeleteCandidateTarget[]> {
+  const targets: DeleteCandidateTarget[] = [];
+  for (const file of files) {
+    let content: string;
+    try {
+      content = await app.vault.read(file);
+    } catch {
+      continue;
+    }
+    const frontmatter = parseDocument(content);
+    const action = frontmatter.ai_review_recommended_action;
+    if (typeof action !== 'string' || normalizeReviewAction(action) !== 'delete_candidate') {
+      continue;
+    }
+
+    const destinationPath = resolveActionDestination(app, file, 'delete_candidate', undefined, {
+      deleteCandidateFolder: options.deleteCandidateFolder,
+    }).destinationPath;
+    const destinationFolder = destinationPath
+      ? destinationPath.substring(0, destinationPath.lastIndexOf('/'))
+      : (options.deleteCandidateFolder ?? '').trim();
+
+    targets.push({ file, notePath: file.path, destinationPath, destinationFolder });
+  }
+  return targets;
+}
+
 export interface AutoExecuteActionResult {
   success: boolean;
   status: 'executed' | 'skipped' | 'failed';
