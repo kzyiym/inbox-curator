@@ -5,6 +5,7 @@ import {
   buildCodexSpawnEnv,
   buildScrubbedEnv,
   CODEX_CLI_NOT_FOUND_MESSAGE,
+  extractCodexFailureReason,
   extractLastAgentMessage,
   getCodexLoginStatus,
   parseCodexLoginStatus,
@@ -127,6 +128,18 @@ describe('extractLastAgentMessage', () => {
   });
 });
 
+describe('extractCodexFailureReason', () => {
+  it('prefers the last JSON failure, reads nested msg events, and collapses whitespace', () => {
+    const stdout = '{"type":"error","message":"old"}\n{"msg":{"type":"error","message":"line one\\nline two"}}\n';
+    expect(extractCodexFailureReason(stdout, 'stderr last')).toBe('line one line two');
+  });
+
+  it('returns undefined when neither stdout nor stderr has a reason', () => {
+    expect(extractCodexFailureReason('', '')).toBeUndefined();
+    expect(extractCodexFailureReason('{"type":"error","message":"   "}', '\n')).toBeUndefined();
+  });
+});
+
 describe('buildCodexOutputSchema', () => {
   it('is valid JSON requiring a summary array', () => {
     const schema = JSON.parse(buildCodexOutputSchema());
@@ -230,6 +243,82 @@ describe('runCodexExec', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe('invalid-output');
+  });
+
+  it('includes the JSONL error message in a non-zero exit error', async () => {
+    const stdout = [
+      '{"type":"thread.started"}',
+      '{"type":"error","message":"first error"}',
+      '{"type":"error","message":"stream disconnected: model unavailable"}',
+    ].join('\n');
+    const { deps } = makeDeps([{ stdout: CHATGPT }, { stdout, stderr: 'stderr noise\n', code: 1 }]);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'SECRET_NOTE_BODY' });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('exit');
+      expect(result.retryable).toBe(false);
+      expect(result.error).toBe('Codex CLI exited with code 1: stream disconnected: model unavailable');
+      expect(result.error).not.toContain('SECRET_NOTE_BODY');
+    }
+  });
+
+  it('includes a turn.failed error message and falls back to stderr when JSON has none', async () => {
+    const turnFailed = '{"type":"turn.failed","error":{"message":"usage limit reached"}}\n';
+    const { deps } = makeDeps([{ stdout: CHATGPT }, { stdout: turnFailed, code: 2 }, { stdout: CHATGPT }, { stdout: 'not json\n', stderr: 'warn\nfatal: config invalid\n\n', code: 3 }]);
+    setCodexCliDependencies(deps);
+
+    const first = await runCodexExec({ prompt: 'x' });
+    const second = await runCodexExec({ prompt: 'x' });
+
+    expect(first.ok === false && first.error).toBe('Codex CLI exited with code 2: usage limit reached');
+    expect(second.ok === false && second.error).toBe('Codex CLI exited with code 3: fatal: config invalid');
+  });
+
+  it('masks key-like strings in the surfaced failure reason', async () => {
+    const stdout = '{"type":"error","message":"auth failed api_key=sk-livesecret123456 Bearer abc.def.ghi raw sk-proj-ABCDEFGH12345678"}\n';
+    const { deps } = makeDeps([{ stdout: CHATGPT }, { stdout, code: 1 }]);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'x' });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain('[REDACTED]');
+      expect(result.error).not.toContain('sk-livesecret123456');
+      expect(result.error).not.toContain('abc.def.ghi');
+      expect(result.error).not.toContain('sk-proj-ABCDEFGH12345678');
+    }
+  });
+
+  it('keeps the code-only message when output has no usable reason', async () => {
+    const { deps } = makeDeps([
+      { stdout: CHATGPT }, { stdout: '', stderr: '', code: 1 },
+      { stdout: CHATGPT }, { stdout: '{not json\n{"type":"error"}\n{"type":"turn.failed","error":{}}\n', stderr: '  \n', code: 4 },
+    ]);
+    setCodexCliDependencies(deps);
+
+    const empty = await runCodexExec({ prompt: 'x' });
+    const invalid = await runCodexExec({ prompt: 'x' });
+
+    expect(empty.ok === false && empty.error).toBe('Codex CLI exited with code 1.');
+    expect(invalid.ok === false && invalid.error).toBe('Codex CLI exited with code 4.');
+  });
+
+  it('truncates long failure reasons', async () => {
+    const longMessage = 'x'.repeat(1000);
+    const { deps } = makeDeps([{ stdout: CHATGPT }, { stdout: `{"type":"error","message":"${longMessage}"}\n`, code: 1 }]);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'x' });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const reason = result.error.replace('Codex CLI exited with code 1: ', '');
+      expect(reason).toBe(`${'x'.repeat(300)}...`);
+    }
   });
 
   it('reports a timeout and kills the process', async () => {

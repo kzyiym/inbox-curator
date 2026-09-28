@@ -173,14 +173,62 @@ export function parseCodexLoginStatus(text: string): CodexLoginStatus {
   return { ok: false, authMode: 'unknown', authenticated: false };
 }
 
-function extractTextFromMessageLine(line: string): string | undefined {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return undefined;
+function parseJsonLines(stdout: string): unknown[] {
+  const parsed: unknown[] = [];
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line.startsWith('{')) continue;
+    try {
+      parsed.push(JSON.parse(line));
+    } catch {
+      // Ignore non-JSON lines.
+    }
   }
-  return findAgentMessageText(parsed);
+  return parsed;
+}
+
+function findFailureMessage(value: unknown, depth = 0): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 2) return undefined;
+  const record = value as Record<string, unknown>;
+  if (record.type === 'error' && typeof record.message === 'string') {
+    return record.message;
+  }
+  if (record.type === 'turn.failed') {
+    const error = record.error;
+    if (error && typeof error === 'object' && typeof (error as Record<string, unknown>).message === 'string') {
+      return (error as Record<string, unknown>).message as string;
+    }
+  }
+  for (const key of ['msg', 'payload']) {
+    const nested = findFailureMessage(record[key], depth + 1);
+    if (typeof nested === 'string') return nested;
+  }
+  return undefined;
+}
+
+const MAX_FAILURE_REASON_CHARS = 300;
+const BARE_API_KEY = /\bsk-[A-Za-z0-9_-]{8,}/g;
+
+function sanitizeFailureReason(raw: string): string | undefined {
+  // Sanitize before truncating so a secret cut in half cannot slip past the patterns.
+  const singleLine = sanitizeSensitiveString(raw).replace(BARE_API_KEY, '[REDACTED]').replace(/\s+/g, ' ').trim();
+  if (!singleLine) return undefined;
+  return singleLine.length > MAX_FAILURE_REASON_CHARS
+    ? `${singleLine.slice(0, MAX_FAILURE_REASON_CHARS)}...`
+    : singleLine;
+}
+
+export function extractCodexFailureReason(stdout: string, stderr: string): string | undefined {
+  let jsonReason: string | undefined;
+  for (const entry of parseJsonLines(stdout)) {
+    const message = findFailureMessage(entry);
+    if (typeof message === 'string' && message.trim() !== '') jsonReason = message;
+  }
+  if (jsonReason) return sanitizeFailureReason(jsonReason);
+
+  const stderrLines = stderr.split(/\r?\n/).map((line) => line.trim()).filter((line) => line !== '');
+  const lastStderrLine = stderrLines[stderrLines.length - 1];
+  return lastStderrLine ? sanitizeFailureReason(lastStderrLine) : undefined;
 }
 
 function findAgentMessageText(value: unknown, depth = 0): string | undefined {
@@ -219,10 +267,8 @@ function findAgentMessageText(value: unknown, depth = 0): string | undefined {
 
 export function extractLastAgentMessage(stdout: string): string | undefined {
   let last: string | undefined;
-  for (const rawLine of stdout.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line.startsWith('{')) continue;
-    const text = extractTextFromMessageLine(line);
+  for (const entry of parseJsonLines(stdout)) {
+    const text = findAgentMessageText(entry);
     if (typeof text === 'string') last = text;
   }
   return last;
@@ -537,9 +583,13 @@ export async function runCodexExec(request: CodexExecRequest): Promise<CodexExec
       return { ok: false, error: 'Codex CLI run timed out.', retryable: true, reason: 'timeout' };
     }
     if (captured.code !== 0) {
+      const exitCode = captured.code === null ? 'unknown' : captured.code;
+      const failureReason = extractCodexFailureReason(captured.stdout, captured.stderr);
       return {
         ok: false,
-        error: `Codex CLI exited with code ${captured.code === null ? 'unknown' : captured.code}.`,
+        error: failureReason
+          ? `Codex CLI exited with code ${exitCode}: ${failureReason}`
+          : `Codex CLI exited with code ${exitCode}.`,
         retryable: false,
         reason: 'exit',
       };
