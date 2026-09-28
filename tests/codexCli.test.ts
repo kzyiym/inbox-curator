@@ -2,13 +2,17 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildCodexExecArgs,
   buildCodexOutputSchema,
+  buildCodexSpawnEnv,
   buildScrubbedEnv,
+  CODEX_CLI_NOT_FOUND_MESSAGE,
   extractLastAgentMessage,
+  getCodexLoginStatus,
   parseCodexLoginStatus,
   runCodexExec,
   setCodexCliDependencies,
   type CodexCliDependencies,
 } from '../src/codexCli';
+import { testConnection } from '../src/connectionTest';
 import { postProviderChat } from '../src/providerClient';
 import { DEFAULT_SETTINGS } from '../src/settings';
 
@@ -21,6 +25,36 @@ describe('codex CLI settings defaults', () => {
     expect(DEFAULT_SETTINGS.codexCliEnabled).toBe(false);
     expect(DEFAULT_SETTINGS.codexCliConsentAcknowledged).toBe(false);
     expect(DEFAULT_SETTINGS.codexCliAllowBackground).toBe(false);
+  });
+});
+
+describe('buildCodexSpawnEnv', () => {
+  it('keeps inherited PATH entries first and appends only missing fallbacks', () => {
+    const base = { PATH: '/usr/local/bin:/usr/bin', HOME: '/Users/me/' };
+    const env = buildCodexSpawnEnv(base);
+
+    expect(env.PATH.split(':')).toEqual([
+      '/usr/local/bin',
+      '/usr/bin',
+      '/opt/homebrew/bin',
+      '/usr/local/sbin',
+      '/Users/me/.local/bin',
+      '/Users/me/.volta/bin',
+      '/Users/me/.bun/bin',
+      '/Users/me/.yarn/bin',
+      '/Users/me/.pnpm',
+    ]);
+    expect(base.PATH).toBe('/usr/local/bin:/usr/bin');
+  });
+
+  it('skips home-relative fallbacks when home cannot be resolved and falls back to USERPROFILE', () => {
+    expect(buildCodexSpawnEnv({}).PATH).toBe('/opt/homebrew/bin:/usr/local/bin:/usr/local/sbin');
+    expect(buildCodexSpawnEnv({ USERPROFILE: '/home/p' }).PATH).toContain('/home/p/.local/bin');
+  });
+
+  it('still removes secret-bearing variables', () => {
+    const env = buildCodexSpawnEnv({ PATH: '/usr/bin', OPENAI_API_KEY: 'sk-secret' });
+    expect(env.OPENAI_API_KEY).toBeUndefined();
   });
 });
 
@@ -107,9 +141,14 @@ interface FakePlan {
   stderr?: string;
   code?: number | null;
   noClose?: boolean;
+  errorCode?: string;
 }
 
-function makeDeps(plans: FakePlan[], platform = 'darwin') {
+function makeDeps(
+  plans: FakePlan[],
+  platform = 'darwin',
+  resolves: (command: string, env: Record<string, string>) => boolean = () => true,
+) {
   const spawnCalls: Array<{ command: string; args: string[]; cwd: string; env: Record<string, string> }> = [];
   const removed: string[] = [];
   let index = 0;
@@ -135,7 +174,13 @@ function makeDeps(plans: FakePlan[], platform = 'darwin') {
         on: (event: string, callback: (value: unknown) => void) => { (child as unknown as Record<string, unknown>)[event] = callback; },
         kill: () => { (child as unknown as { close?: (code: number | null) => void }).close?.(null); },
       } as unknown as ReturnType<CodexCliDependencies['spawn']>;
+      const errorCode = plan.errorCode ?? (resolves(command, options.env) ? undefined : 'ENOENT');
       setTimeout(() => {
+        if (errorCode) {
+          const error = Object.assign(new Error(`spawn ${command} ${errorCode}`), { code: errorCode });
+          (child as unknown as { error?: (e: Error) => void }).error?.(error);
+          return;
+        }
         if (plan.stdout) (child as unknown as { out?: (c: unknown) => void }).out?.(plan.stdout);
         if (plan.stderr) (child as unknown as { err?: (c: unknown) => void }).err?.(plan.stderr);
         if (!plan.noClose) (child as unknown as { close?: (code: number | null) => void }).close?.(plan.code ?? 0);
@@ -219,6 +264,66 @@ describe('runCodexExec', () => {
 
     expect(result).toEqual({ ok: true, content: '{"summary":["ok"]}' });
     expect(spawnCalls).toHaveLength(2);
+  });
+
+  it('appends GUI PATH fallbacks so codex resolves when the inherited PATH lacks it', async () => {
+    const resolvesFromHomebrew = (command: string, env: Record<string, string>) =>
+      command !== 'codex' || env.PATH.split(':').includes('/opt/homebrew/bin');
+    const { deps, spawnCalls } = makeDeps([{ stdout: CHATGPT }, { stdout: JSONL }], 'darwin', resolvesFromHomebrew);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'x' });
+
+    expect(result).toEqual({ ok: true, content: '{"summary":["ok"]}' });
+    for (const call of spawnCalls) {
+      expect(call.command).toBe('codex');
+      expect(call.env.PATH.split(':')).toEqual([
+        '/usr/bin',
+        '/opt/homebrew/bin',
+        '/usr/local/bin',
+        '/usr/local/sbin',
+        '/home/u/.local/bin',
+        '/home/u/.volta/bin',
+        '/home/u/.bun/bin',
+        '/home/u/.yarn/bin',
+        '/home/u/.pnpm',
+      ]);
+      expect(call.env.OPENAI_API_KEY).toBeUndefined();
+    }
+  });
+
+  it('uses an explicit binaryPath as-is regardless of PATH augmentation', async () => {
+    const onlyExplicit = (command: string) => command === '/custom/bin/codex';
+    const { deps, spawnCalls } = makeDeps([{ stdout: CHATGPT }, { stdout: JSONL }], 'darwin', onlyExplicit);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'x', binaryPath: '/custom/bin/codex' });
+
+    expect(result.ok).toBe(true);
+    expect(spawnCalls.map((call) => call.command)).toEqual(['/custom/bin/codex', '/custom/bin/codex']);
+  });
+
+  it('reports a missing binary as unavailable instead of not logged in', async () => {
+    const { deps, spawnCalls } = makeDeps([{ errorCode: 'ENOENT' }]);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'x' });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe('unavailable');
+      expect(result.error).toBe(CODEX_CLI_NOT_FOUND_MESSAGE);
+    }
+    expect(spawnCalls).toHaveLength(1);
+  });
+
+  it('reports login status as unavailable when the binary cannot be spawned', async () => {
+    const { deps } = makeDeps([{ errorCode: 'ENOENT' }]);
+    setCodexCliDependencies(deps);
+
+    const status = await getCodexLoginStatus();
+
+    expect(status).toEqual({ ok: false, authMode: 'unavailable', authenticated: false });
   });
 
   it('reports Windows as unsupported', async () => {
@@ -333,5 +438,32 @@ describe('postProviderChat codex-cli dispatch', () => {
     });
 
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('testConnection codex-cli', () => {
+  it('reports a missing binary as not found instead of not logged in', async () => {
+    const { deps } = makeDeps([{ errorCode: 'ENOENT' }]);
+    setCodexCliDependencies(deps);
+
+    const result = await testConnection({
+      provider: 'codex-cli',
+      endpointUrl: '',
+      model: '',
+      apiKey: '',
+      codexCli: {
+        enabled: true,
+        consentAcknowledged: true,
+        allowBackground: false,
+        binaryPath: '',
+        model: '',
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe(CODEX_CLI_NOT_FOUND_MESSAGE);
+      expect(result.error).not.toMatch(/not logged in/i);
+    }
   });
 });

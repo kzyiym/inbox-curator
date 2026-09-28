@@ -147,6 +147,7 @@ export const ja = {
   'settings.codexCli.status.chatgpt': 'Codex CLI: ChatGPT でログイン済み。',
   'settings.codexCli.status.apiKey': 'Codex CLI は API キーで認証されています。ChatGPT ログインが必要で、API キーはサポートされません。',
   'settings.codexCli.status.loggedOut': 'Codex CLI は ChatGPT でログインしていません。先にターミナルで `codex login` を実行してください。',
+  'settings.codexCli.status.notFound': 'Codex CLI が見つかりません。設定で CLI のパスを指定するか、PATH から実行できるようにしてください。',
   'settings.endpointUrl.label': 'エンドポイント / Base URL',
   'settings.endpointUrl.desc': 'API のベース URL。リモートのエンドポイントには HTTPS が必要です。',
   'settings.endpointUrl.warning.localHttp': 'ローカル HTTP エンドポイント: API キーはこのアドレスのローカルプロセスへ平文で送信されます。信頼できるマシンでのみ使用してください。',

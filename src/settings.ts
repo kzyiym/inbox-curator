@@ -512,9 +512,11 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       void getCodexLoginStatus(settings.codexCliBinaryPath || undefined).then((status) => {
         const message = status.ok
           ? t('settings.codexCli.status.chatgpt')
-          : status.authMode === 'api-key'
-            ? t('settings.codexCli.status.apiKey')
-            : t('settings.codexCli.status.loggedOut');
+          : status.authMode === 'unavailable'
+            ? t('settings.codexCli.status.notFound')
+            : status.authMode === 'api-key'
+              ? t('settings.codexCli.status.apiKey')
+              : t('settings.codexCli.status.loggedOut');
         codexStatusEl.setText(message);
       });
     }

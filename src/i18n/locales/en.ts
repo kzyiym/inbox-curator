@@ -147,6 +147,7 @@ export const en = {
   'settings.codexCli.status.chatgpt': 'Codex CLI: logged in using ChatGPT.',
   'settings.codexCli.status.apiKey': 'Codex CLI is authenticated with an API key. ChatGPT login is required; API keys are not supported.',
   'settings.codexCli.status.loggedOut': 'Codex CLI is not logged in with ChatGPT. Run `codex login` in a terminal first.',
+  'settings.codexCli.status.notFound': 'Codex CLI not found. Set the CLI path in settings, or make it available on PATH.',
   'settings.endpointUrl.label': 'Endpoint / Base URL',
   'settings.endpointUrl.desc': 'API base URL. Remote endpoints must use HTTPS.',
   'settings.endpointUrl.warning.localHttp': 'Local HTTP endpoint: your API key will be sent unencrypted to the local process at this address. Use only on a machine you trust.',

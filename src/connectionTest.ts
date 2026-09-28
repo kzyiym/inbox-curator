@@ -6,7 +6,7 @@ import {
   type OpenAiCompatibleTokenLimitParam,
 } from './openAiCompatible';
 import { buildProviderChatUrl, postProviderChat } from './providerClient';
-import { getCodexLoginStatus, type CodexCliSettings } from './codexCli';
+import { CODEX_CLI_NOT_FOUND_MESSAGE, getCodexLoginStatus, type CodexCliSettings } from './codexCli';
 import type { InboxCuratorProvider } from './settings';
 
 export interface ConnectionTestOptions {
@@ -66,9 +66,11 @@ export async function testConnection(options: ConnectionTestOptions): Promise<Co
     if (!status.ok) {
       return {
         ok: false,
-        error: status.authMode === 'api-key'
-          ? 'Codex CLI is authenticated with an API key. ChatGPT login is required.'
-          : 'Codex CLI is not logged in with ChatGPT.',
+        error: status.authMode === 'unavailable'
+          ? CODEX_CLI_NOT_FOUND_MESSAGE
+          : status.authMode === 'api-key'
+            ? 'Codex CLI is authenticated with an API key. ChatGPT login is required.'
+            : 'Codex CLI is not logged in with ChatGPT.',
         finalUrl,
         requestBody,
       };

@@ -16,7 +16,9 @@ export const DEFAULT_CODEX_CLI_SETTINGS: CodexCliSettings = {
   model: '',
 };
 
-export type CodexAuthMode = 'chatgpt' | 'api-key' | 'logged-out' | 'unknown';
+export type CodexAuthMode = 'chatgpt' | 'api-key' | 'logged-out' | 'unavailable' | 'unknown';
+
+export const CODEX_CLI_NOT_FOUND_MESSAGE = 'Codex CLI not found. Set the CLI path in settings, or make it available on PATH.';
 
 export interface CodexLoginStatus {
   ok: boolean;
@@ -79,6 +81,27 @@ export function buildScrubbedEnv(base: Record<string, string | undefined>): Reco
     if (SECRET_ENV_PATTERN.test(key)) continue;
     env[key] = value;
   }
+  return env;
+}
+
+// Obsidian launched from the macOS GUI inherits a minimal PATH (no shell rc files),
+// so common user-level install locations are appended as a fallback.
+const PATH_FALLBACK_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/local/sbin'];
+const HOME_PATH_FALLBACK_DIRS = ['.local/bin', '.volta/bin', '.bun/bin', '.yarn/bin', '.pnpm'];
+
+export function buildCodexSpawnEnv(base: Record<string, string | undefined>): Record<string, string> {
+  const env = buildScrubbedEnv(base);
+  const home = (env.HOME || env.USERPROFILE || '').replace(/\/+$/, '');
+  const candidates = [...PATH_FALLBACK_DIRS];
+  if (home) {
+    for (const dir of HOME_PATH_FALLBACK_DIRS) candidates.push(`${home}/${dir}`);
+  }
+
+  const entries = (env.PATH ?? '').split(':').filter((entry) => entry !== '');
+  for (const candidate of candidates) {
+    if (!entries.includes(candidate)) entries.push(candidate);
+  }
+  env.PATH = entries.join(':');
   return env;
 }
 
@@ -303,6 +326,7 @@ interface CapturedRun {
   timedOut: boolean;
   aborted: boolean;
   spawned: boolean;
+  spawnFailed: boolean;
   truncated: boolean;
 }
 
@@ -313,7 +337,7 @@ function runChild(
   options: { cwd: string; env: Record<string, string>; input: string; timeoutMs: number; isUnloaded?: () => boolean },
 ): Promise<CapturedRun> {
   return new Promise<CapturedRun>((resolve) => {
-    const state: CapturedRun = { stdout: '', stderr: '', code: null, timedOut: false, aborted: false, spawned: false, truncated: false };
+    const state: CapturedRun = { stdout: '', stderr: '', code: null, timedOut: false, aborted: false, spawned: false, spawnFailed: false, truncated: false };
     let settled = false;
     let child: CodexChildProcess;
     let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
@@ -343,6 +367,7 @@ function runChild(
       child = deps.spawn(command, args, { cwd: options.cwd, env: options.env });
     } catch {
       state.code = -1;
+      state.spawnFailed = true;
       finish();
       return;
     }
@@ -374,8 +399,9 @@ function runChild(
     child.stderr.on('data', (chunk) => {
       if (state.stderr.length < MAX_CAPTURE_BYTES) state.stderr += chunkToText(chunk);
     });
-    child.on('error', () => {
+    child.on('error', (error) => {
       state.code = -1;
+      if (isSpawnFailure(error)) state.spawnFailed = true;
       finish();
     });
     child.on('close', (code) => {
@@ -390,6 +416,13 @@ function runChild(
       terminate();
     }
   });
+}
+
+const SPAWN_FAILURE_CODES = new Set(['ENOENT', 'EACCES', 'ENOTDIR']);
+
+function isSpawnFailure(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && SPAWN_FAILURE_CODES.has(code);
 }
 
 function chunkToText(chunk: unknown): string {
@@ -408,7 +441,7 @@ async function runCodexLoginStatusInternal(deps: CodexCliDependencies, binaryPat
   let tempDir = '';
   try {
     tempDir = await deps.mkdtemp(`${deps.tmpdir()}/inbox-curator-codex-login-`);
-    const env = buildScrubbedEnv(deps.env());
+    const env = buildCodexSpawnEnv(deps.env());
     const command = binaryPath?.trim() || 'codex';
     const captured = await runChild(deps, command, ['login', 'status'], {
       cwd: tempDir,
@@ -416,6 +449,9 @@ async function runCodexLoginStatusInternal(deps: CodexCliDependencies, binaryPat
       input: '',
       timeoutMs: 15000,
     });
+    if (captured.spawnFailed) {
+      return { ok: false, authMode: 'unavailable', authenticated: false };
+    }
     return parseCodexLoginStatus(`${captured.stdout}\n${captured.stderr}`);
   } catch {
     return { ok: false, authMode: 'unknown', authenticated: false };
@@ -460,6 +496,9 @@ export async function runCodexExec(request: CodexExecRequest): Promise<CodexExec
   let tempDir = '';
   try {
     const loginStatus = await runCodexLoginStatusInternal(deps, request.binaryPath);
+    if (loginStatus.authMode === 'unavailable') {
+      return { ok: false, error: CODEX_CLI_NOT_FOUND_MESSAGE, retryable: false, reason: 'unavailable' };
+    }
     if (!loginStatus.ok) {
       return {
         ok: false,
@@ -476,7 +515,7 @@ export async function runCodexExec(request: CodexExecRequest): Promise<CodexExec
     await deps.writeFile(schemaPath, buildCodexOutputSchema());
 
     const args = buildCodexExecArgs({ schemaPath, cwd: tempDir, model: request.model });
-    const env = buildScrubbedEnv(deps.env());
+    const env = buildCodexSpawnEnv(deps.env());
     const command = request.binaryPath?.trim() || 'codex';
 
     const captured = await runChild(deps, command, args, {
@@ -486,6 +525,10 @@ export async function runCodexExec(request: CodexExecRequest): Promise<CodexExec
       timeoutMs: request.timeoutMs && request.timeoutMs > 0 ? request.timeoutMs : 120000,
       isUnloaded: request.isUnloaded,
     });
+
+    if (captured.spawnFailed) {
+      return { ok: false, error: CODEX_CLI_NOT_FOUND_MESSAGE, retryable: false, reason: 'unavailable' };
+    }
 
     if (captured.aborted) {
       return { ok: false, error: 'Codex CLI run was cancelled.', retryable: true, reason: 'aborted' };
