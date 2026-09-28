@@ -45,6 +45,7 @@ export interface CodexExecRequest {
   timeoutMs?: number;
   isUnloaded?: () => boolean;
   background?: boolean;
+  allowBackground?: boolean;
 }
 
 export interface CodexCliDependencies {
@@ -440,7 +441,7 @@ export async function getCodexLoginStatus(binaryPath?: string): Promise<CodexLog
 }
 
 export async function runCodexExec(request: CodexExecRequest): Promise<CodexExecResult> {
-  if (request.background) {
+  if (request.background && request.allowBackground !== true) {
     return { ok: false, error: 'Codex CLI background runs are disabled.', retryable: false, reason: 'disabled' };
   }
 

@@ -197,14 +197,28 @@ describe('runCodexExec', () => {
     if (!result.ok) expect(result.reason).toBe('timeout');
   });
 
-  it('refuses background runs', async () => {
-    const { deps } = makeDeps([]);
+  it('refuses background runs without spawning when background is not allowed', async () => {
+    const { deps, spawnCalls } = makeDeps([]);
     setCodexCliDependencies(deps);
 
-    const result = await runCodexExec({ prompt: 'x', background: true });
+    const implicit = await runCodexExec({ prompt: 'x', background: true });
+    const explicit = await runCodexExec({ prompt: 'x', background: true, allowBackground: false });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toBe('disabled');
+    for (const result of [implicit, explicit]) {
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toBe('disabled');
+    }
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  it('runs background requests when background is explicitly allowed', async () => {
+    const { deps, spawnCalls } = makeDeps([{ stdout: CHATGPT }, { stdout: JSONL }]);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'x', background: true, allowBackground: true });
+
+    expect(result).toEqual({ ok: true, content: '{"summary":["ok"]}' });
+    expect(spawnCalls).toHaveLength(2);
   });
 
   it('reports Windows as unsupported', async () => {
@@ -242,6 +256,59 @@ describe('postProviderChat codex-cli dispatch', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.content).toBe('{"summary":["ok"]}');
+  });
+
+  it('runs a background job when background runs are allowed', async () => {
+    const { deps, spawnCalls } = makeDeps([{ stdout: CHATGPT }, { stdout: JSONL }]);
+    setCodexCliDependencies(deps);
+
+    const result = await postProviderChat({
+      provider: 'codex-cli',
+      endpointUrl: '',
+      model: '',
+      apiKey: '',
+      messages: [{ role: 'user', content: 'hello' }],
+      codexCli: {
+        background: true,
+        settings: {
+          enabled: true,
+          consentAcknowledged: true,
+          allowBackground: true,
+          binaryPath: '',
+          model: '',
+        },
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.content).toBe('{"summary":["ok"]}');
+    expect(spawnCalls).toHaveLength(2);
+  });
+
+  it('fails closed for a background job when background runs are not allowed', async () => {
+    const { deps, spawnCalls } = makeDeps([]);
+    setCodexCliDependencies(deps);
+
+    const result = await postProviderChat({
+      provider: 'codex-cli',
+      endpointUrl: '',
+      model: '',
+      apiKey: '',
+      messages: [{ role: 'user', content: 'hello' }],
+      codexCli: {
+        background: true,
+        settings: {
+          enabled: true,
+          consentAcknowledged: true,
+          allowBackground: false,
+          binaryPath: '',
+          model: '',
+        },
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(spawnCalls).toHaveLength(0);
   });
 
   it('fails closed when not enabled', async () => {

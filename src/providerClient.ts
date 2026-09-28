@@ -188,6 +188,7 @@ export async function postProviderChat(request: ProviderChatRequest): Promise<Pr
         timeoutMs: request.timeoutMs,
         isUnloaded: codex.isUnloaded,
         background: codex.background,
+        allowBackground: codex.settings.allowBackground,
       });
       result = run.ok
         ? { ok: true, status: 0, content: run.content }
