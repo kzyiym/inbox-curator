@@ -33,6 +33,14 @@ export function registerInboxCuratorCommands(plugin: InboxCuratorPlugin): void {
   });
 
   plugin.addCommand({
+    id: 'cleanup-review-diagnostics',
+    name: t('commands.cleanupReviewDiagnostics'),
+    callback: async () => {
+      await plugin.cleanupReviewDiagnostics();
+    },
+  });
+
+  plugin.addCommand({
     id: 'process-watched-folder',
     name: t('commands.processWatchedFolder'),
     callback: async () => {

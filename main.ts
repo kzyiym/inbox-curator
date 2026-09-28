@@ -1,6 +1,12 @@
 import { getLanguage, MarkdownView, Notice, Plugin, TFile, TFolder, normalizePath } from 'obsidian';
 import { registerInboxCuratorCommands } from './src/commands';
-import { writeReviewDiagnostic } from './src/utils/reviewDiagnostics';
+import {
+  getReviewDiagnosticFolderPath,
+  listReviewDiagnosticFiles,
+  removeReviewDiagnosticFiles,
+  writeReviewDiagnostic,
+} from './src/utils/reviewDiagnostics';
+import { DiagnosticCaptureConsentModal, DiagnosticCleanupConfirmModal } from './src/diagnosticCaptureModal';
 import { readAiReviewSourceHash } from './src/frontmatter';
 import { ProcessingNoticeManager } from './src/processingNotice';
 import { createReviewJob, generateRunId } from './src/queue/job';
@@ -1394,6 +1400,21 @@ export default class InboxCuratorPlugin extends Plugin {
       return;
     }
 
+    const consented = await new Promise<boolean>((resolve) => {
+      new DiagnosticCaptureConsentModal(
+        this.app,
+        getReviewDiagnosticFolderPath(),
+        t('commands.cleanupReviewDiagnostics'),
+        () => resolve(true),
+        () => resolve(false),
+      ).open();
+    });
+
+    if (!consented) {
+      new Notice(t('notice.diagnosticCancelled'));
+      return;
+    }
+
     if (!this.tryBeginProcessing(t('notice.diagnosticReviewing'))) {
       return;
     }
@@ -1431,6 +1452,35 @@ export default class InboxCuratorPlugin extends Plugin {
       new Notice(this.buildShortReviewError(error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       this.finishProcessing();
+    }
+  }
+
+  async cleanupReviewDiagnostics(): Promise<void> {
+    const files = await listReviewDiagnosticFiles(this.app);
+    if (files.length === 0) {
+      new Notice(t('notice.diagnosticCleanupNone'));
+      return;
+    }
+
+    const confirmed = await new Promise<boolean>((resolve) => {
+      new DiagnosticCleanupConfirmModal(
+        this.app,
+        files.length,
+        () => resolve(true),
+        () => resolve(false),
+      ).open();
+    });
+
+    if (!confirmed) {
+      new Notice(t('notice.diagnosticCleanupCancelled'));
+      return;
+    }
+
+    const { removed, failed } = await removeReviewDiagnosticFiles(this.app, files);
+    if (failed > 0) {
+      new Notice(t('notice.diagnosticCleanupPartial', { removed, failed }));
+    } else {
+      new Notice(t('notice.diagnosticCleanupDone', { count: removed }));
     }
   }
 
