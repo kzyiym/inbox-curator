@@ -298,6 +298,8 @@ Use `Open action review panel` to see every watched-folder note that carries a p
 | API Key | Managed via SecretStorage (masked input, save/delete buttons) |
 | Test Connection | Validate API key, endpoint, and model availability |
 
+**Endpoint security (OpenAI-compatible).** Remote endpoints must use HTTPS. Plain HTTP is permitted only for literal loopback addresses (`localhost`, `127.0.0.0/8`, `::1`); with a local HTTP endpoint your API key is sent unencrypted to the local process, so use it only on a machine you trust. Endpoint URLs containing credentials (`user:password@`) are rejected, and OpenAI-compatible requests never follow redirects, so an endpoint cannot bounce your API key or note content to another host.
+
 ---
 
 ## Architecture Overview

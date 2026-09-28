@@ -1,4 +1,10 @@
-import { detectOpenAiTokenLimitParam, type DetectedOpenAiCompatibleTokenLimitParam, type OpenAiCompatibleTokenLimitParam } from './openAiCompatible';
+import {
+  detectOpenAiTokenLimitParam,
+  openAiCompatibleEndpointError,
+  validateOpenAiCompatibleEndpoint,
+  type DetectedOpenAiCompatibleTokenLimitParam,
+  type OpenAiCompatibleTokenLimitParam,
+} from './openAiCompatible';
 import { buildProviderChatUrl, postProviderChat } from './providerClient';
 import type { InboxCuratorProvider } from './settings';
 
@@ -48,6 +54,18 @@ export async function testConnection(options: ConnectionTestOptions): Promise<Co
       { role: 'user' as const, content: 'Reply with OK.' },
     ],
   };
+
+  if (options.provider === 'openai-compatible') {
+    const validation = validateOpenAiCompatibleEndpoint(options.endpointUrl);
+    if (!validation.ok) {
+      return {
+        ok: false,
+        error: openAiCompatibleEndpointError(validation.reason),
+        finalUrl,
+        requestBody,
+      };
+    }
+  }
 
   const response = await postProviderChat({
     provider: options.provider,

@@ -1,9 +1,231 @@
-import { requestUrl } from 'obsidian';
 import { isMaskedApiKeyValue } from './secrets';
 import { isImageNotSupportedErrorText } from './providerErrorClassifier';
 
 export type OpenAiCompatibleTokenLimitParam = 'auto' | 'max_tokens' | 'max_completion_tokens' | 'none';
 export type DetectedOpenAiCompatibleTokenLimitParam = 'max_tokens' | 'max_completion_tokens' | 'none' | 'unknown';
+
+export type OpenAiCompatibleEndpointErrorReason =
+  | 'invalid'
+  | 'unsupported-scheme'
+  | 'insecure-remote-http'
+  | 'credentials-in-url';
+
+export type OpenAiCompatibleEndpointValidation =
+  | { ok: true; isLocalHttp: boolean }
+  | { ok: false; isLocalHttp: false; reason: OpenAiCompatibleEndpointErrorReason };
+
+export const OPENAI_COMPATIBLE_ENDPOINT_ERROR_PREFIX = 'endpoint:';
+
+export function openAiCompatibleEndpointError(reason: OpenAiCompatibleEndpointErrorReason): string {
+  return `${OPENAI_COMPATIBLE_ENDPOINT_ERROR_PREFIX}${reason}`;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  if (hostname === 'localhost' || hostname === '::1') return true;
+  const parts = hostname.split('.');
+  if (parts.length !== 4) return false;
+  if (!/^\d{1,3}$/.test(parts[0]) || Number(parts[0]) !== 127) return false;
+  return parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255);
+}
+
+export function validateOpenAiCompatibleEndpoint(endpointUrl: string): OpenAiCompatibleEndpointValidation {
+  const trimmed = endpointUrl.trim();
+  if (!trimmed) return { ok: false, isLocalHttp: false, reason: 'invalid' };
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { ok: false, isLocalHttp: false, reason: 'invalid' };
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return { ok: false, isLocalHttp: false, reason: 'unsupported-scheme' };
+  }
+
+  if (parsed.username || parsed.password) {
+    return { ok: false, isLocalHttp: false, reason: 'credentials-in-url' };
+  }
+
+  if (parsed.protocol === 'https:') {
+    return { ok: true, isLocalHttp: false };
+  }
+
+  const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (isLoopbackHostname(hostname)) {
+    return { ok: true, isLocalHttp: true };
+  }
+
+  return { ok: false, isLocalHttp: false, reason: 'insecure-remote-http' };
+}
+
+export interface OpenAiCompatibleHttpRequest {
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+  timeoutMs?: number;
+}
+
+export interface OpenAiCompatibleHttpResponse {
+  status: number;
+  text: string;
+}
+
+export type OpenAiCompatibleTransport = (request: OpenAiCompatibleHttpRequest) => Promise<OpenAiCompatibleHttpResponse>;
+
+export type OpenAiCompatibleModuleLoader = <T>(name: string) => T | undefined;
+
+const MAX_OPENAI_COMPATIBLE_RESPONSE_BYTES = 10 * 1024 * 1024;
+
+function loadNodeModule<T>(name: string): T | undefined {
+  try {
+    const nodeRequire = typeof require === 'function' ? (require as (id: string) => unknown) : undefined;
+    if (!nodeRequire) return undefined;
+    return nodeRequire(name) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRedirectStatus(status: number): boolean {
+  return status >= 300 && status < 400;
+}
+
+function createDecodingStream(zlib: any, encoding: string): any | undefined {
+  if (!zlib || !encoding) return undefined;
+  if (encoding === 'gzip' || encoding === 'x-gzip' || encoding === 'deflate') return zlib.createUnzip();
+  if (encoding === 'br' && typeof zlib.createBrotliDecompress === 'function') return zlib.createBrotliDecompress();
+  return undefined;
+}
+
+function readOpenAiResponseBody(response: any, encoding: string, zlib: any): Promise<string> {
+  const sink = createDecodingStream(zlib, encoding);
+  const source = sink ?? response;
+
+  return new Promise<string>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let total = 0;
+    let settled = false;
+
+    const cleanup = () => {
+      source.removeListener?.('data', onData);
+      source.removeListener?.('end', onEnd);
+      source.removeListener?.('error', fail);
+      source.removeListener?.('close', onClose);
+      response.removeListener?.('error', onResponseError);
+    };
+
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      response.destroy?.();
+      sink?.destroy?.();
+      reject(error);
+    };
+
+    const onData = (chunk: Buffer | string) => {
+      if (settled) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buffer.length;
+      if (total > MAX_OPENAI_COMPATIBLE_RESPONSE_BYTES) {
+        fail(new Error('OpenAI-compatible response exceeded the maximum allowed size.'));
+        return;
+      }
+      chunks.push(buffer);
+    };
+
+    const onEnd = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(Buffer.concat(chunks).toString('utf8'));
+    };
+
+    const onClose = () => {
+      if (settled) return;
+      fail(new Error('OpenAI-compatible response stream closed before completion.'));
+    };
+
+    const onResponseError = (error: Error) => {
+      sink?.destroy?.(error);
+    };
+
+    response.on('error', onResponseError);
+    source.on('data', onData);
+    source.on('end', onEnd);
+    source.on('error', fail);
+    source.on('close', onClose);
+    if (sink) response.pipe(sink);
+  });
+}
+
+export function createNodeOpenAiCompatibleTransport(load: OpenAiCompatibleModuleLoader = loadNodeModule): OpenAiCompatibleTransport {
+  return (request: OpenAiCompatibleHttpRequest): Promise<OpenAiCompatibleHttpResponse> => {
+    const http = load<any>('node:http') ?? load<any>('http');
+    const https = load<any>('node:https') ?? load<any>('https');
+    const zlib = load<any>('node:zlib') ?? load<any>('zlib');
+    const parsed = new URL(request.url);
+    const isHttps = parsed.protocol === 'https:';
+    const transport = isHttps ? https : http;
+    if (!transport || typeof transport.request !== 'function') {
+      return Promise.reject(new Error('HTTP transport is unavailable in this environment.'));
+    }
+
+    return new Promise<OpenAiCompatibleHttpResponse>((resolve, reject) => {
+      const req = transport.request(
+        {
+          protocol: parsed.protocol,
+          hostname: parsed.hostname.replace(/^\[|\]$/g, ''),
+          port: parsed.port || (isHttps ? 443 : 80),
+          path: `${parsed.pathname}${parsed.search}`,
+          method: 'POST',
+          headers: { 'Accept-Encoding': 'identity', ...request.headers },
+          agent: false,
+          ...(request.timeoutMs ? { timeout: request.timeoutMs } : {}),
+        },
+        (response: any) => {
+          const status = Number(response.statusCode ?? 0);
+          if (isRedirectStatus(status)) {
+            response.destroy?.();
+            req.destroy?.();
+            reject(new Error('OpenAI-compatible endpoint returned a redirect, which is not allowed.'));
+            return;
+          }
+
+          const rawHeaders = (response.headers ?? {}) as Record<string, string | string[] | undefined>;
+          const encodingHeader = rawHeaders['content-encoding'];
+          const encoding = (Array.isArray(encodingHeader) ? encodingHeader.join(', ') : encodingHeader ?? '').toLowerCase();
+
+          readOpenAiResponseBody(response, encoding, zlib)
+            .then((text) => resolve({ status, text }))
+            .catch((error: Error) => {
+              response.destroy?.();
+              req.destroy?.();
+              reject(error);
+            });
+        },
+      );
+
+      req.on('timeout', () => req.destroy?.(new Error('OpenAI-compatible request timed out.')));
+      req.on('error', (error: Error) => reject(error));
+      req.end(request.body);
+    });
+  };
+}
+
+let openAiCompatibleTransport: OpenAiCompatibleTransport | undefined;
+
+export function setOpenAiCompatibleTransport(transport: OpenAiCompatibleTransport | undefined): void {
+  openAiCompatibleTransport = transport;
+}
+
+function getOpenAiCompatibleTransport(): OpenAiCompatibleTransport {
+  if (!openAiCompatibleTransport) {
+    openAiCompatibleTransport = createNodeOpenAiCompatibleTransport();
+  }
+  return openAiCompatibleTransport;
+}
 
 export function resolveOpenAiTokenLimitParam(
   setting: OpenAiCompatibleTokenLimitParam,
@@ -135,11 +357,14 @@ async function sendCapabilityTestRequest(
   paramName: string,
   timeoutMs?: number,
 ): Promise<'success' | 'unsupported' | 'other_error'> {
+  if (!validateOpenAiCompatibleEndpoint(endpointUrl).ok) {
+    return 'other_error';
+  }
+
   const url = buildChatCompletionsUrl(endpointUrl);
   try {
-    const response = await requestUrl({
+    const response = await getOpenAiCompatibleTransport()({
       url,
-      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
@@ -151,8 +376,7 @@ async function sendCapabilityTestRequest(
         ],
         [paramName]: TOKEN_LIMIT_CAPABILITY_TEST_VALUE,
       }),
-      throw: false,
-      timeout: timeoutMs ?? 10000,
+      timeoutMs: timeoutMs ?? 10000,
     });
 
     if (response.status >= 200 && response.status < 300) {
@@ -347,6 +571,11 @@ export async function postOpenAiCompatibleChat(request: OpenAiCompatibleChatRequ
     return { ok: false, error: 'Endpoint URL is required.' };
   }
 
+  const endpointValidation = validateOpenAiCompatibleEndpoint(endpointUrl);
+  if (!endpointValidation.ok) {
+    return { ok: false, error: openAiCompatibleEndpointError(endpointValidation.reason) };
+  }
+
   if (!model) {
     return { ok: false, error: 'Model is required.' };
   }
@@ -367,16 +596,14 @@ export async function postOpenAiCompatibleChat(request: OpenAiCompatibleChatRequ
   }
 
   try {
-    const response = await requestUrl({
+    const response = await getOpenAiCompatibleTransport()({
       url,
-      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify(body),
-      throw: false,
-      timeout: request.timeoutMs,
+      timeoutMs: request.timeoutMs,
     });
 
     if (response.status < 200 || response.status >= 300) {
@@ -388,7 +615,14 @@ export async function postOpenAiCompatibleChat(request: OpenAiCompatibleChatRequ
       };
     }
 
-    const content = extractResponseText(response.json);
+    let payload: unknown;
+    try {
+      payload = JSON.parse(response.text);
+    } catch {
+      payload = undefined;
+    }
+
+    const content = extractResponseText(payload);
     if (!content) {
       return {
         ok: false,

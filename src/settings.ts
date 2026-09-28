@@ -9,7 +9,7 @@ import type { LogLevel } from './utils/logFiles';
 import type { ContextBudgetPreset } from './utils/contentFilter';
 import type { OpenAiCompatibleTokenLimitParam, DetectedOpenAiCompatibleTokenLimitParam } from './openAiCompatible';
 import type { ReviewConfidence } from './reviewNormalizer';
-import { buildOpenAiCompatibleTokenLimitDetectionKey } from './openAiCompatible';
+import { buildOpenAiCompatibleTokenLimitDetectionKey, OPENAI_COMPATIBLE_ENDPOINT_ERROR_PREFIX, validateOpenAiCompatibleEndpoint } from './openAiCompatible';
 import { validateFolderPath } from './utils/folder';
 
 export type InboxCuratorProvider = 'openai-compatible' | 'gemini-native' | 'anthropic-native';
@@ -211,6 +211,31 @@ function attachFolderStatusIndicator(
   return update;
 }
 
+export function updateEndpointWarningElement(element: HTMLElement | undefined, endpointUrl: string): void {
+  if (!element) return;
+
+  const validation = validateOpenAiCompatibleEndpoint(endpointUrl);
+  let message: string | undefined;
+  if (!validation.ok) {
+    message = validation.reason === 'credentials-in-url'
+      ? t('settings.endpointUrl.warning.credentialsInUrl')
+      : validation.reason === 'insecure-remote-http'
+        ? t('settings.endpointUrl.warning.insecureRemoteHttp')
+        : t('settings.endpointUrl.warning.invalid');
+  } else if (validation.isLocalHttp) {
+    message = t('settings.endpointUrl.warning.localHttp');
+  }
+
+  if (!message) {
+    element.textContent = '';
+    element.style.display = 'none';
+    return;
+  }
+
+  element.textContent = message;
+  element.style.display = '';
+}
+
 function buildConnectionFailureNotice(status: number | undefined, responseBody: string | undefined, error: string): string {
   const normalizedResponse = responseBody?.toLowerCase() ?? '';
 
@@ -220,6 +245,14 @@ function buildConnectionFailureNotice(status: number | undefined, responseBody: 
 
   if (status) {
     return t('settings.connectionTest.failedHttp', { status });
+  }
+
+  if (error.startsWith(OPENAI_COMPATIBLE_ENDPOINT_ERROR_PREFIX)) {
+    const reason = error.slice(OPENAI_COMPATIBLE_ENDPOINT_ERROR_PREFIX.length);
+    if (reason === 'insecure-remote-http') return t('settings.connectionTest.endpointInsecureRemoteHttp');
+    if (reason === 'credentials-in-url') return t('settings.connectionTest.endpointCredentialsInUrl');
+    if (reason === 'unsupported-scheme') return t('settings.connectionTest.endpointUnsupportedScheme');
+    return t('settings.connectionTest.endpointInvalid');
   }
 
   return t('settings.connectionTest.failedGeneric', { error });
@@ -349,6 +382,8 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
       );
 
     if (settings.provider === 'openai-compatible') {
+      let endpointWarningEl: HTMLElement | undefined;
+
       new Setting(apiCard)
         .setName(t('settings.endpointUrl.label'))
         .setDesc(t('settings.endpointUrl.desc'))
@@ -361,9 +396,13 @@ export class InboxCuratorSettingTab extends PluginSettingTab {
               settings.openAiCompatibleDetectedTokenLimitParam = 'unknown';
               settings.openAiCompatibleDetectedTokenLimitAt = undefined;
               settings.openAiCompatibleDetectedTokenLimitKey = undefined;
+              updateEndpointWarningElement(endpointWarningEl, settings.endpointUrl);
               await this.plugin.saveSettings();
             }),
         );
+
+      endpointWarningEl = apiCard.createDiv({ cls: 'inbox-curator-callout' });
+      updateEndpointWarningElement(endpointWarningEl, settings.endpointUrl);
 
       new Setting(apiCard)
         .setName(t('settings.openAiTokenLimitParam.label'))
