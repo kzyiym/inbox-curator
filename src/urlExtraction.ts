@@ -345,6 +345,17 @@ export class UrlBlockedError extends Error {
 
 const MAX_REDIRECTS = 5;
 const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+const MAX_COMPRESSED_BYTES = 10 * 1024 * 1024;
+
+export interface ResponseLimits {
+  maxDecodedBytes: number;
+  maxCompressedBytes: number;
+}
+
+const DEFAULT_RESPONSE_LIMITS: ResponseLimits = {
+  maxDecodedBytes: MAX_RESPONSE_BYTES,
+  maxCompressedBytes: MAX_COMPRESSED_BYTES,
+};
 
 const NON_PUBLIC_IPV4_RANGES: Array<[string, number]> = [
   ['0.0.0.0', 8],
@@ -544,11 +555,16 @@ function loadNodeModule<T>(name: string): T | undefined {
   }
 }
 
+function isDecodableEncoding(zlib: any, encoding: string): boolean {
+  if (!zlib || !encoding) return false;
+  if (encoding === 'gzip' || encoding === 'x-gzip' || encoding === 'deflate') return true;
+  return encoding === 'br' && typeof zlib.createBrotliDecompress === 'function';
+}
+
 function createEncodingStream(zlib: any, encoding: string): any | undefined {
-  if (!zlib || !encoding) return undefined;
-  if (encoding === 'gzip' || encoding === 'x-gzip' || encoding === 'deflate') return zlib.createUnzip();
-  if (encoding === 'br' && typeof zlib.createBrotliDecompress === 'function') return zlib.createBrotliDecompress();
-  return undefined;
+  if (!isDecodableEncoding(zlib, encoding)) return undefined;
+  if (encoding === 'br') return zlib.createBrotliDecompress();
+  return zlib.createUnzip();
 }
 
 export function readResponseBody(
@@ -556,6 +572,7 @@ export function readResponseBody(
   encoding: string,
   zlib: any,
   maxDecodedBytes: number = MAX_RESPONSE_BYTES,
+  maxCompressedBytes: number = MAX_COMPRESSED_BYTES,
 ): Promise<string> {
   const sink = createEncodingStream(zlib, encoding);
   const source = sink ?? response;
@@ -563,12 +580,15 @@ export function readResponseBody(
   return new Promise<string>((resolve, reject) => {
     const chunks: Buffer[] = [];
     let decodedBytes = 0;
+    let compressedBytes = 0;
     let settled = false;
 
     const cleanup = () => {
       source.removeListener?.('data', onDecodedData);
       source.removeListener?.('end', onEnd);
       source.removeListener?.('error', fail);
+      source.removeListener?.('close', onClose);
+      response.removeListener?.('data', onCompressedData);
       response.removeListener?.('error', onResponseError);
     };
 
@@ -579,6 +599,14 @@ export function readResponseBody(
       response.destroy?.();
       sink?.destroy?.();
       reject(error);
+    };
+
+    const onCompressedData = (chunk: Buffer | string) => {
+      if (settled) return;
+      compressedBytes += Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk);
+      if (compressedBytes > maxCompressedBytes) {
+        fail(new Error('URL response exceeded the maximum compressed size.'));
+      }
     };
 
     const onDecodedData = (chunk: Buffer | string) => {
@@ -599,22 +627,38 @@ export function readResponseBody(
       resolve(Buffer.concat(chunks).toString('utf8'));
     };
 
+    const onClose = () => {
+      if (settled) return;
+      fail(new Error('URL response stream closed before completion.'));
+    };
+
     const onResponseError = (error: Error) => {
       sink?.destroy?.(error);
     };
 
     response.on('error', onResponseError);
+    if (sink) response.on('data', onCompressedData);
     source.on('data', onDecodedData);
     source.on('end', onEnd);
     source.on('error', fail);
+    source.on('close', onClose);
     if (sink) response.pipe(sink);
   });
 }
 
 export type NodeModuleLoader = <T>(name: string) => T | undefined;
 
+function parseContentLength(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export function createNodeHttpRequest(
   load: NodeModuleLoader,
+  limits: ResponseLimits = DEFAULT_RESPONSE_LIMITS,
 ): (spec: HardenedRequestSpec) => Promise<HardenedHttpResponse> {
   return (spec: HardenedRequestSpec): Promise<HardenedHttpResponse> => {
     const http = load<any>('node:http') ?? load<any>('http');
@@ -650,7 +694,18 @@ export function createNodeHttpRequest(
             headers[key.toLowerCase()] = Array.isArray(value) ? value.join(', ') : String(value);
           }
 
-          readResponseBody(response, headers['content-encoding'] ?? '', zlib)
+          const encoding = headers['content-encoding'] ?? '';
+          const compressed = isDecodableEncoding(zlib, encoding);
+          const declaredLength = parseContentLength(headers['content-length']);
+          const declaredLimit = compressed ? limits.maxCompressedBytes : limits.maxDecodedBytes;
+          if (declaredLength !== undefined && declaredLength > declaredLimit) {
+            response.destroy?.();
+            request.destroy?.();
+            reject(new Error('URL response exceeded the maximum allowed size.'));
+            return;
+          }
+
+          readResponseBody(response, encoding, zlib, limits.maxDecodedBytes, limits.maxCompressedBytes)
             .then((text) => resolve({ status, headers, text }))
             .catch((error: Error) => {
               response.destroy?.();

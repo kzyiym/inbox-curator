@@ -1,4 +1,6 @@
+import { randomBytes } from 'node:crypto';
 import http from 'node:http';
+import net from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import zlib from 'node:zlib';
@@ -534,12 +536,223 @@ describe('createNodeHttpRequest (real transport data-flow)', () => {
     await expect(readResponseBody(response, 'gzip', zlib, 1024)).rejects.toThrow(/maximum allowed size/);
   });
 
+  it('rejects when the compressed input exceeds its own limit', async () => {
+    const response = Readable.from([zlib.gzipSync(randomBytes(32 * 1024))]);
+
+    await expect(readResponseBody(response, 'gzip', zlib, 1024 * 1024, 4096)).rejects.toThrow(/maximum compressed size/);
+  });
+
+  it('bounds an identity body when no trustworthy Content-Length is available', async () => {
+    const response = Readable.from([Buffer.alloc(8 * 1024, 66)]);
+
+    await expect(readResponseBody(response, '', zlib, 1024)).rejects.toThrow(/maximum allowed size/);
+  });
+
+  it('rejects when the response stream closes before ending', async () => {
+    const response = new Readable({ read() {} });
+    const promise = readResponseBody(response, '', zlib, 1024);
+    response.destroy();
+
+    await expect(promise).rejects.toThrow(/closed before completion/);
+  });
+
   it('aborts a stalled request through the socket timeout', async () => {
     const server = await startServer(() => {});
 
     try {
       const request = createNodeHttpRequest(nodeLoader);
       await expect(request(transportSpec(server.url, 150))).rejects.toThrow(/timed out/);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('createNodeHttpRequest response size limits', () => {
+  const smallLimits = { maxDecodedBytes: 2048, maxCompressedBytes: 2048 };
+
+  const nodeLoader: any = (name: string) => {
+    if (name === 'node:http' || name === 'http') return http;
+    if (name === 'node:zlib' || name === 'zlib') return zlib;
+    return undefined;
+  };
+
+  const loopbackLookup: NodeLookup = (_hostname, _options, callback) => {
+    callback(null, '127.0.0.1', 4);
+  };
+
+  function transportSpec(url: string, timeoutMs?: number): HardenedRequestSpec {
+    return { url, method: 'GET', headers: {}, timeoutMs, lookup: loopbackLookup };
+  }
+
+  function startServer(handler: http.RequestListener): Promise<{ url: string; close: () => Promise<void> }> {
+    return new Promise((resolve) => {
+      const server = http.createServer(handler);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address() as AddressInfo;
+        resolve({
+          url: `http://127.0.0.1:${address.port}/`,
+          close: () =>
+            new Promise<void>((done) => {
+              (server as http.Server & { closeAllConnections?: () => void }).closeAllConnections?.();
+              server.close(() => done());
+            }),
+        });
+      });
+    });
+  }
+
+  function request() {
+    return createNodeHttpRequest(nodeLoader, smallLimits);
+  }
+
+  it('returns a normal under-limit HTML page intact', async () => {
+    const body = '<html><head><title>Small</title></head><body><p>small page</p></body></html>';
+    const server = await startServer((_req, response) => {
+      response.on('error', () => {});
+      response.writeHead(200, { 'content-type': 'text/html', 'content-length': String(Buffer.byteLength(body)) });
+      response.end(body);
+    });
+
+    try {
+      const result = await request()(transportSpec(server.url));
+      expect(result.status).toBe(200);
+      expect(result.text).toBe(body);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects a declared over-limit Content-Length before reading the body', async () => {
+    const server = await startServer((_req, response) => {
+      response.on('error', () => {});
+      response.writeHead(200, { 'content-type': 'text/html', 'content-length': '1048576' });
+      response.end();
+    });
+
+    try {
+      await expect(request()(transportSpec(server.url))).rejects.toThrow(/maximum allowed size/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects a declared over-limit Content-Length for compressed responses', async () => {
+    const server = await startServer((_req, response) => {
+      response.on('error', () => {});
+      response.writeHead(200, { 'content-type': 'text/html', 'content-encoding': 'gzip', 'content-length': '1048576' });
+      response.end();
+    });
+
+    try {
+      await expect(request()(transportSpec(server.url))).rejects.toThrow(/maximum allowed size/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('bounds a chunked response that omits Content-Length', async () => {
+    const server = await startServer((_req, response) => {
+      response.on('error', () => {});
+      response.writeHead(200, { 'content-type': 'text/html' });
+      response.end('A'.repeat(10000));
+    });
+
+    try {
+      await expect(request()(transportSpec(server.url))).rejects.toThrow(/maximum allowed size/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('bounds a compressed body by the decoded size limit', async () => {
+    const server = await startServer((_req, response) => {
+      response.on('error', () => {});
+      response.writeHead(200, { 'content-type': 'text/html', 'content-encoding': 'gzip' });
+      response.end(zlib.gzipSync(Buffer.alloc(256 * 1024, 65)));
+    });
+
+    try {
+      await expect(request()(transportSpec(server.url))).rejects.toThrow(/maximum allowed size/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects a compressed response whose wire bytes exceed the compressed limit', async () => {
+    const server = await startServer((_req, response) => {
+      response.on('error', () => {});
+      response.writeHead(200, { 'content-type': 'text/html', 'content-encoding': 'gzip' });
+      response.end(zlib.gzipSync(randomBytes(32 * 1024)));
+    });
+
+    try {
+      await expect(request()(transportSpec(server.url))).rejects.toThrow(/maximum compressed size/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('bounds a body whose Content-Encoding cannot be decoded by the raw limit', async () => {
+    const server = await startServer((_req, response) => {
+      response.on('error', () => {});
+      response.writeHead(200, { 'content-type': 'text/html', 'content-encoding': 'zstd' });
+      response.end(Buffer.alloc(10000, 90));
+    });
+
+    try {
+      await expect(request()(transportSpec(server.url))).rejects.toThrow(/maximum allowed size/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('fails closed when a forged small Content-Length hides a larger body', async () => {
+    const sockets = new Set<net.Socket>();
+    const server = net.createServer((socket) => {
+      sockets.add(socket);
+      socket.on('error', () => {});
+      socket.on('close', () => sockets.delete(socket));
+      socket.write('HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 10\r\n\r\n');
+      socket.write('A'.repeat(20000));
+      socket.end();
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    server.unref();
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      await expect(request()(transportSpec(`http://127.0.0.1:${port}/`))).rejects.toBeDefined();
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      server.close();
+    }
+  });
+
+  it('rejects a server that aborts a partial body instead of hanging', async () => {
+    const server = await startServer((_req, response) => {
+      response.on('error', () => {});
+      response.writeHead(200, { 'content-type': 'text/html' });
+      response.write('B'.repeat(500));
+      setTimeout(() => response.socket?.destroy(), 20);
+    });
+
+    try {
+      await expect(request()(transportSpec(server.url))).rejects.toBeDefined();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects a stalled partial body through the socket timeout', async () => {
+    const server = await startServer((_req, response) => {
+      response.on('error', () => {});
+      response.writeHead(200, { 'content-type': 'text/html' });
+      response.write('C'.repeat(500));
+    });
+
+    try {
+      await expect(request()(transportSpec(server.url, 150))).rejects.toThrow(/timed out/);
     } finally {
       await server.close();
     }
