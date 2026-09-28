@@ -124,6 +124,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
       taskFolder: 'Tasks',
       deleteCandidateFolder: 'Delete Candidates',
       skipConfirmation: true,
+      automatic: true,
       suggestedFolderBasePath: '',
     });
     expect(appendAutoExecuteResult).toHaveBeenCalledWith(mockApp, 'AI Reviews/my-note.ai-review.md', {

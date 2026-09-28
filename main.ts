@@ -849,6 +849,7 @@ export default class InboxCuratorPlugin extends Plugin {
           taskFolder: this.settings.taskFolder,
           deleteCandidateFolder: this.settings.deleteCandidateFolder,
           skipConfirmation: true,
+          automatic: true,
           suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
         });
         if (this.isUnloaded) {

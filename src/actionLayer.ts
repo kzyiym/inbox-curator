@@ -25,6 +25,19 @@ export interface ResolvedActionDestination {
   reason?: string;
 }
 
+function containsEncodedPathSeparator(value: string): boolean {
+  return /%2e|%2f|%5c/i.test(value);
+}
+
+/**
+ * True when candidatePath is the base folder itself or a strict descendant of
+ * it, using path-segment boundaries so sibling prefixes (Archive vs Archive2)
+ * are not treated as inside the base.
+ */
+export function isFolderPathWithinBase(candidatePath: string, basePath: string): boolean {
+  return candidatePath === basePath || candidatePath.startsWith(`${basePath}/`);
+}
+
 /**
  * Non-mutating preview of where a recommended action would move a file.
  * Mirrors the destination logic of executeProposedAction without performing
@@ -113,6 +126,7 @@ export async function executeProposedAction(
     deleteCandidateFolder?: string;
     skipConfirmation?: boolean;
     suggestedFolderBasePath?: string;
+    automatic?: boolean;
     expectedAction?: ReviewAction;
     expectedDestinationPath?: string | null;
     allowedActions?: readonly ReviewAction[];
@@ -195,8 +209,44 @@ export async function executeProposedAction(
   if (normalizedAction === 'archive') {
     let destPath: string | undefined;
 
-    // Priority 1: AI-suggested folder
     const suggestedFolder = frontmatter.ai_review_suggested_folder;
+
+    // Automatic archive is confined to the configured suggested folder base
+    // path (the base itself or a descendant). When the base is empty/invalid,
+    // or the AI proposal falls outside the base, skip without falling back to
+    // another folder or moving anything.
+    let automaticBase: string | null = null;
+    if (options.automatic) {
+      const rawBase = options.suggestedFolderBasePath ?? '';
+      automaticBase = rawBase.trim() !== '' && !containsEncodedPathSeparator(rawBase)
+        ? resolveSafeFolderPath(rawBase)
+        : null;
+      if (!automaticBase) {
+        return {
+          success: false,
+          status: 'skipped',
+          error: 'Automatic archive skipped: a valid suggested folder base path is required.',
+          actionTaken: 'none',
+          action: 'archive',
+        };
+      }
+
+      const rawSuggested = typeof suggestedFolder === 'string' ? suggestedFolder.trim() : '';
+      if (
+        rawSuggested !== '' &&
+        (containsEncodedPathSeparator(rawSuggested) || resolveSafeSuggestedPath(rawSuggested, automaticBase) === null)
+      ) {
+        return {
+          success: false,
+          status: 'skipped',
+          error: 'Automatic archive skipped: the AI-suggested folder is outside the configured base path.',
+          actionTaken: 'none',
+          action: 'archive',
+        };
+      }
+    }
+
+    // Priority 1: AI-suggested folder
     if (typeof suggestedFolder === 'string' && suggestedFolder.trim() !== '') {
       const normalizedFolder = resolveSafeSuggestedPath(suggestedFolder, options.suggestedFolderBasePath);
       if (normalizedFolder) {
@@ -221,6 +271,17 @@ export async function executeProposedAction(
           destPath = candidate;
         }
       }
+    }
+
+    if (destPath && automaticBase && !isFolderPathWithinBase(destPath, automaticBase)) {
+      return {
+        success: false,
+        status: 'skipped',
+        error: 'Automatic archive skipped: the resolved destination is outside the configured base path.',
+        destinationPath: destPath,
+        actionTaken: 'none',
+        action: 'archive',
+      };
     }
 
     if (destPath) {

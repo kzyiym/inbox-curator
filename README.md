@@ -422,6 +422,7 @@ To keep automation reversible:
 - **Recent auto-sort runs can be undone** with the `Inbox Curator: Undo last auto-sort run` command.
 - **Tasks require higher confidence** (High) than Archive or Read Later (Medium or High).
 - **All automatic actions are blocked when prompt injection risk is detected** in the final review input, including fetched article text and extracted PDF text. Image review is also treated as untrusted for automatic actions because embedded text cannot be reliably pre-scanned.
+- **Automatic archive stays inside your suggested folder base path.** When an automatic archive runs, the destination must be the configured base folder or a folder below it; if the base path is empty or invalid, or the AI-suggested folder falls outside it, the automatic archive is skipped (no silent move elsewhere). Manual actions are not constrained by this rule.
 - For stricter safety, use **Review only mode** (Settings → Review Behavior → Review mode → Review only), which disables automatic and manual action execution.
 
 ## FAQ

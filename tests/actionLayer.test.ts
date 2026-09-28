@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TFolder, TFile } from 'obsidian';
-import { executeProposedAction } from '../src/actionLayer';
+import { executeProposedAction, isFolderPathWithinBase } from '../src/actionLayer';
 
 let mockConfirmModalBehavior: 'confirm' | 'cancel' = 'confirm';
 vi.mock('../src/actionConfirmationModal', () => {
@@ -733,5 +733,227 @@ Trash content`,
     expect(result.status).toBe('failed');
     expect(result.error).toBe('Disk Full');
     expect(mock.renamedFiles).toHaveLength(0);
+  });
+});
+
+describe('executeProposedAction automatic archive destination guard', () => {
+  it('allows a descendant of the base path', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+ai_review_suggested_folder: References/Archive
+---
+Hello World`,
+    );
+    const folder = new TFolder();
+    folder.path = 'ArchiveBase/References/Archive';
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+    (files as any).set('ArchiveBase/References/Archive', folder);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      suggestedFolderBasePath: 'ArchiveBase',
+      automatic: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.actionTaken).toBe('archive');
+    expect(mock.renamedFiles).toHaveLength(1);
+    expect(mock.renamedFiles[0].dest).toBe('ArchiveBase/References/Archive/my-note.md');
+  });
+
+  it('allows a nested descendant of the base path', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+ai_review_suggested_folder: Tech/Deep
+---
+Hello World`,
+    );
+    const folder = new TFolder();
+    folder.path = 'ArchiveBase/Tech/Deep';
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+    (files as any).set('ArchiveBase/Tech/Deep', folder);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      suggestedFolderBasePath: 'ArchiveBase',
+      automatic: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.actionTaken).toBe('archive');
+    expect(mock.renamedFiles[0].dest).toBe('ArchiveBase/Tech/Deep/my-note.md');
+  });
+
+  it('allows the base folder itself as the fallback destination', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+---
+Hello World`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      suggestedFolderBasePath: 'ArchiveBase',
+      automatic: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.actionTaken).toBe('archive');
+    expect(mock.renamedFiles).toHaveLength(1);
+    expect(mock.renamedFiles[0].dest).toBe('ArchiveBase/my-note.md');
+  });
+
+  it('skips automatic archive when the base path is empty', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+ai_review_suggested_folder: References/Archive
+---
+Hello World`,
+    );
+    const folder = new TFolder();
+    folder.path = 'References/Archive';
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+    (files as any).set('References/Archive', folder);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      automatic: true,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(result.actionTaken).toBe('none');
+    expect(result.action).toBe('archive');
+    expect(result.error).toContain('base path');
+    expect(mock.renamedFiles).toHaveLength(0);
+  });
+
+  it('skips automatic archive when the base path is invalid', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+---
+Hello World`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      suggestedFolderBasePath: '../Unsafe',
+      automatic: true,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(mock.renamedFiles).toHaveLength(0);
+  });
+
+  it('skips automatic archive when the AI proposal escapes the base without falling back to base', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+ai_review_suggested_folder: ../Unsafe
+---
+Hello World`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      suggestedFolderBasePath: 'ArchiveBase',
+      automatic: true,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(result.error).toContain('outside the configured base path');
+    expect(mock.renamedFiles).toHaveLength(0);
+  });
+
+  it('skips automatic archive when the AI proposal contains an encoded separator', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+ai_review_suggested_folder: Tech%2f..%2fSecret
+---
+Hello World`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      suggestedFolderBasePath: 'ArchiveBase',
+      automatic: true,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(mock.renamedFiles).toHaveLength(0);
+  });
+
+  it('preserves manual archive semantics (unsafe suggestion still falls back to base)', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+ai_review_suggested_folder: ../Unsafe
+---
+Hello World`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      suggestedFolderBasePath: 'ArchiveBase',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.actionTaken).toBe('archive');
+    expect(mock.renamedFiles[0].dest).toBe('ArchiveBase/my-note.md');
+  });
+
+  it('compares base containment by path segments (sibling-prefix trap)', () => {
+    expect(isFolderPathWithinBase('Archive/note.md', 'Archive')).toBe(true);
+    expect(isFolderPathWithinBase('Archive', 'Archive')).toBe(true);
+    expect(isFolderPathWithinBase('Archive/Sub/note.md', 'Archive')).toBe(true);
+    expect(isFolderPathWithinBase('ArchiveExtra/note.md', 'Archive')).toBe(false);
+    expect(isFolderPathWithinBase('Archive2', 'Archive')).toBe(false);
+    expect(isFolderPathWithinBase('Other/Archive/note.md', 'Archive')).toBe(false);
   });
 });
