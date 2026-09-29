@@ -1,6 +1,11 @@
 import { App, TFile, normalizePath } from 'obsidian';
 import type { InputContentReductionInfo, ReviewResult, ReviewReadingDecision, StructuredSummaryComparisonTable, ReviewActionItem, RecommendedAction, ReviewPriority } from './types';
 import { ensureFolder } from './utils/folder';
+import { parseYamlRecord } from './utils/yaml';
+import { REVIEW_OUTPUT_SUFFIX, buildLegacyReviewOutputPath } from './reviewPaths';
+
+const REVIEW_FRONTMATTER_REGEX = /^---\n([\s\S]*?)\n---/;
+const MAX_CONFLICT_CANDIDATES = 20;
 
 export interface ReviewNoteWriteResult {
   outputPath: string;
@@ -693,21 +698,102 @@ export function buildReviewContent(result: ReviewResult): string {
   return `---\nsource: "[[${yamlQuote(result.source.noteTitle)}]]"\nsource_path: "${yamlQuote(result.source.notePath)}"\ncontent_type: "${yamlQuote(result.contentType)}"\ninput_profile: "${yamlQuote(result.inputProfile)}"\nfetch_status: "${yamlQuote(result.fetchStatus)}"\ndomain_profile: "${yamlQuote(result.domainProfile)}"\ngenerated_at: "${yamlQuote(result.source.generatedAt)}"\nprovider: "${yamlQuote(result.provider)}"\nmodel: "${yamlQuote(result.model)}"\nsource_hash: "${yamlQuote(result.source.sourceHash)}"\nrecommended_action: "${yamlQuote(result.verdict.recommendedAction)}"\npriority: "${yamlQuote(result.verdict.priority)}"\nneeds_verification: ${String(result.flags.needsVerification)}\n${readingDecisionYaml}${extractionYaml}---\n\n# AI Review: ${result.source.noteTitle}\n\nSource: [[${result.source.noteTitle}]]\n\n**${TOP_LABELS.readingDecision[lang]}**: ${readingDecision}\n${reasonLine}\n${h(lang, 'keyTakeaways')}\n\n${bulletLines(keyPoints)}\n${comparisonTableSection}\n${takeawaysSection}${caveatsSection}${conceptCandidatesSection}---\n\n${h(lang, 'reviewDetails')}\n\n${h(lang, 'curationDecision')}\n\n- **Recommended Action**: ${toTitleCase(result.verdict.recommendedAction)}\n- **Priority**: ${toTitleCase(result.verdict.priority)}\n- **Reading Value**: ${toTitleCase(result.verdict.readingValueLabel)}\n- **Saving Value**: ${toTitleCase(result.verdict.savingValueLabel)}\n- **Reliability**: ${toTitleCase(result.verdict.reliabilityLabel)}\n- **Needs Verification**: ${result.flags.needsVerification ? 'Yes' : 'No'}\n${legacyActionReason ? `- **Reason**: ${legacyActionReason}\n` : ''}\n${h(lang, 'evidenceNotes')}\n\n${evidenceNotes}\n\n${followUpSection}${attachmentSection}${h(lang, 'organization')}\n\n- **Suggested Tags**: ${tags}\n- **Suggested Folder**: ${folder}\n${inputProcessingStr}${h(lang, 'technicalMetadata')}\n\n${technicalMetadataStr}\n`;
 }
 
-export async function writeReviewNote(app: App, sourceFile: TFile, result: ReviewResult): Promise<ReviewNoteWriteResult> {
-  const outputFolder = normalizePath(result.source.outputPath.split('/').slice(0, -1).join('/'));
-  await ensureFolder(app, outputFolder);
+function readReviewSourcePath(content: string): string | undefined {
+  const match = content.match(REVIEW_FRONTMATTER_REGEX);
+  if (!match) {
+    return undefined;
+  }
+  const frontmatter = parseYamlRecord(match[1]);
+  const value = frontmatter.source_path;
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
 
-  const outputPath = normalizePath(result.source.outputPath);
-  const content = buildReviewContent(result);
-  const existing = app.vault.getAbstractFileByPath(outputPath);
+async function readReviewFileContent(app: App, file: TFile): Promise<string | null> {
+  try {
+    return await app.vault.read(file);
+  } catch {
+    return null;
+  }
+}
 
-  if (existing instanceof TFile) {
-    await app.vault.modify(existing, content);
-    return { outputPath, created: false };
+function buildReviewPathCandidates(requestedPath: string, outputFolder: string, sourceBasename: string): string[] {
+  const candidates = [requestedPath];
+  const legacyPath = buildLegacyReviewOutputPath(outputFolder, sourceBasename);
+  if (legacyPath && legacyPath !== requestedPath) {
+    candidates.push(legacyPath);
   }
 
-  await app.vault.create(outputPath, content);
-  return { outputPath, created: true };
+  if (requestedPath.endsWith(REVIEW_OUTPUT_SUFFIX)) {
+    const stem = requestedPath.slice(0, -REVIEW_OUTPUT_SUFFIX.length);
+    for (let counter = 2; counter <= MAX_CONFLICT_CANDIDATES; counter += 1) {
+      candidates.push(`${stem}-${counter}${REVIEW_OUTPUT_SUFFIX}`);
+    }
+  }
+
+  return candidates;
+}
+
+function isFileOccupied(app: App, path: string): boolean {
+  return app.vault.getAbstractFileByPath(path) instanceof TFile;
+}
+
+interface ResolvedReviewWriteTarget {
+  outputPath: string;
+  existing: TFile | null;
+}
+
+async function resolveReviewWriteTarget(app: App, result: ReviewResult): Promise<ResolvedReviewWriteTarget> {
+  const requestedPath = normalizePath(result.source.outputPath);
+  const outputFolder = normalizePath(requestedPath.split('/').slice(0, -1).join('/'));
+  const candidates = buildReviewPathCandidates(requestedPath, outputFolder, result.source.noteTitle);
+
+  for (const candidate of candidates) {
+    const existing = app.vault.getAbstractFileByPath(candidate);
+    if (!(existing instanceof TFile)) {
+      continue;
+    }
+    const content = await readReviewFileContent(app, existing);
+    if (content !== null && readReviewSourcePath(content) === result.source.notePath) {
+      return { outputPath: candidate, existing };
+    }
+  }
+
+  for (const candidate of candidates) {
+    if (!isFileOccupied(app, candidate)) {
+      return { outputPath: candidate, existing: null };
+    }
+  }
+
+  if (requestedPath.endsWith(REVIEW_OUTPUT_SUFFIX)) {
+    const stem = requestedPath.slice(0, -REVIEW_OUTPUT_SUFFIX.length);
+    for (let counter = MAX_CONFLICT_CANDIDATES + 1; counter <= 1000; counter += 1) {
+      const candidate = `${stem}-${counter}${REVIEW_OUTPUT_SUFFIX}`;
+      if (!isFileOccupied(app, candidate)) {
+        return { outputPath: candidate, existing: null };
+      }
+    }
+  }
+
+  return { outputPath: requestedPath, existing: null };
+}
+
+export async function writeReviewNote(app: App, sourceFile: TFile, result: ReviewResult): Promise<ReviewNoteWriteResult> {
+  const requestedPath = normalizePath(result.source.outputPath);
+  const outputFolder = normalizePath(requestedPath.split('/').slice(0, -1).join('/'));
+  await ensureFolder(app, outputFolder);
+
+  const target = await resolveReviewWriteTarget(app, result);
+  result.source.outputPath = target.outputPath;
+
+  const content = buildReviewContent(result);
+
+  if (target.existing instanceof TFile) {
+    await app.vault.modify(target.existing, content);
+    return { outputPath: target.outputPath, created: false };
+  }
+
+  await app.vault.create(target.outputPath, content);
+  return { outputPath: target.outputPath, created: true };
 }
 
 function yamlQuote(value: string): string {

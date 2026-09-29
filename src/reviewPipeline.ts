@@ -1,4 +1,4 @@
-import { App, getLanguage, TFile, normalizePath } from 'obsidian';
+import { App, getLanguage, TFile } from 'obsidian';
 import { parseYamlRecord, stringifyYamlRecord } from './utils/yaml';
 import { arrayBufferToBase64 } from './utils/base64';
 import { getApiKey } from './secrets';
@@ -6,6 +6,7 @@ import { maskBase64 } from './providerClient';
 import { upsertReviewFrontmatter } from './frontmatter';
 import { mapToReviewResult } from './reviewResultMapper';
 import { writeReviewNote, type ReviewNoteWriteResult } from './reviewWriter';
+import { buildReviewOutputPath, hashString } from './reviewPaths';
 import { classifyProviderFailure, postProviderChat } from './providerClient';
 import type {
   ReviewContentType,
@@ -280,32 +281,6 @@ function detectUrlOnlyBody(body: string): UrlOnlyDetectionResult {
   };
 }
 
-function buildOutputPath(file: TFile, outputFolder: string, sourcePathOverride?: string): string {
-  const maxBasenameLen = 72;
-  let basename = sourcePathOverride
-    ? (sourcePathOverride.split('/').pop() ?? file.name).replace(/\.md$/i, '')
-    : file.basename;
-
-  if (basename.length > maxBasenameLen) {
-    const chars = Array.from(basename);
-    const shortHash = hashString(basename).slice(0, 8);
-    basename = chars.slice(0, maxBasenameLen).join('') + '-' + shortHash;
-  }
-
-  return normalizePath(`${outputFolder}/${basename}.ai-review.md`);
-}
-
-function hashString(value: string): string {
-  let hash = 2166136261;
-
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-
-  return (hash >>> 0).toString(16).padStart(8, '0');
-}
-
 function buildHashSourceContent(noteContent: string): string {
   const match = noteContent.match(FRONTMATTER_REGEX);
   if (!match) {
@@ -354,7 +329,7 @@ export function buildReviewSourceInfo(
   return {
     noteTitle,
     notePath,
-    outputPath: buildOutputPath(file, outputFolder, sourcePathOverride),
+    outputPath: buildReviewOutputPath(outputFolder, notePath, noteTitle),
     generatedAt: new Date().toISOString(),
     sourceHash: buildSourceHash(notePath, noteContent),
     ...(sourceUrl ? { sourceUrl } : {}),

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { parseYamlRecord } from '../src/utils/yaml';
-import { buildReviewContent, sanitizeAiContent, appendAutoExecuteResult } from '../src/reviewWriter';
-import { TFile } from 'obsidian';
+import { buildReviewContent, sanitizeAiContent, appendAutoExecuteResult, writeReviewNote } from '../src/reviewWriter';
+import { buildReviewOutputPath, buildLegacyReviewOutputPath } from '../src/reviewPaths';
+import { TFile, TFolder } from 'obsidian';
 import type { ReviewResult } from '../src/types';
 
 const mockBaseResult = (): ReviewResult => ({
@@ -900,6 +901,126 @@ describe('appendAutoExecuteResult', () => {
       expect(result).toContain('- Reason: Vault is currently locked.');
       expect(result).not.toContain('- Destination:');
     }
+  });
+});
+
+describe('writeReviewNote collision and migration handling', () => {
+  function createWriterApp(initialFiles: Record<string, string> = {}) {
+    const files = new Map<string, string>(Object.entries(initialFiles));
+    const folders = new Set<string>();
+    const app = {
+      vault: {
+        getAbstractFileByPath: (path: string) => {
+          if (files.has(path)) {
+            const file = new TFile();
+            file.path = path;
+            return file;
+          }
+          if (folders.has(path)) {
+            const folder = Object.assign(Object.create(TFolder.prototype), { path });
+            return folder;
+          }
+          return null;
+        },
+        read: async (file: TFile) => files.get(file.path) ?? '',
+        create: async (path: string, content: string) => {
+          files.set(path, content);
+          const file = new TFile();
+          file.path = path;
+          return file;
+        },
+        modify: async (file: TFile, content: string) => {
+          files.set(file.path, content);
+        },
+        createFolder: async (path: string) => {
+          folders.add(path);
+        },
+        adapter: { exists: async (path: string) => files.has(path) || folders.has(path) },
+      },
+    };
+    return { app: app as any, files };
+  }
+
+  function resultFor(notePath: string, outputPath: string): ReviewResult {
+    const result = mockBaseResult();
+    result.source.notePath = notePath;
+    result.source.noteTitle = notePath.split('/').pop()?.replace(/\.md$/, '') ?? notePath;
+    result.source.outputPath = outputPath;
+    return result;
+  }
+
+  it('creates a new review at the collision-safe path', async () => {
+    const outputPath = buildReviewOutputPath('AI Reviews', 'Inbox/A/notes.md', 'notes');
+    const { app, files } = createWriterApp();
+
+    const write = await writeReviewNote(app, {} as TFile, resultFor('Inbox/A/notes.md', outputPath));
+
+    expect(write).toEqual({ outputPath, created: true });
+    expect(files.get(outputPath)).toContain('source_path: "Inbox/A/notes.md"');
+  });
+
+  it('re-reviewing the same note updates only its own review', async () => {
+    const outputPath = buildReviewOutputPath('AI Reviews', 'Inbox/A/notes.md', 'notes');
+    const existing = `---\nsource_path: "Inbox/A/notes.md"\nsource_hash: "old"\n---\n\n# old review\n`;
+    const { app, files } = createWriterApp({ [outputPath]: existing });
+
+    const write = await writeReviewNote(app, {} as TFile, resultFor('Inbox/A/notes.md', outputPath));
+
+    expect(write).toEqual({ outputPath, created: false });
+    expect(files.get(outputPath)).not.toContain('# old review');
+    expect(files.size).toBe(1);
+  });
+
+  it('never overwrites a review that belongs to a different source', async () => {
+    const pathA = buildReviewOutputPath('AI Reviews', 'Inbox/A/notes.md', 'notes');
+    const foreign = `---\nsource_path: "Inbox/B/notes.md"\n---\nB review\n`;
+    const { app, files } = createWriterApp({ [pathA]: foreign });
+
+    const write = await writeReviewNote(app, {} as TFile, resultFor('Inbox/A/notes.md', pathA));
+
+    expect(write.outputPath).not.toBe(pathA);
+    expect(files.get(pathA)).toBe(foreign);
+    expect(files.get(write.outputPath)).toContain('source_path: "Inbox/A/notes.md"');
+  });
+
+  it('adopts and updates an existing legacy basename-only review for the same source', async () => {
+    const pathA = buildReviewOutputPath('AI Reviews', 'Inbox/A/notes.md', 'notes');
+    const legacyPath = buildLegacyReviewOutputPath('AI Reviews', 'notes');
+    const legacy = `---\nsource_path: "Inbox/A/notes.md"\nsource_hash: "old"\n---\nlegacy review\n`;
+    const { app, files } = createWriterApp({ [legacyPath]: legacy });
+
+    const write = await writeReviewNote(app, {} as TFile, resultFor('Inbox/A/notes.md', pathA));
+
+    expect(write).toEqual({ outputPath: legacyPath, created: false });
+    expect(files.get(legacyPath)).not.toContain('legacy review');
+    expect(files.has(pathA)).toBe(false);
+  });
+
+  it('leaves a legacy review owned by another source untouched and writes the collision-safe path', async () => {
+    const pathA = buildReviewOutputPath('AI Reviews', 'Inbox/A/notes.md', 'notes');
+    const legacyPath = buildLegacyReviewOutputPath('AI Reviews', 'notes');
+    const legacy = `---\nsource_path: "Inbox/B/notes.md"\n---\nB legacy\n`;
+    const { app, files } = createWriterApp({ [legacyPath]: legacy });
+
+    const write = await writeReviewNote(app, {} as TFile, resultFor('Inbox/A/notes.md', pathA));
+
+    expect(write).toEqual({ outputPath: pathA, created: true });
+    expect(files.get(legacyPath)).toBe(legacy);
+    expect(files.get(pathA)).toContain('source_path: "Inbox/A/notes.md"');
+  });
+
+  it('persists both reviews for same-basename notes in different folders', async () => {
+    const pathA = buildReviewOutputPath('AI Reviews', 'Inbox/A/notes.md', 'notes');
+    const pathB = buildReviewOutputPath('AI Reviews', 'Inbox/B/notes.md', 'notes');
+    expect(pathA).not.toBe(pathB);
+
+    const { app, files } = createWriterApp();
+    await writeReviewNote(app, {} as TFile, resultFor('Inbox/A/notes.md', pathA));
+    await writeReviewNote(app, {} as TFile, resultFor('Inbox/B/notes.md', pathB));
+
+    expect(files.get(pathA)).toContain('source_path: "Inbox/A/notes.md"');
+    expect(files.get(pathB)).toContain('source_path: "Inbox/B/notes.md"');
+    expect(files.size).toBe(2);
   });
 });
 

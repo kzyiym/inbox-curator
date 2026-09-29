@@ -78,7 +78,8 @@ describe('buildReviewSourceInfo source hash behavior', () => {
 
     expect(markedSource.notePath).toBe('Inbox/note.md');
     expect(markedSource.noteTitle).toBe('note');
-    expect(markedSource.outputPath).toBe('AI Reviews/note.ai-review.md');
+    expect(markedSource.outputPath).toBe(originalSource.outputPath);
+    expect(markedSource.outputPath).toMatch(/^AI Reviews\/note-[0-9a-f]{8}\.ai-review\.md$/);
     expect(markedSource.sourceHash).toBe(originalSource.sourceHash);
   });
 });
@@ -486,33 +487,34 @@ describe('content filter integration in buildReviewModelInputPayload', () => {
 });
 
 describe('buildOutputPath truncation', () => {
-  it('keeps short basenames unchanged', () => {
+  it('appends a stable full-path hash to short basenames', () => {
     const file = createTFile('Inbox/short-note.md');
     const noteContent = '# Test\n';
     const source = buildReviewSourceInfo(file, 'AI Reviews', noteContent);
-    expect(source.outputPath).toBe('AI Reviews/short-note.ai-review.md');
+    expect(source.outputPath).toMatch(/^AI Reviews\/short-note-[0-9a-f]{8}\.ai-review\.md$/);
   });
 
-  it('keeps basename at exactly 72 chars unchanged', () => {
+  it('keeps basename at exactly 72 chars and appends the path hash', () => {
     const basename72 = 'a'.repeat(72);
     const file = createTFile(`Inbox/${basename72}.md`);
     const noteContent = '# Test\n';
     const source = buildReviewSourceInfo(file, 'AI Reviews', noteContent);
-    expect(source.outputPath).toBe(`AI Reviews/${basename72}.ai-review.md`);
+    expect(source.outputPath).toBe(`AI Reviews/${basename72}-${source.outputPath.slice(-21, -13)}.ai-review.md`);
+    expect(source.outputPath).toMatch(/^AI Reviews\/a{72}-[0-9a-f]{8}\.ai-review\.md$/);
   });
 
-  it('truncates basename > 72 chars with 8-char hash suffix', () => {
+  it('truncates basename > 72 chars then appends the path hash', () => {
     const longName = 'a'.repeat(120);
     const file = createTFile(`Inbox/${longName}.md`);
     const noteContent = '# Test\n';
     const source = buildReviewSourceInfo(file, 'AI Reviews', noteContent);
 
     const basename = source.outputPath.replace('AI Reviews/', '').replace('.ai-review.md', '');
-    // truncated to 72 + '-' + 8 hex chars = 81
-    expect(basename.length).toBe(81);
+    // truncated to 72 + '-' + 8 hex (basename hash) + '-' + 8 hex (path hash) = 90
+    expect(basename.length).toBe(90);
     expect(basename.slice(0, 72)).toBe(longName.slice(0, 72));
     expect(basename[72]).toBe('-');
-    expect(/^[0-9a-f]{8}$/.test(basename.slice(73))).toBe(true);
+    expect(/^[0-9a-f]{8}-[0-9a-f]{8}$/.test(basename.slice(73))).toBe(true);
   });
 
   it('produces stable output for same long basename', () => {
@@ -536,6 +538,39 @@ describe('buildOutputPath truncation', () => {
     const source2 = buildReviewSourceInfo(file2, 'AI Reviews', '# Test\n');
 
     expect(source1.outputPath).not.toBe(source2.outputPath);
+  });
+});
+
+describe('collision-safe review output paths', () => {
+  it('keeps distinct review paths for same-basename notes in different folders', () => {
+    const fileA = createTFile('Inbox/A/notes.md');
+    const fileB = createTFile('Inbox/B/notes.md');
+
+    const sourceA = buildReviewSourceInfo(fileA, 'AI Reviews', '# A\n');
+    const sourceB = buildReviewSourceInfo(fileB, 'AI Reviews', '# B\n');
+
+    expect(sourceA.outputPath).toMatch(/^AI Reviews\/notes-[0-9a-f]{8}\.ai-review\.md$/);
+    expect(sourceB.outputPath).toMatch(/^AI Reviews\/notes-[0-9a-f]{8}\.ai-review\.md$/);
+    expect(sourceA.outputPath).not.toBe(sourceB.outputPath);
+  });
+
+  it('re-reviewing the same note keeps a stable review path', () => {
+    const file = createTFile('Inbox/A/notes.md');
+
+    const first = buildReviewSourceInfo(file, 'AI Reviews', '# one\n');
+    const second = buildReviewSourceInfo(file, 'AI Reviews', '# two\n');
+
+    expect(first.outputPath).toBe(second.outputPath);
+  });
+
+  it('keeps the path stable across a processing-marker rename', () => {
+    const marked = createTFile('Inbox/🤖 notes.md');
+    const plain = createTFile('Inbox/notes.md');
+
+    const markedSource = buildReviewSourceInfo(marked, 'AI Reviews', '# body\n', 'Inbox/notes.md');
+    const plainSource = buildReviewSourceInfo(plain, 'AI Reviews', '# body\n');
+
+    expect(markedSource.outputPath).toBe(plainSource.outputPath);
   });
 });
 
