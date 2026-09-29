@@ -181,9 +181,12 @@ export async function postProviderChat(request: ProviderChatRequest): Promise<Pr
         result = { ok: false, error: 'Codex CLI background runs are disabled. Enable background runs in settings.' };
         break;
       }
+      // Codex CLI model names are unrelated to API model names, so only pass a
+      // model when the dedicated Codex model setting is configured. Falling back
+      // to the API model would send an unknown model name to Codex.
       const run = await runCodexExec({
         prompt: buildCodexPrompt(request.messages),
-        model: codex.settings.model || request.model,
+        model: codex.settings.model || undefined,
         binaryPath: codex.settings.binaryPath,
         timeoutMs: request.timeoutMs,
         isUnloaded: codex.isUnloaded,

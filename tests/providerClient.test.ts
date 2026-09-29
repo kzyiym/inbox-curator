@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getApiKey, saveApiKey, deleteApiKey } from '../src/secrets';
-import { classifyProviderFailure, maskBase64 } from '../src/providerClient';
+import { classifyProviderFailure, maskBase64, postProviderChat } from '../src/providerClient';
 import { buildGeminiUrl } from '../src/gemini';
+import { runCodexExec } from '../src/codexCli';
+
+vi.mock('../src/codexCli', () => ({
+  isCodexCliRunnable: vi.fn(() => true),
+  runCodexExec: vi.fn(async () => ({ ok: true, content: 'codex-output' })),
+}));
 
 function createMockSecretStorage() {
   const secrets = new Map<string, string>();
@@ -125,5 +131,48 @@ describe('Provider Extension and SecretStorage legacy compatibility', () => {
     expect(masked.messages[1].content[1].image_url.url).toBe('data:image/png;base64,[OMITTED]');
     expect(masked.nested.error).toContain('data:image/png;base64,[OMITTED]');
     expect(masked.nested.data).toContain('...[OMITTED]');
+  });
+});
+
+describe('Codex CLI model forwarding', () => {
+  const baseSettings = {
+    enabled: true,
+    consentAcknowledged: true,
+    allowBackground: false,
+    binaryPath: '',
+    model: '',
+  };
+
+  it('does not send the API model name to Codex when no Codex model is set', async () => {
+    vi.mocked(runCodexExec).mockClear();
+
+    const result = await postProviderChat({
+      provider: 'codex-cli',
+      endpointUrl: '',
+      model: 'gpt-5-nano',
+      apiKey: '',
+      messages: [{ role: 'user', content: 'hello' }],
+      codexCli: { settings: baseSettings },
+    });
+
+    expect(result.ok).toBe(true);
+    const request = vi.mocked(runCodexExec).mock.calls[0]?.[0];
+    expect(request?.model).toBeUndefined();
+    expect(request?.prompt).toContain('hello');
+  });
+
+  it('sends the configured Codex model', async () => {
+    vi.mocked(runCodexExec).mockClear();
+
+    await postProviderChat({
+      provider: 'codex-cli',
+      endpointUrl: '',
+      model: 'gpt-5-nano',
+      apiKey: '',
+      messages: [{ role: 'user', content: 'hello' }],
+      codexCli: { settings: { ...baseSettings, model: 'gpt-5.6-sol' } },
+    });
+
+    expect(vi.mocked(runCodexExec).mock.calls[0]?.[0].model).toBe('gpt-5.6-sol');
   });
 });
