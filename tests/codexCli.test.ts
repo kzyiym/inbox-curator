@@ -3,8 +3,11 @@ import {
   buildCodexExecArgs,
   buildCodexOutputSchema,
   buildCodexSpawnEnv,
+  buildCodexSpawnInvocation,
   buildScrubbedEnv,
   CODEX_CLI_NOT_FOUND_MESSAGE,
+  CODEX_CLI_POWERSHELL_UNSUPPORTED_MESSAGE,
+  CODEX_CLI_UNSAFE_ARGUMENT_MESSAGE,
   extractCodexFailureReason,
   extractLastAgentMessage,
   getCodexLoginStatus,
@@ -161,9 +164,17 @@ function makeDeps(
   plans: FakePlan[],
   platform = 'darwin',
   resolves: (command: string, env: Record<string, string>) => boolean = () => true,
+  overrides: Partial<CodexCliDependencies> = {},
 ) {
-  const spawnCalls: Array<{ command: string; args: string[]; cwd: string; env: Record<string, string> }> = [];
+  const spawnCalls: Array<{
+    command: string;
+    args: string[];
+    cwd: string;
+    env: Record<string, string>;
+    windowsVerbatimArguments?: boolean;
+  }> = [];
   const removed: string[] = [];
+  const written: string[] = [];
   let index = 0;
 
   const deps: CodexCliDependencies = {
@@ -171,12 +182,21 @@ function makeDeps(
     tmpdir: () => '/tmp',
     env: () => ({ PATH: '/usr/bin', HOME: '/home/u', OPENAI_API_KEY: 'sk-secret' }),
     mkdtemp: async (prefix) => `${prefix}${index}`,
-    writeFile: async () => {},
+    writeFile: async (path) => {
+      written.push(path);
+    },
     rm: async (path) => {
       removed.push(path);
     },
+    ...overrides,
     spawn: (command, args, options) => {
-      spawnCalls.push({ command, args, cwd: options.cwd, env: options.env });
+      spawnCalls.push({
+        command,
+        args,
+        cwd: options.cwd,
+        env: options.env,
+        windowsVerbatimArguments: options.windowsVerbatimArguments,
+      });
       const plan = plans[index] ?? { code: 0 };
       index += 1;
       const child = {
@@ -202,7 +222,7 @@ function makeDeps(
     },
   };
 
-  return { deps, spawnCalls, removed };
+  return { deps, spawnCalls, removed, written };
 }
 
 const CHATGPT = 'Logged in using ChatGPT\n';
@@ -415,14 +435,137 @@ describe('runCodexExec', () => {
     expect(status).toEqual({ ok: false, authMode: 'unavailable', authenticated: false });
   });
 
-  it('reports Windows as unsupported', async () => {
-    const { deps } = makeDeps([], 'win32');
+});
+
+describe('Codex CLI on Windows', () => {
+  const WIN_ENV = {
+    Path: 'C:\\Windows\\system32;C:\\Users\\me\\AppData\\Roaming\\npm\\',
+    APPDATA: 'C:\\Users\\me\\AppData\\Roaming',
+    LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local',
+    USERPROFILE: 'C:\\Users\\me',
+    ComSpec: 'C:\\Windows\\system32\\cmd.exe',
+    OPENAI_API_KEY: 'sk-secret',
+  };
+  const NPM_SHIM = 'C:\\Users\\me\\AppData\\Roaming\\npm\\codex.cmd';
+
+  function makeWindowsDeps(plans: FakePlan[], existing: string[], env: Record<string, string> = WIN_ENV) {
+    const lowerExisting = new Set(existing.map((path) => path.toLowerCase()));
+    return makeDeps(plans, 'win32', () => true, {
+      tmpdir: () => 'C:\\Users\\me\\AppData\\Local\\Temp',
+      env: () => ({ ...env }),
+      fileExists: async (path) => lowerExisting.has(path.toLowerCase()),
+    });
+  }
+
+  it('builds a single semicolon-separated PATH key with Windows fallbacks and no secrets', () => {
+    const env = buildCodexSpawnEnv({ ...WIN_ENV, PATH: '' }, 'win32');
+
+    expect(env.PATH).toBeUndefined();
+    expect(env.Path.split(';')).toEqual([
+      'C:\\Windows\\system32',
+      'C:\\Users\\me\\AppData\\Roaming\\npm\\',
+      'C:\\Users\\me\\AppData\\Local\\Volta\\bin',
+      'C:\\Users\\me\\AppData\\Local\\pnpm',
+      'C:\\Users\\me\\.volta\\bin',
+      'C:\\Users\\me\\.bun\\bin',
+      'C:\\Users\\me\\scoop\\shims',
+    ]);
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+  });
+
+  it('runs an npm codex.cmd shim found on PATH through cmd.exe with quoted verbatim arguments', async () => {
+    const { deps, spawnCalls, written } = makeWindowsDeps([{ stdout: CHATGPT }, { stdout: JSONL }], [NPM_SHIM]);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'SECRET_NOTE_BODY', model: 'gpt-5-codex' });
+
+    expect(result).toEqual({ ok: true, content: '{"summary":["ok"]}' });
+    expect(spawnCalls).toHaveLength(2);
+    for (const call of spawnCalls) {
+      expect(call.command).toBe('C:\\Windows\\system32\\cmd.exe');
+      expect(call.args.slice(0, 4)).toEqual(['/d', '/v:off', '/s', '/c']);
+      expect(call.windowsVerbatimArguments).toBe(true);
+      expect(call.env.OPENAI_API_KEY).toBeUndefined();
+      expect(call.args.join(' ')).not.toContain('SECRET_NOTE_BODY');
+    }
+    expect(spawnCalls[0].args[4]).toBe(`""${NPM_SHIM}" "login" "status""`);
+    const tempDir = 'C:\\Users\\me\\AppData\\Local\\Temp\\inbox-curator-codex-1';
+    expect(spawnCalls[1].cwd).toBe(tempDir);
+    expect(written).toEqual([`${tempDir}\\schema.json`]);
+    expect(spawnCalls[1].args[4]).toContain(`"--output-schema" "${tempDir}\\schema.json" "-C" "${tempDir}"`);
+    expect(spawnCalls[1].args[4]).toContain('"--model" "gpt-5-codex"');
+    expect(spawnCalls[1].args[4].endsWith(' "-""')).toBe(true);
+  });
+
+  it('prefers codex.exe from an earlier PATH directory and spawns it directly', async () => {
+    const exe = 'C:\\Windows\\system32\\codex.exe';
+    const { deps, spawnCalls } = makeWindowsDeps([{ stdout: CHATGPT }, { stdout: JSONL }], [exe, NPM_SHIM]);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'x', model: '100%-model' });
+
+    expect(result.ok).toBe(true);
+    expect(spawnCalls.map((call) => call.command)).toEqual([exe, exe]);
+    expect(spawnCalls[0].args).toEqual(['login', 'status']);
+    expect(spawnCalls[1].windowsVerbatimArguments).toBeUndefined();
+  });
+
+  it('resolves an explicit extensionless path to its .cmd shim', async () => {
+    const { deps, spawnCalls } = makeWindowsDeps([{ stdout: CHATGPT }, { stdout: JSONL }], ['D:\\tools\\codex.cmd']);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'x', binaryPath: 'D:\\tools\\codex' });
+
+    expect(result.ok).toBe(true);
+    expect(spawnCalls[0].args[4]).toBe('""D:\\tools\\codex.cmd" "login" "status""');
+  });
+
+  it('refuses a PowerShell script path without spawning', async () => {
+    const { deps, spawnCalls } = makeWindowsDeps([], ['D:\\tools\\codex.ps1']);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'x', binaryPath: 'D:\\tools\\codex.ps1' });
+
+    expect(result).toEqual({ ok: false, error: CODEX_CLI_POWERSHELL_UNSUPPORTED_MESSAGE, retryable: false, reason: 'unavailable' });
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  it('reports not found without spawning when no codex executable exists', async () => {
+    const { deps, spawnCalls } = makeWindowsDeps([], []);
     setCodexCliDependencies(deps);
 
     const result = await runCodexExec({ prompt: 'x' });
+    const status = await getCodexLoginStatus('D:\\missing\\codex.exe');
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toBe('unsupported-platform');
+    expect(result).toEqual({ ok: false, error: CODEX_CLI_NOT_FOUND_MESSAGE, retryable: false, reason: 'unavailable' });
+    expect(status).toEqual({ ok: false, authMode: 'unavailable', authenticated: false });
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  it('refuses arguments that cmd.exe would expand before running the exec step', async () => {
+    const { deps, spawnCalls } = makeWindowsDeps([{ stdout: CHATGPT }], [NPM_SHIM]);
+    setCodexCliDependencies(deps);
+
+    const result = await runCodexExec({ prompt: 'x', model: '%OPENAI_API_KEY%' });
+
+    expect(result).toEqual({ ok: false, error: CODEX_CLI_UNSAFE_ARGUMENT_MESSAGE, retryable: false, reason: 'unavailable' });
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0].args[4]).toContain('"login" "status"');
+  });
+});
+
+describe('buildCodexSpawnInvocation', () => {
+  it('only wraps .cmd/.bat files on Windows', () => {
+    expect(buildCodexSpawnInvocation('darwin', '/bin/codex.cmd', ['exec'], '')).toEqual({ command: '/bin/codex.cmd', args: ['exec'] });
+    expect(buildCodexSpawnInvocation('win32', 'C:\\bin\\codex.exe', ['exec'], 'cmd.exe')).toEqual({ command: 'C:\\bin\\codex.exe', args: ['exec'] });
+    expect(buildCodexSpawnInvocation('win32', 'C:\\My Tools\\codex.BAT', ['exec', 'a & b'], 'cmd.exe')).toEqual({
+      command: 'cmd.exe',
+      args: ['/d', '/v:off', '/s', '/c', '""C:\\My Tools\\codex.BAT" "exec" "a & b""'],
+      windowsVerbatimArguments: true,
+    });
+    expect(buildCodexSpawnInvocation('win32', 'C:\\bin\\codex.cmd', ['say "hi"'], 'cmd.exe')).toBeUndefined();
+    expect(buildCodexSpawnInvocation('win32', 'C:\\bin\\codex.cmd', ['line\nbreak'], 'cmd.exe')).toBeUndefined();
+    expect(buildCodexSpawnInvocation('win32', 'C:\\bin\\codex.cmd', ['C:\\dir\\'], 'cmd.exe')).toBeUndefined();
   });
 });
 

@@ -19,6 +19,8 @@ export const DEFAULT_CODEX_CLI_SETTINGS: CodexCliSettings = {
 export type CodexAuthMode = 'chatgpt' | 'api-key' | 'logged-out' | 'unavailable' | 'unknown';
 
 export const CODEX_CLI_NOT_FOUND_MESSAGE = 'Codex CLI not found. Set the CLI path in settings, or make it available on PATH.';
+export const CODEX_CLI_POWERSHELL_UNSUPPORTED_MESSAGE = 'Codex CLI path points to a PowerShell script (.ps1). Use codex.cmd or codex.exe instead.';
+export const CODEX_CLI_UNSAFE_ARGUMENT_MESSAGE = 'Codex CLI arguments contain characters that cannot be passed safely through cmd.exe (", %, line breaks, or a trailing backslash). Check the Codex model setting and the temp folder path.';
 
 export interface CodexLoginStatus {
   ok: boolean;
@@ -33,8 +35,7 @@ export type CodexFailureReason =
   | 'timeout'
   | 'aborted'
   | 'exit'
-  | 'invalid-output'
-  | 'unsupported-platform';
+  | 'invalid-output';
 
 export type CodexExecResult =
   | { ok: true; content: string }
@@ -57,8 +58,13 @@ export interface CodexCliDependencies {
   mkdtemp(prefix: string): Promise<string>;
   writeFile(path: string, data: string): Promise<void>;
   rm(path: string, options: { recursive: boolean; force: boolean }): Promise<void>;
-  spawn(command: string, args: string[], options: { cwd: string; env: Record<string, string>; detached?: boolean }): CodexChildProcess;
+  spawn(
+    command: string,
+    args: string[],
+    options: { cwd: string; env: Record<string, string>; windowsVerbatimArguments?: boolean },
+  ): CodexChildProcess;
   killTree?(pid: number): void;
+  fileExists?(path: string): Promise<boolean>;
 }
 
 export interface CodexChildProcess {
@@ -89,8 +95,66 @@ export function buildScrubbedEnv(base: Record<string, string | undefined>): Reco
 const PATH_FALLBACK_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/local/sbin'];
 const HOME_PATH_FALLBACK_DIRS = ['.local/bin', '.volta/bin', '.bun/bin', '.yarn/bin', '.pnpm'];
 
-export function buildCodexSpawnEnv(base: Record<string, string | undefined>): Record<string, string> {
+function getEnvValueIgnoreCase(env: Record<string, string | undefined>, name: string): string | undefined {
+  const lower = name.toLowerCase();
+  for (const [key, value] of Object.entries(env)) {
+    if (key.toLowerCase() === lower && typeof value === 'string' && value !== '') return value;
+  }
+  return undefined;
+}
+
+function trimWindowsDir(dir: string): string {
+  return dir.replace(/[\\/]+$/, '');
+}
+
+export function joinPlatformPath(platform: string, dir: string, name: string): string {
+  if (platform === 'win32') return `${trimWindowsDir(dir)}\\${name}`;
+  return `${dir.replace(/\/+$/, '')}/${name}`;
+}
+
+function buildWindowsFallbackDirs(env: Record<string, string>): string[] {
+  const dirs: string[] = [];
+  const appData = getEnvValueIgnoreCase(env, 'APPDATA');
+  const localAppData = getEnvValueIgnoreCase(env, 'LOCALAPPDATA');
+  const programFiles = getEnvValueIgnoreCase(env, 'ProgramFiles');
+  const programData = getEnvValueIgnoreCase(env, 'ProgramData');
+  const home = getEnvValueIgnoreCase(env, 'USERPROFILE') || getEnvValueIgnoreCase(env, 'HOME');
+  if (appData) dirs.push(joinPlatformPath('win32', appData, 'npm'));
+  if (localAppData) {
+    dirs.push(joinPlatformPath('win32', localAppData, 'Volta\\bin'));
+    dirs.push(joinPlatformPath('win32', localAppData, 'pnpm'));
+  }
+  if (programFiles) dirs.push(joinPlatformPath('win32', programFiles, 'nodejs'));
+  if (home) {
+    dirs.push(joinPlatformPath('win32', home, '.volta\\bin'));
+    dirs.push(joinPlatformPath('win32', home, '.bun\\bin'));
+    dirs.push(joinPlatformPath('win32', home, 'scoop\\shims'));
+  }
+  if (programData) dirs.push(joinPlatformPath('win32', programData, 'chocolatey\\bin'));
+  return dirs;
+}
+
+function buildWindowsSpawnEnv(env: Record<string, string>): Record<string, string> {
+  // Windows env names are case-insensitive, but a plain object copy is not, so keep a single PATH key.
+  const pathKeys = Object.keys(env).filter((key) => key.toLowerCase() === 'path');
+  const pathKey = pathKeys.find((key) => env[key] !== '') ?? pathKeys[0] ?? 'Path';
+  const entries = (env[pathKey] ?? '').split(';').filter((entry) => entry.trim() !== '');
+  const seen = new Set(entries.map((entry) => trimWindowsDir(entry).toLowerCase()));
+  for (const candidate of buildWindowsFallbackDirs(env)) {
+    const normalized = candidate.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    entries.push(candidate);
+  }
+  for (const key of pathKeys) delete env[key];
+  env[pathKey] = entries.join(';');
+  return env;
+}
+
+export function buildCodexSpawnEnv(base: Record<string, string | undefined>, platform = 'darwin'): Record<string, string> {
   const env = buildScrubbedEnv(base);
+  if (platform === 'win32') return buildWindowsSpawnEnv(env);
+
   const home = (env.HOME || env.USERPROFILE || '').replace(/\/+$/, '');
   const candidates = [...PATH_FALLBACK_DIRS];
   if (home) {
@@ -131,6 +195,101 @@ export function buildCodexExecArgs(options: { schemaPath: string; cwd: string; m
   }
   args.push('-');
   return args;
+}
+
+export type CodexExecutableResolution =
+  | { ok: true; executable: string }
+  | { ok: false; error: string };
+
+export interface CodexSpawnInvocation {
+  command: string;
+  args: string[];
+  windowsVerbatimArguments?: boolean;
+}
+
+const WINDOWS_EXECUTABLE_EXTENSIONS = ['.exe', '.cmd', '.bat'];
+const WINDOWS_BATCH_PATTERN = /\.(?:cmd|bat)$/i;
+
+function hasWindowsExecutableExtension(path: string): boolean {
+  const lower = path.toLowerCase();
+  return WINDOWS_EXECUTABLE_EXTENSIONS.some((ext) => lower.endsWith(ext)) || lower.endsWith('.com');
+}
+
+async function fileExistsSafe(deps: CodexCliDependencies, path: string): Promise<boolean> {
+  try {
+    return (await deps.fileExists?.(path)) === true;
+  } catch {
+    return false;
+  }
+}
+
+// On Windows, spawn() without a shell only finds .exe/.com on PATH, while npm installs Codex as codex.cmd,
+// so the executable is resolved here before choosing how to launch it.
+export async function resolveCodexExecutable(
+  deps: CodexCliDependencies,
+  platform: string,
+  binaryPath: string | undefined,
+  spawnEnv: Record<string, string>,
+): Promise<CodexExecutableResolution> {
+  const explicit = binaryPath?.trim() ?? '';
+  if (platform !== 'win32') return { ok: true, executable: explicit || 'codex' };
+
+  if (explicit) {
+    if (/\.ps1$/i.test(explicit)) return { ok: false, error: CODEX_CLI_POWERSHELL_UNSUPPORTED_MESSAGE };
+    if (!deps.fileExists) return { ok: true, executable: explicit };
+    if (hasWindowsExecutableExtension(explicit)) {
+      return (await fileExistsSafe(deps, explicit))
+        ? { ok: true, executable: explicit }
+        : { ok: false, error: CODEX_CLI_NOT_FOUND_MESSAGE };
+    }
+    for (const ext of WINDOWS_EXECUTABLE_EXTENSIONS) {
+      if (await fileExistsSafe(deps, `${explicit}${ext}`)) return { ok: true, executable: `${explicit}${ext}` };
+    }
+    return { ok: false, error: CODEX_CLI_NOT_FOUND_MESSAGE };
+  }
+
+  if (!deps.fileExists) return { ok: true, executable: 'codex' };
+  const pathValue = getEnvValueIgnoreCase(spawnEnv, 'PATH') ?? '';
+  for (const dir of pathValue.split(';')) {
+    if (dir.trim() === '') continue;
+    for (const ext of WINDOWS_EXECUTABLE_EXTENSIONS) {
+      const candidate = joinPlatformPath('win32', dir.trim(), `codex${ext}`);
+      if (await fileExistsSafe(deps, candidate)) return { ok: true, executable: candidate };
+    }
+  }
+  return { ok: false, error: CODEX_CLI_NOT_FOUND_MESSAGE };
+}
+
+// cmd.exe expands %VAR% even inside quotes and cannot escape a literal quote, so such arguments are refused.
+// A trailing backslash is refused too: the CLI's argv parser would read `\"` as an escaped quote.
+const CMD_UNSAFE_ARGUMENT = /["%\r\n\0]|\\$/;
+
+export function buildCodexSpawnInvocation(
+  platform: string,
+  executable: string,
+  args: string[],
+  comspec: string,
+): CodexSpawnInvocation | undefined {
+  if (platform !== 'win32' || !WINDOWS_BATCH_PATTERN.test(executable)) {
+    return { command: executable, args };
+  }
+  const parts = [executable, ...args];
+  if (parts.some((part) => CMD_UNSAFE_ARGUMENT.test(part))) return undefined;
+  const commandLine = parts.map((part) => `"${part}"`).join(' ');
+  // Node refuses to spawn .cmd/.bat directly (CVE-2024-27980), so run it through cmd.exe the same way
+  // Node's own `shell: true` does, with every argument quoted so cmd metacharacters stay literal.
+  return {
+    command: comspec,
+    args: ['/d', '/v:off', '/s', '/c', `"${commandLine}"`],
+    windowsVerbatimArguments: true,
+  };
+}
+
+function resolveComspec(env: Record<string, string | undefined>): string {
+  const comspec = getEnvValueIgnoreCase(env, 'ComSpec');
+  if (comspec) return comspec;
+  const systemRoot = getEnvValueIgnoreCase(env, 'SystemRoot') || 'C:\\Windows';
+  return joinPlatformPath('win32', systemRoot, 'System32\\cmd.exe');
 }
 
 export function buildCodexOutputSchema(): string {
@@ -331,20 +490,58 @@ function createDefaultDependencies(): CodexCliDependencies {
     };
   }
 
+  const platform = String((os.platform as () => string)());
+  const isWindows = platform === 'win32';
+  const spawnChild = childProcess.spawn as (c: string, a: string[], o: unknown) => CodexChildProcess;
+
   return {
-    platform: () => String((os.platform as () => string)()),
+    platform: () => platform,
     tmpdir: () => String((os.tmpdir as () => string)()),
     env: () => process.env as Record<string, string | undefined>,
     mkdtemp: (prefix) => (fs.mkdtemp as (p: string) => Promise<string>)(prefix),
     writeFile: (path, data) => (fs.writeFile as (p: string, d: string) => Promise<void>)(path, data),
     rm: (path, options) => (fs.rm as (p: string, o: { recursive: boolean; force: boolean }) => Promise<void>)(path, options),
-    spawn: (command, args, options) => (childProcess.spawn as (c: string, a: string[], o: unknown) => CodexChildProcess)(command, args, {
+    fileExists: async (path) => {
+      try {
+        const stats = await (fs.stat as (p: string) => Promise<{ isFile(): boolean }>)(path);
+        return stats.isFile();
+      } catch {
+        return false;
+      }
+    },
+    spawn: (command, args, options) => spawnChild(command, args, {
       cwd: options.cwd,
       env: options.env,
       stdio: ['pipe', 'pipe', 'pipe'],
-      detached: true,
+      // A detached child on Windows gets its own console window; the tree is killed with taskkill instead.
+      detached: !isWindows,
+      windowsHide: true,
+      windowsVerbatimArguments: options.windowsVerbatimArguments === true,
     }),
     killTree: (pid) => {
+      if (isWindows) {
+        try {
+          const systemRoot = getEnvValueIgnoreCase(process.env as Record<string, string | undefined>, 'SystemRoot') || 'C:\\Windows';
+          const killer = spawnChild(joinPlatformPath('win32', systemRoot, 'System32\\taskkill.exe'), ['/pid', String(pid), '/T', '/F'], {
+            stdio: 'ignore',
+            windowsHide: true,
+          });
+          killer.on('error', () => {
+            try {
+              process.kill(pid);
+            } catch {
+              // Process already gone.
+            }
+          });
+        } catch {
+          try {
+            process.kill(pid);
+          } catch {
+            // Process already gone.
+          }
+        }
+        return;
+      }
       try {
         process.kill(-pid, 'SIGKILL');
       } catch {
@@ -378,8 +575,7 @@ interface CapturedRun {
 
 function runChild(
   deps: CodexCliDependencies,
-  command: string,
-  args: string[],
+  invocation: CodexSpawnInvocation,
   options: { cwd: string; env: Record<string, string>; input: string; timeoutMs: number; isUnloaded?: () => boolean },
 ): Promise<CapturedRun> {
   return new Promise<CapturedRun>((resolve) => {
@@ -410,7 +606,11 @@ function runChild(
     };
 
     try {
-      child = deps.spawn(command, args, { cwd: options.cwd, env: options.env });
+      child = deps.spawn(invocation.command, invocation.args, {
+        cwd: options.cwd,
+        env: options.env,
+        ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+      });
     } catch {
       state.code = -1;
       state.spawnFailed = true;
@@ -479,19 +679,51 @@ function chunkToText(chunk: unknown): string {
   return '';
 }
 
-async function runCodexLoginStatusInternal(deps: CodexCliDependencies, binaryPath?: string): Promise<CodexLoginStatus> {
-  if (deps.platform() === 'win32') {
-    return { ok: false, authMode: 'unknown', authenticated: false };
+interface CodexRunContext {
+  platform: string;
+  env: Record<string, string>;
+  executable: string;
+  comspec: string;
+}
+
+async function prepareCodexRun(
+  deps: CodexCliDependencies,
+  binaryPath: string | undefined,
+): Promise<{ ok: true; context: CodexRunContext } | { ok: false; error: string }> {
+  const platform = deps.platform();
+  const rawEnv = deps.env();
+  const env = buildCodexSpawnEnv(rawEnv, platform);
+  const resolution = await resolveCodexExecutable(deps, platform, binaryPath, env);
+  if (!resolution.ok) return resolution;
+  return {
+    ok: true,
+    context: {
+      platform,
+      env,
+      executable: resolution.executable,
+      comspec: platform === 'win32' ? resolveComspec(rawEnv) : '',
+    },
+  };
+}
+
+function buildInvocationFor(context: CodexRunContext, args: string[]): CodexSpawnInvocation | undefined {
+  return buildCodexSpawnInvocation(context.platform, context.executable, args, context.comspec);
+}
+
+const LOGIN_STATUS_ARGS = ['login', 'status'];
+
+async function runCodexLoginStatusInternal(deps: CodexCliDependencies, context: CodexRunContext): Promise<CodexLoginStatus> {
+  const invocation = buildInvocationFor(context, LOGIN_STATUS_ARGS);
+  if (!invocation) {
+    return { ok: false, authMode: 'unavailable', authenticated: false };
   }
 
   let tempDir = '';
   try {
-    tempDir = await deps.mkdtemp(`${deps.tmpdir()}/inbox-curator-codex-login-`);
-    const env = buildCodexSpawnEnv(deps.env());
-    const command = binaryPath?.trim() || 'codex';
-    const captured = await runChild(deps, command, ['login', 'status'], {
+    tempDir = await deps.mkdtemp(joinPlatformPath(context.platform, deps.tmpdir(), 'inbox-curator-codex-login-'));
+    const captured = await runChild(deps, invocation, {
       cwd: tempDir,
-      env,
+      env: context.env,
       input: '',
       timeoutMs: 15000,
     });
@@ -516,7 +748,11 @@ export async function getCodexLoginStatus(binaryPath?: string): Promise<CodexLog
   const deps = getDependencies();
   await acquireRunSlot();
   try {
-    return await runCodexLoginStatusInternal(deps, binaryPath);
+    const prepared = await prepareCodexRun(deps, binaryPath);
+    if (!prepared.ok) return { ok: false, authMode: 'unavailable', authenticated: false };
+    return await runCodexLoginStatusInternal(deps, prepared.context);
+  } catch {
+    return { ok: false, authMode: 'unknown', authenticated: false };
   } finally {
     releaseRunSlot();
   }
@@ -528,20 +764,20 @@ export async function runCodexExec(request: CodexExecRequest): Promise<CodexExec
   }
 
   const deps = getDependencies();
-  const platform = deps.platform();
-  if (platform === 'win32') {
-    return {
-      ok: false,
-      error: 'Codex CLI is not supported on Windows in this version.',
-      retryable: false,
-      reason: 'unsupported-platform',
-    };
-  }
 
   await acquireRunSlot();
   let tempDir = '';
   try {
-    const loginStatus = await runCodexLoginStatusInternal(deps, request.binaryPath);
+    const prepared = await prepareCodexRun(deps, request.binaryPath);
+    if (!prepared.ok) {
+      return { ok: false, error: prepared.error, retryable: false, reason: 'unavailable' };
+    }
+    const context = prepared.context;
+    if (!buildInvocationFor(context, LOGIN_STATUS_ARGS)) {
+      return { ok: false, error: CODEX_CLI_UNSAFE_ARGUMENT_MESSAGE, retryable: false, reason: 'unavailable' };
+    }
+
+    const loginStatus = await runCodexLoginStatusInternal(deps, context);
     if (loginStatus.authMode === 'unavailable') {
       return { ok: false, error: CODEX_CLI_NOT_FOUND_MESSAGE, retryable: false, reason: 'unavailable' };
     }
@@ -556,17 +792,18 @@ export async function runCodexExec(request: CodexExecRequest): Promise<CodexExec
       };
     }
 
-    tempDir = await deps.mkdtemp(`${deps.tmpdir()}/inbox-curator-codex-`);
-    const schemaPath = `${tempDir}/schema.json`;
+    tempDir = await deps.mkdtemp(joinPlatformPath(context.platform, deps.tmpdir(), 'inbox-curator-codex-'));
+    const schemaPath = joinPlatformPath(context.platform, tempDir, 'schema.json');
+    const args = buildCodexExecArgs({ schemaPath, cwd: tempDir, model: request.model });
+    const invocation = buildInvocationFor(context, args);
+    if (!invocation) {
+      return { ok: false, error: CODEX_CLI_UNSAFE_ARGUMENT_MESSAGE, retryable: false, reason: 'unavailable' };
+    }
     await deps.writeFile(schemaPath, buildCodexOutputSchema());
 
-    const args = buildCodexExecArgs({ schemaPath, cwd: tempDir, model: request.model });
-    const env = buildCodexSpawnEnv(deps.env());
-    const command = request.binaryPath?.trim() || 'codex';
-
-    const captured = await runChild(deps, command, args, {
+    const captured = await runChild(deps, invocation, {
       cwd: tempDir,
-      env,
+      env: context.env,
       input: request.prompt,
       timeoutMs: request.timeoutMs && request.timeoutMs > 0 ? request.timeoutMs : 120000,
       isUnloaded: request.isUnloaded,

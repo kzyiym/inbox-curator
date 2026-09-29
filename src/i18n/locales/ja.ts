@@ -140,7 +140,7 @@ export const ja = {
   'settings.codexCli.background.label': 'バックグラウンドで Codex CLI の実行を許可',
   'settings.codexCli.background.desc': '既定はオフです。オフの場合、自動監視やポーリングは CLI を呼び出しません。手動レビューでは常に同意が必要です。',
   'settings.codexCli.binaryPath.label': 'Codex CLI のパス',
-  'settings.codexCli.binaryPath.desc': '任意。`codex` 実行ファイルの絶対パス（Obsidian がシェルの PATH を継承しない場合に有用）。空欄で PATH の `codex` を使用します。',
+  'settings.codexCli.binaryPath.desc': '任意。`codex` 実行ファイルの絶対パス（Obsidian がシェルの PATH を継承しない場合に有用）。空欄で PATH の `codex` を使用します。Windows では `codex.cmd` または `codex.exe` を指定してください（`codex.ps1` は使用できません）。',
   'settings.codexCli.model.label': 'Codex モデル',
   'settings.codexCli.model.desc': '任意。--model で渡すモデル上書き。空欄で CLI の既定モデル。',
   'settings.codexCli.status.checking': 'Codex CLI: ログイン状態を確認中...',

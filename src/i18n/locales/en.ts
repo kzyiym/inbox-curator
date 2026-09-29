@@ -140,7 +140,7 @@ export const en = {
   'settings.codexCli.background.label': 'Allow background Codex CLI runs',
   'settings.codexCli.background.desc': 'Off by default. When off, automatic watching and polling will not invoke the CLI. Manual reviews always require consent.',
   'settings.codexCli.binaryPath.label': 'Codex CLI path',
-  'settings.codexCli.binaryPath.desc': 'Optional. Absolute path to the `codex` executable (useful when Obsidian does not inherit your shell PATH). Leave blank to use `codex` from PATH.',
+  'settings.codexCli.binaryPath.desc': 'Optional. Absolute path to the `codex` executable (useful when Obsidian does not inherit your shell PATH). Leave blank to use `codex` from PATH. On Windows, use `codex.cmd` or `codex.exe` (not `codex.ps1`).',
   'settings.codexCli.model.label': 'Codex model',
   'settings.codexCli.model.desc': 'Optional model override passed with --model. Leave blank to use the CLI default.',
   'settings.codexCli.status.checking': 'Codex CLI: checking login status...',
