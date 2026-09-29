@@ -8,6 +8,21 @@ const HISTORY_PATH = normalizePath('.inbox-curator/auto-sort-history.json');
 const MAX_AUTO_SORT_HISTORY_RUNS = 20;
 const AUTO_SORT_HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
+/**
+ * Durable identity guard recorded at move time so Undo can prove that the file
+ * currently at a recorded destination is the same file that was moved.
+ *
+ * `ctime` is Obsidian's file creation time (Stat.ctime). It is stable across
+ * renames, so a file created to replace the moved note at the same path has a
+ * different creation time and is rejected. On a platform that refreshes ctime
+ * on edit, an edited original is skipped rather than moved: fail closed with a
+ * visible reason. A missing or non-finite value means identity could not be
+ * captured, and such records are treated as unverifiable.
+ */
+export type AutoSortFileIdentity = {
+  ctime: number;
+};
+
 export type AutoSortActionRecord = {
   runId: string;
   timestamp: number;
@@ -18,7 +33,44 @@ export type AutoSortActionRecord = {
   parseStatus: ReviewParseStatus;
   confidence: ReviewConfidence;
   reliabilityLabel: ReviewReliabilityLabel;
+  /**
+   * Identity of the file at `destinationPath` immediately after the move.
+   * Optional: records written before identity tracking have no value and are
+   * treated as unverifiable (skipped, never moved by path alone).
+   */
+  identity?: AutoSortFileIdentity;
 };
+
+/**
+ * Capture the durable identity for a file. Returns undefined when the runtime
+ * does not expose a usable creation time, so callers never store a partial or
+ * misleading guard.
+ */
+export function captureAutoSortIdentity(
+  file: { stat?: { ctime?: number } } | null | undefined,
+): AutoSortFileIdentity | undefined {
+  const ctime = file?.stat?.ctime;
+  if (typeof ctime !== 'number' || !Number.isFinite(ctime)) {
+    return undefined;
+  }
+  return { ctime };
+}
+
+/**
+ * True only when a recorded identity and the file's current identity are both
+ * present and equal. Missing identity on either side returns false so callers
+ * fail closed instead of moving an unverifiable file.
+ */
+export function autoSortIdentityMatches(
+  identity: AutoSortFileIdentity | undefined,
+  file: { stat?: { ctime?: number } } | null | undefined,
+): boolean {
+  if (!identity) {
+    return false;
+  }
+  const ctime = file?.stat?.ctime;
+  return typeof ctime === 'number' && Number.isFinite(ctime) && ctime === identity.ctime;
+}
 
 export type AutoSortRunRecord = {
   runId: string;

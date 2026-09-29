@@ -24,10 +24,14 @@ vi.mock('../src/actionLayer', () => ({
   resolveActionDestination: vi.fn(),
 }));
 
-vi.mock('../src/utils/autoSortHistory', () => ({
-  appendAutoSortActionRecord: vi.fn().mockResolvedValue(undefined),
-  readAutoSortHistory: vi.fn(),
-}));
+vi.mock('../src/utils/autoSortHistory', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/utils/autoSortHistory')>();
+  return {
+    ...actual,
+    appendAutoSortActionRecord: vi.fn().mockResolvedValue(undefined),
+    readAutoSortHistory: vi.fn(),
+  };
+});
 
 vi.mock('../src/utils/errorLog', () => ({
   logError: vi.fn().mockResolvedValue(undefined),
@@ -67,7 +71,10 @@ describe('applyProposedActionsFromPanel', () => {
     vi.clearAllMocks();
     noticeMessages.length = 0;
 
-    plugin = new InboxCuratorPlugin({} as any, {} as any);
+    plugin = new InboxCuratorPlugin(
+      { vault: { getAbstractFileByPath: vi.fn().mockReturnValue(null) } } as any,
+      {} as any,
+    );
     plugin.settings = {
       ...DEFAULT_SETTINGS,
       reviewOutputFolder: 'AI Reviews',

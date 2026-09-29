@@ -1,5 +1,9 @@
 import { App, Notice, TFile } from 'obsidian';
-import { getLastUndoableAutoSortRun, markAutoSortRunUndone } from './utils/autoSortHistory';
+import {
+  autoSortIdentityMatches,
+  getLastUndoableAutoSortRun,
+  markAutoSortRunUndone,
+} from './utils/autoSortHistory';
 import { logOperation } from './utils/operationLog';
 import { t } from './i18n';
 
@@ -61,6 +65,21 @@ export async function undoLastAutoSortRun(app: App): Promise<UndoResult | null> 
       if (!destFile || !(destFile instanceof TFile)) {
         skippedCount++;
         skipped.push(`Destination not found: ${destPath}`);
+        continue;
+      }
+
+      // Never move a file based on its path alone. Records written before
+      // identity tracking (or captured without a usable creation time) are
+      // unverifiable and are skipped with a reason rather than guessed at.
+      if (!action.identity) {
+        skippedCount++;
+        skipped.push(t('notice.undoSkipLegacyRecord', { path: destPath }));
+        continue;
+      }
+
+      if (!autoSortIdentityMatches(action.identity, destFile)) {
+        skippedCount++;
+        skipped.push(t('notice.undoSkipIdentityMismatch', { path: destPath }));
         continue;
       }
 

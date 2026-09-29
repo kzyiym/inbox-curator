@@ -351,6 +351,8 @@ export const ja = {
   'notice.undoSuccess': 'Inbox Curator: 直近の自動整理から{{count}}件のノートを戻しました。',
   'notice.undoPartial': 'Inbox Curator: {{restored}}件を戻しました。{{skipped}}件は戻せませんでした。operation log を確認してください。',
   'notice.undoFailed': 'Inbox Curator: 自動整理の取り消しに失敗しました。operation log を確認してください。',
+  'notice.undoSkipIdentityMismatch': '移動先のノートが自動整理時と同一ではないため（編集・置換・移動）、未確認のノートを移動しないようスキップしました: {{path}}',
+  'notice.undoSkipLegacyRecord': 'この自動整理履歴は識別情報を記録する前のもので確認できません。未確認のノートを移動しないようスキップしました。必要なら手動で戻してください: {{path}}',
   'settings.contextBudget.title': 'AI入力サイズ',
   'settings.contextBudget.desc': 'AIに送るノート本文の量を制御します。Small は LM Studio や Ollama などのローカルLLM向けです。通常のクラウドAPIでは Standard を推奨します。',
   'settings.contextBudget.preset.label': 'プリセット',

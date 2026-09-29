@@ -28,7 +28,11 @@ import { t } from './src/i18n';
 import { clearSessionApiKeys, getApiKey, hasApiKey } from './src/secrets';
 import { logError } from './src/utils/errorLog';
 import { logOperation } from './src/utils/operationLog';
-import { appendAutoSortActionRecord, type AutoSortActionRecord } from './src/utils/autoSortHistory';
+import {
+  appendAutoSortActionRecord,
+  captureAutoSortIdentity,
+  type AutoSortActionRecord,
+} from './src/utils/autoSortHistory';
 import { undoLastAutoSortRun } from './src/undoAutoSort';
 import { setLogLevelGetter } from './src/utils/logFiles';
 import { resolveReviewContextBudget } from './src/utils/contentFilter';
@@ -981,16 +985,21 @@ export default class InboxCuratorPlugin extends Plugin {
           },
         });
 
+        const recordedDestination = actionResult.destinationPath ?? actionSourcePath;
+        const recordedDestinationFile = this.app.vault.getAbstractFileByPath(recordedDestination);
         void appendAutoSortActionRecord(this.app, {
           runId: job.runId,
           timestamp: Date.now(),
           action: reviewAction as AutoSortActionRecord['action'],
           sourcePath: actionSourcePath,
-          destinationPath: actionResult.destinationPath ?? actionSourcePath,
+          destinationPath: recordedDestination,
           reviewMode: this.settings.reviewMode,
           parseStatus: parseStatus,
           confidence: effectiveConfidence,
           reliabilityLabel: reliabilityLabel,
+          identity: recordedDestinationFile instanceof TFile
+            ? captureAutoSortIdentity(recordedDestinationFile)
+            : undefined,
         }).catch((err) => {
           void logError(this.app, 'WARN', 'Inbox Curator: Failed to save auto-sort history', {
             error: err instanceof Error ? err.message : String(err),
@@ -2102,16 +2111,21 @@ export default class InboxCuratorPlugin extends Plugin {
             taken === 'task' ||
             taken === 'delete_candidate'
           ) {
+            const recordedDestination = actionResult.destinationPath ?? item.notePath;
+            const recordedDestinationFile = this.app.vault.getAbstractFileByPath(recordedDestination);
             await appendAutoSortActionRecord(this.app, {
               runId,
               timestamp: Date.now(),
               action: taken,
               sourcePath: item.notePath,
-              destinationPath: actionResult.destinationPath ?? item.notePath,
+              destinationPath: recordedDestination,
               reviewMode: this.settings.reviewMode,
               parseStatus: 'parsed',
               confidence: item.confidence,
               reliabilityLabel: item.reliabilityLabel,
+              identity: recordedDestinationFile instanceof TFile
+                ? captureAutoSortIdentity(recordedDestinationFile)
+                : undefined,
             }).catch((err) => {
               void logError(this.app, 'WARN', 'Inbox Curator: Failed to save auto-sort history', {
                 error: err instanceof Error ? err.message : String(err),

@@ -351,6 +351,8 @@ export const en = {
   'notice.undoSuccess': 'Inbox Curator: Restored {{count}} notes from the last auto-sort run.',
   'notice.undoPartial': 'Inbox Curator: Restored {{restored}} notes. {{skipped}} could not be restored. See operation log.',
   'notice.undoFailed': 'Inbox Curator: Auto-sort undo failed. See operation log.',
+  'notice.undoSkipIdentityMismatch': 'Destination no longer holds the moved note (edited, replaced, or moved since auto-sort). Skipped to avoid moving an unverified note: {{path}}',
+  'notice.undoSkipLegacyRecord': 'Auto-sort record predates identity tracking and cannot be verified. Skipped to avoid moving an unverified note; move it back manually if needed: {{path}}',
   'settings.contextBudget.title': 'AI Context Size',
   'settings.contextBudget.desc': 'Controls how much note content is sent to the AI. Small is recommended for local LLMs such as LM Studio or Ollama. Standard is recommended for most cloud APIs.',
   'settings.contextBudget.preset.label': 'Preset',

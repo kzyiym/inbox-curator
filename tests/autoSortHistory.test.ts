@@ -7,6 +7,8 @@ import {
   getLastUndoableAutoSortRun,
   markAutoSortRunUndone,
   pruneAutoSortHistory,
+  captureAutoSortIdentity,
+  autoSortIdentityMatches,
   type AutoSortActionRecord,
   type AutoSortHistoryFile,
 } from '../src/utils/autoSortHistory';
@@ -197,5 +199,41 @@ describe('autoSortHistory', () => {
     expect(recordStr).not.toContain('base64');
     expect(recordStr).toContain('sourcePath');
     expect(recordStr).toContain('destinationPath');
+  });
+
+  it('persists and reloads the destination identity guard', async () => {
+    await appendAutoSortActionRecord(app, { ...sampleRecord, identity: { ctime: 12345 } });
+
+    const history = await loadAutoSortHistory(app);
+    expect(history.runs[0].actions[0].identity).toEqual({ ctime: 12345 });
+  });
+
+  it('loads legacy records that have no identity without inventing one', async () => {
+    await app.vault.adapter.write(HISTORY_PATH, JSON.stringify({
+      version: 1,
+      runs: [{ runId: 'legacy', timestamp: NOW - 2000, source: 'auto-create', actions: [sampleRecord] }],
+    }));
+
+    const loaded = await loadAutoSortHistory(app);
+    expect(loaded.runs[0].actions[0].identity).toBeUndefined();
+  });
+});
+
+describe('autoSortIdentity', () => {
+  it('captures the creation time from a file stat', () => {
+    expect(captureAutoSortIdentity({ stat: { ctime: 123 } })).toEqual({ ctime: 123 });
+  });
+
+  it('returns undefined when the creation time is missing or not finite', () => {
+    expect(captureAutoSortIdentity(undefined)).toBeUndefined();
+    expect(captureAutoSortIdentity({ stat: {} })).toBeUndefined();
+    expect(captureAutoSortIdentity({ stat: { ctime: Number.NaN } })).toBeUndefined();
+  });
+
+  it('matches only when both identities are present and equal', () => {
+    expect(autoSortIdentityMatches({ ctime: 1 }, { stat: { ctime: 1 } })).toBe(true);
+    expect(autoSortIdentityMatches({ ctime: 1 }, { stat: { ctime: 2 } })).toBe(false);
+    expect(autoSortIdentityMatches(undefined, { stat: { ctime: 1 } })).toBe(false);
+    expect(autoSortIdentityMatches({ ctime: 1 }, { stat: {} })).toBe(false);
   });
 });

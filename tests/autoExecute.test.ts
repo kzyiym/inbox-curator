@@ -30,9 +30,13 @@ vi.mock('../src/reviewWriter', () => ({
   appendAutoExecuteResult: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../src/utils/autoSortHistory', () => ({
-  appendAutoSortActionRecord: vi.fn().mockResolvedValue(undefined),
-}));
+vi.mock('../src/utils/autoSortHistory', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/utils/autoSortHistory')>();
+  return {
+    ...actual,
+    appendAutoSortActionRecord: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 describe('InboxCuratorPlugin Auto-execute', () => {
   let plugin: InboxCuratorPlugin;
