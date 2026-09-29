@@ -2,6 +2,7 @@ import { App, Modal, Notice, Setting } from 'obsidian';
 import { t, type TranslationKey } from './i18n';
 import type { QueueFailureReasonCode } from './queue/queueFailureReason';
 import type {
+  QueueAwaitingManualReviewJob,
   QueueFailedJob,
   ReviewJobSource,
   ReviewQueueSnapshot,
@@ -15,6 +16,11 @@ export interface QueueMonitorCallbacks {
   resume: () => void;
   cancelPendingJob: (id: string) => boolean;
   retryFailed: (notePath: string, source: ReviewJobSource) => Promise<ReviewRetryOutcome>;
+  /**
+   * Runs a foreground manual review for a note that a background job could not
+   * process (currently URL-only notes). Foreground review may fetch the URL.
+   */
+  reviewManually: (notePath: string) => void;
 }
 
 const REFRESH_INTERVAL_MS = 1000;
@@ -72,6 +78,7 @@ export class QueueMonitorModal extends Modal {
       pending: snapshot.pendingJobs.map((job) => job.id),
       running: snapshot.runningJobs.map((job) => job.id),
       failed: snapshot.failedJobs.map((job) => `${job.notePath}:${job.reasonCode}:${job.timestamp}`),
+      awaiting: snapshot.awaitingManualReviewJobs.map((job) => `${job.notePath}:${job.timestamp}`),
     });
   }
 
@@ -103,6 +110,14 @@ export class QueueMonitorModal extends Modal {
     const summary = contentEl.createDiv({ cls: 'inbox-curator-queue-summary' });
     this.createBadge(summary, t('queue.badge.pending'), snapshot.pending);
     this.createBadge(summary, t('queue.badge.running'), snapshot.running);
+    if (snapshot.awaitingManualReviewJobs.length > 0) {
+      this.createBadge(
+        summary,
+        t('queue.badge.awaitingManualReview'),
+        snapshot.awaitingManualReviewJobs.length,
+        'is-awaiting',
+      );
+    }
     this.createBadge(
       summary,
       t('queue.badge.failed'),
@@ -162,7 +177,10 @@ export class QueueMonitorModal extends Modal {
   }
 
   private renderBody(snapshot: ReviewQueueSnapshot): void {
-    const hasAny = snapshot.pending > 0 || snapshot.running > 0 || snapshot.failedJobs.length > 0;
+    const hasAny = snapshot.pending > 0 ||
+      snapshot.running > 0 ||
+      snapshot.failedJobs.length > 0 ||
+      snapshot.awaitingManualReviewJobs.length > 0;
     if (!hasAny) {
       this.contentEl.createEl('p', { text: t('queue.emptyAll'), cls: 'inbox-curator-queue-empty' });
       return;
@@ -173,6 +191,9 @@ export class QueueMonitorModal extends Modal {
     }
     if (snapshot.pending > 0) {
       this.renderPending(snapshot);
+    }
+    if (snapshot.awaitingManualReviewJobs.length > 0) {
+      this.renderAwaitingManualReview(snapshot);
     }
     if (snapshot.failedJobs.length > 0) {
       this.renderFailed(snapshot);
@@ -255,6 +276,41 @@ export class QueueMonitorModal extends Modal {
     });
   }
 
+  private renderAwaitingManualReview(snapshot: ReviewQueueSnapshot): void {
+    const section = this.createSection(
+      t('queue.section.awaitingManualReview'),
+      snapshot.awaitingManualReviewJobs.length,
+    );
+    section.createEl('p', { text: t('queue.awaitingManualReview.hint'), cls: 'inbox-curator-queue-hint' });
+    const list = section.createDiv({ cls: 'inbox-curator-queue-list' });
+    list.setAttribute(LIST_ATTR, 'awaiting-manual-review');
+    for (const job of snapshot.awaitingManualReviewJobs) {
+      this.renderAwaitingManualReviewRow(list, job);
+    }
+  }
+
+  private renderAwaitingManualReviewRow(list: HTMLElement, job: QueueAwaitingManualReviewJob): void {
+    const row = list.createDiv({ cls: 'inbox-curator-queue-row' });
+    const info = row.createDiv({ cls: 'inbox-curator-queue-failure' });
+    info.createEl('span', {
+      text: this.fileLabel(job.notePath),
+      title: job.notePath,
+      cls: 'inbox-curator-queue-row-name',
+    });
+    info.createEl('span', {
+      text: t('queue.awaitingManualReview.reason'),
+      cls: 'inbox-curator-queue-reason',
+    });
+
+    const actions = row.createDiv({ cls: 'inbox-curator-queue-actions' });
+    const button = actions.createEl('button', { text: t('queue.button.reviewManually') });
+    button.setAttribute(FOCUS_ATTR, `review-manually:${job.notePath}`);
+    button.addEventListener('click', () => {
+      this.callbacks.reviewManually(job.notePath);
+      this.render();
+    });
+  }
+
   private async retry(job: QueueFailedJob): Promise<void> {
     const outcome = await this.callbacks.retryFailed(job.notePath, job.source);
     if (outcome.accepted) {
@@ -332,6 +388,7 @@ export class QueueMonitorModal extends Modal {
 
     return (
       this.contentEl.querySelector<HTMLElement>(`[${FOCUS_ATTR}^="cancel:"]`) ??
+      this.contentEl.querySelector<HTMLElement>(`[${FOCUS_ATTR}^="review-manually:"]`) ??
       this.contentEl.querySelector<HTMLElement>(`[${FOCUS_ATTR}^="retry:"]`)
     );
   }

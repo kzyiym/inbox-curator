@@ -9,7 +9,7 @@ vi.mock('../src/utils/imageOptimization', () => ({
   optimizeImageForAi: vi.fn(),
 }));
 
-import { buildReviewModelInputPayload, buildReviewSourceInfo, detectPromptInjectionRisk, isClearlyInsufficientInput, loadAndConvertImages, sanitizeCustomReviewPrompt, buildAdditionalUserInstructions, resolvePromptLanguage, buildResponseLanguageDirective, normalizeLocale, getObsidianDisplayLanguage, looksJapanese } from '../src/reviewPipeline';
+import { buildReviewModelInputPayload, buildReviewSourceInfo, detectPromptInjectionRisk, isClearlyInsufficientInput, isBackgroundFetchDisabledUrlOnly, loadAndConvertImages, sanitizeCustomReviewPrompt, buildAdditionalUserInstructions, resolvePromptLanguage, buildResponseLanguageDirective, normalizeLocale, getObsidianDisplayLanguage, looksJapanese } from '../src/reviewPipeline';
 import { fetchUrlContext } from '../src/urlExtraction';
 import { optimizeImageForAi } from '../src/utils/imageOptimization';
 
@@ -336,6 +336,37 @@ describe('isClearlyInsufficientInput', () => {
 
   it('does not flag an empty body when attachments are present', () => {
     expect(isClearlyInsufficientInput({ ...base, attachments: [{ path: 'a.png' } as never] }, '').insufficient).toBe(false);
+  });
+});
+
+describe('isBackgroundFetchDisabledUrlOnly', () => {
+  it('is true only for a URL-only note with background fetching disabled', () => {
+    expect(isBackgroundFetchDisabledUrlOnly({
+      contentType: 'url_only',
+      fetchStatus: 'not_applicable',
+      extractionMethod: 'background-fetch-disabled',
+    })).toBe(true);
+  });
+
+  it('is false when the URL fetch succeeded', () => {
+    expect(isBackgroundFetchDisabledUrlOnly({
+      contentType: 'url_only',
+      fetchStatus: 'success',
+      extractionMethod: 'background-fetch-disabled',
+    })).toBe(false);
+  });
+
+  it('is false for a plain note or an ordinary foreground fetch failure', () => {
+    expect(isBackgroundFetchDisabledUrlOnly({
+      contentType: 'plain_note',
+      fetchStatus: 'not_applicable',
+      extractionMethod: 'background-fetch-disabled',
+    })).toBe(false);
+    expect(isBackgroundFetchDisabledUrlOnly({
+      contentType: 'url_only',
+      fetchStatus: 'failed',
+      extractionMethod: undefined,
+    })).toBe(false);
   });
 });
 

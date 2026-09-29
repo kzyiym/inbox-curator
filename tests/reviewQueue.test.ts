@@ -548,6 +548,52 @@ describe('ReviewQueue bounded parallelism', () => {
     expect(runningResult.status).toBe('processed');
   });
 
+  it('tracks awaiting-manual-review jobs separately from failures and clears them on re-enqueue', async () => {
+    const queue = new ReviewQueue(
+      async () => ({
+        status: 'awaiting_manual_review',
+        error: 'URL-only note without fetched article content.',
+      }),
+      { maxConcurrentJobs: 1 },
+    );
+
+    const first = queue.enqueue(createReviewJob('polling', 'Inbox/url-only.md'));
+    await first.promise;
+
+    expect(queue.getSnapshot().awaitingManualReviewJobs).toEqual([
+      expect.objectContaining({ notePath: 'Inbox/url-only.md', source: 'polling' }),
+    ]);
+    expect(queue.getSnapshot().failedJobs).toHaveLength(0);
+    expect(queue.getSnapshot().failed).toBe(0);
+
+    // A manual (fetch-enabled) re-enqueue clears the awaiting state.
+    queue.pause();
+    const retry = queue.enqueue(createReviewJob('manual-current', 'Inbox/url-only.md'));
+    expect(retry.accepted).toBe(true);
+    expect(queue.getSnapshot().awaitingManualReviewJobs).toHaveLength(0);
+  });
+
+  it('replaces an awaiting state with a failure on a later failing run', async () => {
+    let status: ReviewJobResult['status'] = 'awaiting_manual_review';
+    const queue = new ReviewQueue(
+      async () => ({ status, error: 'result' }),
+      { maxConcurrentJobs: 1 },
+    );
+
+    const first = queue.enqueue(createReviewJob('polling', 'Inbox/url-only.md'));
+    await first.promise;
+    expect(queue.getSnapshot().awaitingManualReviewJobs).toHaveLength(1);
+
+    status = 'failed';
+    const second = queue.enqueue(createReviewJob('manual-current', 'Inbox/url-only.md'));
+    await second.promise;
+
+    expect(queue.getSnapshot().awaitingManualReviewJobs).toHaveLength(0);
+    expect(queue.getSnapshot().failedJobs).toEqual([
+      expect.objectContaining({ notePath: 'Inbox/url-only.md' }),
+    ]);
+  });
+
   it('tracks failed jobs and clears them on retry without restoring on cancel', async () => {
     const queue = new ReviewQueue(
       async () => ({ status: 'failed', error: 'boom', reasonCode: 'internal_error' }),

@@ -1,6 +1,7 @@
 import { ReviewRateLimiter } from './rateLimiter';
 import { createDefaultReviewRetryPolicy, type ReviewRetryPolicy } from './retry';
 import type {
+  QueueAwaitingManualReviewJob,
   QueueFailedJob,
   QueueHistoryEntry,
   ReviewJob,
@@ -46,6 +47,11 @@ export class ReviewQueue {
   // not an append-only history: it is cleared on the next accepted enqueue and
   // is intentionally not restored if that re-queued job is cancelled.
   private readonly failedByPath = new Map<string, QueueFailedJob>();
+  // URL-only notes that a background job could not fetch. Like failedByPath this
+  // is a current-state view, cleared on the next accepted enqueue. Kept separate
+  // from failures so they stay actionable (see the queue monitor) and are not
+  // retried automatically.
+  private readonly awaitingManualReviewByPath = new Map<string, QueueAwaitingManualReviewJob>();
   private processedCount = 0;
   private skippedCount = 0;
   private failedCount = 0;
@@ -96,8 +102,10 @@ export class ReviewQueue {
     this.queuedOrRunningPaths.add(job.notePath);
     this.pendingEntries.push(entry);
     this.pendingByPath.set(job.notePath, entry);
-    // A re-queued note is no longer in a failed state; drop the stale failure.
+    // A re-queued note is no longer in a failed or awaiting state; drop the
+    // stale entry. A manual review that fetches the URL resolves it naturally.
     this.failedByPath.delete(job.notePath);
+    this.awaitingManualReviewByPath.delete(job.notePath);
     this.logEvent('INFO', 'enqueue_accepted', job);
     this.notifyStatus();
     this.assertQueueInvariants('enqueue');
@@ -127,6 +135,9 @@ export class ReviewQueue {
       pendingJobs: this.pendingEntries.map((e) => e.job),
       runningJobs: Array.from(this.runningByPath.values()),
       failedJobs: Array.from(this.failedByPath.values()).sort((a, b) => b.timestamp - a.timestamp),
+      awaitingManualReviewJobs: Array.from(this.awaitingManualReviewByPath.values()).sort(
+        (a, b) => b.timestamp - a.timestamp,
+      ),
       history: [...this.history],
     };
   }
@@ -254,8 +265,9 @@ export class ReviewQueue {
     }
   }
 
-  private updateFailedState(job: ReviewJob, result: ReviewJobResult): void {
+  private updateTerminalState(job: ReviewJob, result: ReviewJobResult): void {
     if (result.status === 'failed') {
+      this.awaitingManualReviewByPath.delete(job.notePath);
       this.failedByPath.set(job.notePath, {
         notePath: job.notePath,
         source: job.source,
@@ -267,7 +279,18 @@ export class ReviewQueue {
       return;
     }
 
+    if (result.status === 'awaiting_manual_review') {
+      this.failedByPath.delete(job.notePath);
+      this.awaitingManualReviewByPath.set(job.notePath, {
+        notePath: job.notePath,
+        source: job.source,
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
     this.failedByPath.delete(job.notePath);
+    this.awaitingManualReviewByPath.delete(job.notePath);
   }
 
   private async drainQueue(): Promise<void> {
@@ -341,12 +364,17 @@ export class ReviewQueue {
 
       this.recordResult(finalResult);
       this.recordHistory(entry.job, finalResult);
-      this.updateFailedState(entry.job, finalResult);
+      this.updateTerminalState(entry.job, finalResult);
 
       if (finalResult.status === 'processed') {
         this.logEvent('INFO', 'job_succeeded', entry.job, { durationMs: this.jobDurationMs(entry.job) });
       } else if (finalResult.status === 'failed') {
         this.logEvent('WARN', 'job_failed', entry.job, {
+          errorMessage: finalResult.error,
+          durationMs: this.jobDurationMs(entry.job),
+        });
+      } else if (finalResult.status === 'awaiting_manual_review') {
+        this.logEvent('INFO', 'job_awaiting_manual_review', entry.job, {
           errorMessage: finalResult.error,
           durationMs: this.jobDurationMs(entry.job),
         });
@@ -362,7 +390,7 @@ export class ReviewQueue {
       };
       this.failedCount += 1;
       this.recordHistory(entry.job, result);
-      this.updateFailedState(entry.job, result);
+      this.updateTerminalState(entry.job, result);
       this.logEvent('ERROR', 'job_failed', entry.job, {
         errorMessage: result.error,
         durationMs: this.jobDurationMs(entry.job),
@@ -526,6 +554,12 @@ export class ReviewQueue {
 
     if (result.status === 'cancelled') {
       this.cancelledCount += 1;
+      return;
+    }
+
+    // Awaiting manual review is a non-failure terminal state and is tracked in
+    // its own map; it must not inflate the failure counter.
+    if (result.status === 'awaiting_manual_review') {
       return;
     }
 

@@ -2,7 +2,12 @@ import type { QueueFailureReasonCode } from './queueFailureReason';
 
 export type ReviewJobSource = 'manual-current' | 'manual-folder' | 'auto-create' | 'auto-modify' | 'polling';
 
-export type ReviewJobStatus = 'pending' | 'running' | 'processed' | 'skipped' | 'failed' | 'cancelled';
+export type ReviewJobStatus = 'pending' | 'running' | 'processed' | 'skipped' | 'failed' | 'cancelled' | 'awaiting_manual_review';
+
+export type ReviewTerminalJobStatus = Extract<
+  ReviewJobStatus,
+  'processed' | 'skipped' | 'failed' | 'cancelled' | 'awaiting_manual_review'
+>;
 
 export interface ReviewJob {
   id: string;
@@ -17,7 +22,7 @@ export interface ReviewJob {
 }
 
 export interface ReviewJobResult {
-  status: Extract<ReviewJobStatus, 'processed' | 'skipped' | 'failed' | 'cancelled'>;
+  status: ReviewTerminalJobStatus;
   error?: string;
   retryable?: boolean;
   attempts?: number;
@@ -28,7 +33,7 @@ export interface QueueHistoryEntry {
   id: string;
   notePath: string;
   source: ReviewJobSource;
-  status: Extract<ReviewJobStatus, 'processed' | 'skipped' | 'failed' | 'cancelled'>;
+  status: ReviewTerminalJobStatus;
   timestamp: number;
   error?: string;
   attempts?: number;
@@ -51,6 +56,18 @@ export interface QueueFailedJob {
   timestamp: number;
 }
 
+/**
+ * A URL-only note left unreviewed by a background job because remote URL
+ * fetching is disabled there. This is not a failure: a foreground manual
+ * review can still fetch and process the note. The state is a view of the
+ * current processing state and is cleared on the next accepted enqueue.
+ */
+export interface QueueAwaitingManualReviewJob {
+  notePath: string;
+  source: ReviewJobSource;
+  timestamp: number;
+}
+
 export interface ReviewQueueSnapshot {
   pending: number;
   running: number;
@@ -65,6 +82,7 @@ export interface ReviewQueueSnapshot {
   pendingJobs: ReviewJob[];
   runningJobs: ReviewJob[];
   failedJobs: QueueFailedJob[];
+  awaitingManualReviewJobs: QueueAwaitingManualReviewJob[];
   history: QueueHistoryEntry[];
 }
 

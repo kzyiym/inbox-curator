@@ -194,6 +194,22 @@ export function isClearlyInsufficientInput(
   return { insufficient: false };
 }
 
+/**
+ * True when a URL-only note was intentionally left unfetched because the review
+ * runs in the background (remote URL fetching disabled). These notes are not
+ * unusable: a foreground manual review can still fetch them. Callers should
+ * surface them as awaiting manual review instead of a generic failure.
+ */
+export function isBackgroundFetchDisabledUrlOnly(
+  modelInput: Pick<ReviewModelInputPayload, 'contentType' | 'fetchStatus' | 'extractionMethod'>,
+): boolean {
+  return (
+    modelInput.contentType === 'url_only' &&
+    modelInput.fetchStatus !== 'success' &&
+    modelInput.extractionMethod === 'background-fetch-disabled'
+  );
+}
+
 type ReviewRawResponse = Record<string, unknown>;
 
 class ReviewPipelineError extends Error {
@@ -1352,10 +1368,13 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
   const insufficiency = isClearlyInsufficientInput(modelInput, rawNoteBody);
   if (insufficiency.insufficient) {
     const reason = insufficiency.reason ?? 'Insufficient input for AI review.';
+    const awaitingManualReview = isBackgroundFetchDisabledUrlOnly(modelInput);
     void logOperation(app, {
       timestamp: new Date().toISOString(),
       level: 'WARN',
-      event: 'review_skipped_insufficient_input',
+      event: awaitingManualReview
+        ? 'review_awaiting_manual_review'
+        : 'review_skipped_insufficient_input',
       operationId: options.operationId,
       notePath: file.path,
       provider: options.provider,
@@ -1367,7 +1386,7 @@ export async function runReviewPipeline(app: App, file: TFile, options: ReviewPi
       error: reason,
       retryable: false,
       stage: 'input',
-      errorCode: 'insufficient_input',
+      errorCode: awaitingManualReview ? 'awaiting_manual_review' : 'insufficient_input',
     };
   }
 

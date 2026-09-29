@@ -6,6 +6,7 @@
 - Retry preserves the original job source, so a watched-folder job keeps its normal auto-sort behavior (existing confidence, allowlist, and prompt-injection checks still apply). Retrying skips the API call when the note no longer exists or is already reviewed (`ai_review_source_hash` matches).
 - Failed rows show only a classified reason (rate limit, timeout, invalid response, etc.); raw error text, note content, and provider responses are never shown in the UI and remain in the logs.
 - The failed list reflects the current processing state: it is cleared when a note is re-queued and is not restored if that retry is cancelled.
+- URL-only notes in background review (auto-watch/polling) no longer appear as repeated generic failures. Background review still never fetches remote URLs; instead these notes are listed as "Awaiting manual review" with a **Review manually** action that runs a fetch-enabled foreground review. Unchanged notes are not re-attempted until the note changes, and a successful manual review clears the state.
 - ChatGPT (Codex CLI) provider now works on Windows. `codex.exe` / `codex.cmd` (npm) / `codex.bat` are found on PATH (plus `%APPDATA%\npm`, Volta, pnpm, Scoop, and Chocolatey locations); `.cmd`/`.bat` shims run through `cmd.exe` with every argument quoted, and arguments containing `"`, `%`, or line breaks are refused. PowerShell scripts (`codex.ps1`) are not supported as the CLI path. Timeouts and cancellations stop the whole process tree with `taskkill`, and no console window is shown.
 
 ## 1.2.0

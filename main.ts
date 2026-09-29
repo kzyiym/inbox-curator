@@ -82,6 +82,12 @@ export default class InboxCuratorPlugin extends Plugin {
   private reviewRateLimiter = new ReviewRateLimiter();
   private readonly automaticReviewTimers = new Map<string, number>();
   private readonly fileSkipCache = new Map<string, FileSkipCacheEntry>();
+  // URL-only notes that a background review could not fetch. Keyed by path with
+  // the source mtime at the time of classification. While the mtime is
+  // unchanged, automatic (create/modify/polling) enqueues are skipped so
+  // polling does not loop on a note that needs a manual, fetch-enabled review.
+  // Editing the note changes the mtime and re-enables automatic processing.
+  private readonly backgroundUrlOnlyAwaitSkipCache = new Map<string, number>();
   private pollingIntervalId: number | null = null;
   private pollingInProgress = false;
   // Processing marker renames are UI-only file-name changes.
@@ -212,6 +218,7 @@ export default class InboxCuratorPlugin extends Plugin {
     }));
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
       this.fileSkipCache.delete(oldPath);
+      this.backgroundUrlOnlyAwaitSkipCache.delete(oldPath);
       this.processingMarkerRenameSkipCache.delete(oldPath);
       if (file instanceof TFile) {
         this.processingMarkerRenameSkipCache.delete(file.path);
@@ -219,6 +226,7 @@ export default class InboxCuratorPlugin extends Plugin {
     }));
     this.registerEvent(this.app.vault.on('delete', (file) => {
       this.fileSkipCache.delete(file.path);
+      this.backgroundUrlOnlyAwaitSkipCache.delete(file.path);
     }));
 
     this.addSettingTab(new InboxCuratorSettingTab(this.app, this));
@@ -385,6 +393,7 @@ export default class InboxCuratorPlugin extends Plugin {
     this.reviewQueue?.stop();
     this.reviewRateLimiter.reset();
     this.fileSkipCache.clear();
+    this.backgroundUrlOnlyAwaitSkipCache.clear();
     clearSessionApiKeys();
     this.finishProcessing();
     void this.cleanupOwnedProcessingMarkers();
@@ -755,6 +764,29 @@ export default class InboxCuratorPlugin extends Plugin {
         return { status: 'cancelled', error: 'Plugin unloaded' };
       }
       if (result.ok === false) {
+        // Background reviews never fetch remote URLs. A URL-only note therefore
+        // cannot be reviewed automatically; classify it as awaiting manual
+        // review instead of a generic failure, and suppress repeated automatic
+        // attempts until the note changes or a manual review runs.
+        if (isBackgroundAutoJob && result.errorCode === 'awaiting_manual_review') {
+          this.backgroundUrlOnlyAwaitSkipCache.set(file.path, file.stat.mtime);
+          void logOperation(this.app, {
+            timestamp: new Date().toISOString(),
+            level: 'INFO',
+            event: 'review_awaiting_manual_review',
+            operationId: job.operationId,
+            notePath: file.path,
+            provider: this.settings.provider,
+            model: this.settings.model,
+            stage: result.stage,
+            message: result.error ?? 'URL-only note requires a manual review to fetch remote content.',
+          });
+          return {
+            status: 'awaiting_manual_review',
+            error: result.error,
+            retryable: false,
+          };
+        }
         void logError(this.app, 'ERROR', 'Inbox Curator: Review pipeline failed', {
           provider: this.settings.provider,
           model: this.settings.model,
@@ -1311,6 +1343,16 @@ export default class InboxCuratorPlugin extends Plugin {
         return { accepted: false, skipped: true };
       }
 
+      // A URL-only note that a background job already identified as needing a
+      // manual (fetch-enabled) review is not re-attempted while it is unchanged.
+      const awaitingMtime = this.backgroundUrlOnlyAwaitSkipCache.get(file.path);
+      if (awaitingMtime !== undefined) {
+        if (awaitingMtime === file.stat.mtime) {
+          return { accepted: false, skipped: true };
+        }
+        this.backgroundUrlOnlyAwaitSkipCache.delete(file.path);
+      }
+
       if (await this.shouldSkipWatchedFile(file)) {
         return { accepted: false, skipped: true };
       }
@@ -1348,7 +1390,12 @@ export default class InboxCuratorPlugin extends Plugin {
 
   private attachBackgroundReviewResultLogging(file: TFile, resultPromise: Promise<ReviewJobResult>): void {
     void resultPromise.then((result) => {
-      if (result.status === 'processed' || result.status === 'skipped' || result.status === 'cancelled') {
+      if (
+        result.status === 'processed' ||
+        result.status === 'skipped' ||
+        result.status === 'cancelled' ||
+        result.status === 'awaiting_manual_review'
+      ) {
         return;
       }
 
@@ -2021,7 +2068,25 @@ export default class InboxCuratorPlugin extends Plugin {
       resume: () => queue.resume(),
       cancelPendingJob: (id) => queue.cancelPendingJob(id),
       retryFailed: (notePath, source) => this.retryFailedReview(notePath, source),
+      reviewManually: (notePath) => { void this.reviewAwaitingNote(notePath); },
     }).open();
+  }
+
+  /**
+   * Runs a foreground, fetch-enabled review for a note that a background job
+   * left awaiting manual review (currently URL-only notes). Foreground review
+   * is allowed to fetch the URL, so this is the actionable fix for those notes.
+   */
+  private async reviewAwaitingNote(notePath: string): Promise<void> {
+    const file = this.resolveMarkdownFile(notePath);
+    if (!file) {
+      void logError(this.app, 'WARN', 'Inbox Curator: Awaiting note no longer exists', { notePath });
+      new Notice(t('queue.reviewManuallyMissing'));
+      return;
+    }
+
+    this.backgroundUrlOnlyAwaitSkipCache.delete(file.path);
+    await this.reviewFile(file);
   }
 
   /**

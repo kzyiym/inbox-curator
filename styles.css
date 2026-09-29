@@ -347,6 +347,14 @@ input[list]::-webkit-calendar-picker-indicator {
     color: var(--text-error);
 }
 
+.inbox-curator-queue-badge.is-awaiting {
+    border-color: var(--text-accent);
+}
+
+.inbox-curator-queue-badge.is-awaiting .inbox-curator-queue-badge-count {
+    color: var(--text-accent);
+}
+
 .inbox-curator-queue-max {
     margin-inline-start: auto;
     font-size: var(--font-smaller, 0.8em);

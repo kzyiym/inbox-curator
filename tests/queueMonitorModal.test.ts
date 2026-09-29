@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueueMonitorModal, type QueueMonitorCallbacks } from '../src/queueMonitorModal';
 import { createReviewJob } from '../src/queue/job';
-import type { QueueFailedJob, ReviewQueueSnapshot } from '../src/queue/queueTypes';
+import type {
+  QueueAwaitingManualReviewJob,
+  QueueFailedJob,
+  ReviewQueueSnapshot,
+} from '../src/queue/queueTypes';
 
 function createSnapshot(overrides: Partial<ReviewQueueSnapshot> = {}): ReviewQueueSnapshot {
   return {
@@ -18,6 +22,7 @@ function createSnapshot(overrides: Partial<ReviewQueueSnapshot> = {}): ReviewQue
     pendingJobs: [],
     runningJobs: [],
     failedJobs: [],
+    awaitingManualReviewJobs: [],
     history: [],
     ...overrides,
   };
@@ -32,6 +37,7 @@ function createHarness(initial: ReviewQueueSnapshot) {
     resume: vi.fn(),
     cancelPendingJob: vi.fn(() => true),
     retryFailed: vi.fn(async () => ({ accepted: true })),
+    reviewManually: vi.fn(),
   };
 
   return {
@@ -45,6 +51,10 @@ function createHarness(initial: ReviewQueueSnapshot) {
 
 function failedJob(notePath: string): QueueFailedJob {
   return { notePath, source: 'manual-folder', reasonCode: 'timeout', timestamp: 1 };
+}
+
+function awaitingJob(notePath: string): QueueAwaitingManualReviewJob {
+  return { notePath, source: 'polling', timestamp: 1 };
 }
 
 function forceRender(modal: QueueMonitorModal): void {
@@ -94,6 +104,38 @@ describe('QueueMonitorModal rendering', () => {
     const section = modal!.contentEl.querySelector('.inbox-curator-queue-section');
     expect(section?.querySelector('.inbox-curator-queue-reason')?.textContent).toBe('Request timed out');
     expect(section?.querySelector('[data-queue-focus^="retry:"]')).not.toBeNull();
+  });
+
+  it('renders awaiting-manual-review notes with a reason and a manual review action', () => {
+    const harness = open(
+      createSnapshot({ awaitingManualReviewJobs: [awaitingJob('Inbox/url-only.md')] }),
+    );
+
+    const section = modal!.contentEl.querySelector('.inbox-curator-queue-section');
+    expect(section?.querySelector('.inbox-curator-queue-section-label')?.textContent).toBe(
+      'Awaiting manual review',
+    );
+    expect(section?.querySelector('.inbox-curator-queue-reason')?.textContent).toBe(
+      'Needs manual review (URL fetch)',
+    );
+
+    const button = section?.querySelector<HTMLButtonElement>(
+      '[data-queue-focus^="review-manually:"]',
+    );
+    expect(button).not.toBeNull();
+    button!.click();
+    expect(harness.callbacks.reviewManually).toHaveBeenCalledWith('Inbox/url-only.md');
+  });
+
+  it('does not count awaiting-manual-review notes as failures', () => {
+    open(createSnapshot({ awaitingManualReviewJobs: [awaitingJob('Inbox/url-only.md')] }));
+
+    const badges = Array.from(modal!.contentEl.querySelectorAll('.inbox-curator-queue-badge'));
+    const failedBadge = badges.find(
+      (badge) => badge.querySelector('.inbox-curator-queue-badge-label')?.textContent === 'Failed',
+    );
+    expect(failedBadge?.querySelector('.inbox-curator-queue-badge-count')?.textContent).toBe('0');
+    expect(modal!.contentEl.querySelector('.inbox-curator-queue-failure')).not.toBeNull();
   });
 
   it('does not rebuild the DOM when the state is unchanged', () => {
