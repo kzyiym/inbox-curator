@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Review queue monitor (`Open review queue monitor`): view pending, running, and failed reviews in one panel. Pause/resume the queue (in-flight API requests are not interrupted), cancel individual pending jobs, and retry failed notes.
+- Retry preserves the original job source, so a watched-folder job keeps its normal auto-sort behavior (existing confidence, allowlist, and prompt-injection checks still apply). Retrying skips the API call when the note no longer exists or is already reviewed (`ai_review_source_hash` matches).
+- Failed rows show only a classified reason (rate limit, timeout, invalid response, etc.); raw error text, note content, and provider responses are never shown in the UI and remain in the logs.
+- The failed list reflects the current processing state: it is cleared when a note is re-queued and is not restored if that retry is cancelled.
+
 ## 1.2.0
 
 - Reading decision: each review now starts with `Read the source` / `Summary is enough` / `Reference when needed` / `Hold`, plus a one-sentence, article-specific reason. It is independent from the filing action and does not change auto-sort behavior.

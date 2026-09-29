@@ -1,6 +1,7 @@
 import { ReviewRateLimiter } from './rateLimiter';
 import { createDefaultReviewRetryPolicy, type ReviewRetryPolicy } from './retry';
 import type {
+  QueueFailedJob,
   QueueHistoryEntry,
   ReviewJob,
   ReviewJobProcessor,
@@ -41,6 +42,10 @@ export class ReviewQueue {
   private readonly pendingByPath = new Map<string, InternalQueueEntry>();
   private readonly runningByPath = new Map<string, ReviewJob>();
   private readonly queuedOrRunningPaths = new Set<string>();
+  // Latest failure per note path. This reflects the current processing state,
+  // not an append-only history: it is cleared on the next accepted enqueue and
+  // is intentionally not restored if that re-queued job is cancelled.
+  private readonly failedByPath = new Map<string, QueueFailedJob>();
   private processedCount = 0;
   private skippedCount = 0;
   private failedCount = 0;
@@ -91,6 +96,8 @@ export class ReviewQueue {
     this.queuedOrRunningPaths.add(job.notePath);
     this.pendingEntries.push(entry);
     this.pendingByPath.set(job.notePath, entry);
+    // A re-queued note is no longer in a failed state; drop the stale failure.
+    this.failedByPath.delete(job.notePath);
     this.logEvent('INFO', 'enqueue_accepted', job);
     this.notifyStatus();
     this.assertQueueInvariants('enqueue');
@@ -119,6 +126,7 @@ export class ReviewQueue {
       paused: this.paused,
       pendingJobs: this.pendingEntries.map((e) => e.job),
       runningJobs: Array.from(this.runningByPath.values()),
+      failedJobs: Array.from(this.failedByPath.values()).sort((a, b) => b.timestamp - a.timestamp),
       history: [...this.history],
     };
   }
@@ -162,18 +170,26 @@ export class ReviewQueue {
     void this.drainQueue();
   }
 
+  private removePendingEntryAt(index: number): void {
+    const entry = this.pendingEntries[index];
+    if (!entry) {
+      return;
+    }
+
+    this.pendingEntries.splice(index, 1);
+    this.pendingByPath.delete(entry.job.notePath);
+    this.queuedOrRunningPaths.delete(entry.job.notePath);
+    this.cancelledCount += 1;
+
+    const result: ReviewJobResult = { status: 'cancelled' };
+    this.recordHistory(entry.job, result);
+    entry.resolve(result);
+  }
+
   cancelJob(id: string): boolean {
     const pendingIndex = this.pendingEntries.findIndex((e) => e.job.id === id);
     if (pendingIndex !== -1) {
-      const entry = this.pendingEntries[pendingIndex];
-      this.pendingEntries.splice(pendingIndex, 1);
-      this.pendingByPath.delete(entry.job.notePath);
-      this.queuedOrRunningPaths.delete(entry.job.notePath);
-      this.cancelledCount += 1;
-
-      const result: ReviewJobResult = { status: 'cancelled' };
-      this.recordHistory(entry.job, result);
-      entry.resolve(result);
+      this.removePendingEntryAt(pendingIndex);
       this.assertQueueInvariants('cancelJob');
       return true;
     }
@@ -186,6 +202,21 @@ export class ReviewQueue {
     }
 
     return false;
+  }
+
+  /**
+   * Cancels a job only while it is still pending. Running jobs are never
+   * cancelled here because their in-flight API request cannot be aborted.
+   */
+  cancelPendingJob(id: string): boolean {
+    const pendingIndex = this.pendingEntries.findIndex((e) => e.job.id === id);
+    if (pendingIndex === -1) {
+      return false;
+    }
+
+    this.removePendingEntryAt(pendingIndex);
+    this.assertQueueInvariants('cancelPendingJob');
+    return true;
   }
 
   cancelPendingJobs(): void {
@@ -215,11 +246,28 @@ export class ReviewQueue {
       timestamp: Date.now(),
       error: result.error,
       attempts: result.attempts,
+      reasonCode: result.reasonCode,
     });
 
     if (this.history.length > MAX_HISTORY_SIZE) {
       this.history.shift();
     }
+  }
+
+  private updateFailedState(job: ReviewJob, result: ReviewJobResult): void {
+    if (result.status === 'failed') {
+      this.failedByPath.set(job.notePath, {
+        notePath: job.notePath,
+        source: job.source,
+        reasonCode: result.reasonCode ?? 'unknown',
+        retryable: result.retryable,
+        attempts: result.attempts,
+        timestamp: Date.now(),
+      });
+      return;
+    }
+
+    this.failedByPath.delete(job.notePath);
   }
 
   private async drainQueue(): Promise<void> {
@@ -293,6 +341,7 @@ export class ReviewQueue {
 
       this.recordResult(finalResult);
       this.recordHistory(entry.job, finalResult);
+      this.updateFailedState(entry.job, finalResult);
 
       if (finalResult.status === 'processed') {
         this.logEvent('INFO', 'job_succeeded', entry.job, { durationMs: this.jobDurationMs(entry.job) });
@@ -309,9 +358,11 @@ export class ReviewQueue {
       const result: ReviewJobResult = {
         status: 'failed',
         error: error instanceof Error ? error.message : 'Unknown error in runEntry',
+        reasonCode: 'internal_error',
       };
       this.failedCount += 1;
       this.recordHistory(entry.job, result);
+      this.updateFailedState(entry.job, result);
       this.logEvent('ERROR', 'job_failed', entry.job, {
         errorMessage: result.error,
         durationMs: this.jobDurationMs(entry.job),
