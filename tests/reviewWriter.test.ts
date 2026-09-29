@@ -762,6 +762,42 @@ describe('appendAutoExecuteResult', () => {
     expect(result).toContain(originalContent);
   });
 
+  it('records the actual executed action separately from the recommended action', async () => {
+    const originalContent = '# Review Note\nSome content';
+    const files = new Map<string, string>([['AI Reviews/note.md', originalContent]]);
+    const { app, modifiedContents } = createMockAppForWriter(files);
+
+    await appendAutoExecuteResult(app, 'AI Reviews/note.md', {
+      recommendedAction: 'archive',
+      executed: true,
+      status: 'executed',
+      executedAction: 'read_later',
+      sourcePath: 'Inbox/my-note.md',
+      destinationPath: 'Read Later/my-note.md',
+    }, 'english');
+
+    const result = modifiedContents.get('AI Reviews/note.md');
+    expect(result).toContain('- Recommended action: archive');
+    expect(result).toContain('- Executed action: read_later');
+  });
+
+  it('omits the executed-action line when no action was executed', async () => {
+    const originalContent = '# Review Note\nSome content';
+    const files = new Map<string, string>([['AI Reviews/note.md', originalContent]]);
+    const { app, modifiedContents } = createMockAppForWriter(files);
+
+    await appendAutoExecuteResult(app, 'AI Reviews/note.md', {
+      recommendedAction: 'archive',
+      executed: false,
+      status: 'skipped',
+      sourcePath: 'Inbox/my-note.md',
+      error: 'Destination file already exists.',
+    }, 'english');
+
+    const result = modifiedContents.get('AI Reviews/note.md');
+    expect(result).not.toContain('- Executed action:');
+  });
+
   it('replaces result between markers when markers already exist', async () => {
     const originalContent = '# Review Note\nSome content\n<!-- inbox-curator:auto-execute-result:start -->\n## Auto-execute Result\n- **Status**: Skipped\n<!-- inbox-curator:auto-execute-result:end -->\nFooter content';
     const files = new Map<string, string>([['AI Reviews/note.md', originalContent]]);

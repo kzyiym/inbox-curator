@@ -749,6 +749,7 @@ export interface AutoExecuteResultLog {
   sourcePath: string;
   destinationPath?: string;
   error?: string;
+  executedAction?: string;
 }
 
 export async function appendAutoExecuteResult(
@@ -776,6 +777,10 @@ export async function appendAutoExecuteResult(
     `- Executed: ${params.executed ? 'yes' : 'no'}`,
     `- Source: ${escapeMarkdown(params.sourcePath)}`,
   ];
+
+  if (params.executedAction) {
+    lines.push(`- Executed action: ${escapeMarkdown(params.executedAction)}`);
+  }
 
   if (params.destinationPath) {
     lines.push(`- Destination: ${escapeMarkdown(params.destinationPath)}`);

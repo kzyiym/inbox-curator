@@ -958,6 +958,127 @@ Hello World`,
   });
 });
 
+describe('executeProposedAction automatic action binding (issue #11)', () => {
+  it('skips without moving when frontmatter changed from the reviewed archive to delete_candidate', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: delete_candidate
+---
+Body`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      deleteCandidateFolder: 'Delete Candidates',
+      suggestedFolderBasePath: 'ArchiveBase',
+      skipConfirmation: true,
+      automatic: true,
+      expectedAction: 'archive',
+      allowedActions: ['archive', 'read_later', 'task', 'delete_candidate'],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(result.actionTaken).toBeUndefined();
+    expect(result.error).toContain('changed from archive to delete_candidate');
+    expect(mock.renamedFiles).toHaveLength(0);
+    expect(mock.trashedFiles).toHaveLength(0);
+    expect(mock.createdFolders).toHaveLength(0);
+  });
+
+  it('never auto-moves a delete_candidate even when it is allowlisted, if it was not the reviewed action', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: delete_candidate
+---
+Body`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      deleteCandidateFolder: 'Delete Candidates',
+      skipConfirmation: true,
+      automatic: true,
+      expectedAction: 'read_later',
+      allowedActions: ['archive', 'read_later', 'task', 'delete_candidate'],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(result.actionTaken).toBeUndefined();
+    expect(mock.renamedFiles).toHaveLength(0);
+    expect(mock.trashedFiles).toHaveLength(0);
+  });
+
+  it('still executes an unchanged reviewed archive recommendation', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+---
+Body`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      suggestedFolderBasePath: 'ArchiveBase',
+      skipConfirmation: true,
+      automatic: true,
+      expectedAction: 'archive',
+      allowedActions: ['archive', 'read_later', 'task'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.status).toBe('executed');
+    expect(result.actionTaken).toBe('archive');
+    expect(mock.renamedFiles).toHaveLength(1);
+    expect(mock.renamedFiles[0].dest).toBe('ArchiveBase/my-note.md');
+  });
+
+  it('skips when the reviewed action is no longer permitted by the allowlist', async () => {
+    const file = createMockFile(
+      'Inbox/my-note.md',
+      `---
+ai_review_recommended_action: archive
+---
+Body`,
+    );
+
+    const files = new Map<string, TFile>();
+    files.set('Inbox/my-note.md', file);
+
+    const mock = createMockApp(files);
+    const result = await executeProposedAction(mock.app, file, {
+      outputFolder: 'AI Reviews',
+      suggestedFolderBasePath: 'ArchiveBase',
+      skipConfirmation: true,
+      automatic: true,
+      expectedAction: 'archive',
+      allowedActions: ['read_later', 'task'],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.status).toBe('skipped');
+    expect(result.error).toContain('disabled by the action allowlist');
+    expect(mock.renamedFiles).toHaveLength(0);
+    expect(mock.createdFolders).toHaveLength(0);
+  });
+});
+
 describe('collectDeleteCandidateTargets', () => {
   it('returns only delete_candidate files with their destination and does not mutate', async () => {
     const deleteFile = createMockFile(

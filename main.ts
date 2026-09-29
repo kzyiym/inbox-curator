@@ -874,6 +874,11 @@ export default class InboxCuratorPlugin extends Plugin {
           };
         }
 
+        // Bind execution to the action that actually passed the automatic-action
+        // decision above. The source-hash check intentionally ignores ai_review_
+        // fields, so without this a frontmatter-only change between review and
+        // execution (for example archive -> delete_candidate) could otherwise
+        // move the file with an action that never cleared the automatic gate.
         const actionResult = await executeProposedAction(this.app, file, {
           outputFolder: this.settings.reviewOutputFolder,
           readLaterFolder: this.settings.readLaterFolder,
@@ -882,6 +887,8 @@ export default class InboxCuratorPlugin extends Plugin {
           skipConfirmation: true,
           automatic: true,
           suggestedFolderBasePath: this.settings.suggestedFolderBasePath,
+          expectedAction: reviewAction,
+          allowedActions: getAllowedReviewActions(this.settings),
         });
         if (this.isUnloaded) {
           return { status: 'cancelled', error: 'Plugin unloaded' };
@@ -895,6 +902,9 @@ export default class InboxCuratorPlugin extends Plugin {
             sourcePath: actionSourcePath,
             destinationPath: actionResult.destinationPath,
             error: actionResult.status !== 'executed' ? actionResult.error : undefined,
+            ...(actionResult.status === 'executed' && actionResult.actionTaken
+              ? { executedAction: actionResult.actionTaken }
+              : {}),
           }, result.reviewResult.promptLanguage);
         } catch (appendErr) {
           const appendErrorMessage = appendErr instanceof Error ? appendErr.message : String(appendErr);
@@ -948,6 +958,7 @@ export default class InboxCuratorPlugin extends Plugin {
             details: {
               runId: job.runId,
               action: reviewAction,
+              currentAction: actionResult.action ?? null,
               destinationPath: actionResult.destinationPath ?? null,
               reasonCode: 'skipped',
             },
@@ -959,18 +970,27 @@ export default class InboxCuratorPlugin extends Plugin {
           };
         }
 
+        const recordedAction: AutoSortActionRecord['action'] =
+          actionResult.actionTaken === 'archive' ||
+          actionResult.actionTaken === 'read_later' ||
+          actionResult.actionTaken === 'task' ||
+          actionResult.actionTaken === 'delete_candidate'
+            ? actionResult.actionTaken
+            : (reviewAction as AutoSortActionRecord['action']);
+
         void logOperation(this.app, {
           timestamp: new Date().toISOString(),
           level: 'INFO',
           event: 'auto_sort_executed',
           operationId: job.operationId,
           notePath: file.path,
-          actionType: action,
+          actionType: actionResult.actionTaken ?? action,
           filePath: actionResult.destinationPath,
           message: 'Auto-sort executed',
           details: {
             runId: job.runId,
             action: reviewAction,
+            executedAction: actionResult.actionTaken ?? null,
             sourcePath: actionSourcePath,
             destinationPath: actionResult.destinationPath ?? null,
             reviewMode: this.settings.reviewMode,
@@ -984,7 +1004,7 @@ export default class InboxCuratorPlugin extends Plugin {
         void appendAutoSortActionRecord(this.app, {
           runId: job.runId,
           timestamp: Date.now(),
-          action: reviewAction as AutoSortActionRecord['action'],
+          action: recordedAction,
           sourcePath: actionSourcePath,
           destinationPath: actionResult.destinationPath ?? actionSourcePath,
           reviewMode: this.settings.reviewMode,

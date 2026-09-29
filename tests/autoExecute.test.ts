@@ -126,6 +126,8 @@ describe('InboxCuratorPlugin Auto-execute', () => {
       skipConfirmation: true,
       automatic: true,
       suggestedFolderBasePath: '',
+      expectedAction: 'archive',
+      allowedActions: ['archive', 'read_later', 'task', 'delete_candidate'],
     });
     expect(appendAutoExecuteResult).toHaveBeenCalledWith(mockApp, 'AI Reviews/my-note.ai-review.md', {
       recommendedAction: 'archive',
@@ -134,6 +136,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
       sourcePath: 'Inbox/my-note.md',
       destinationPath: 'References/Archive/my-note.md',
       error: undefined,
+      executedAction: 'archive',
     }, 'english');
     expect(appendAutoSortActionRecord).toHaveBeenCalledWith(mockApp, expect.objectContaining({
       sourcePath: 'Inbox/my-note.md',
@@ -178,6 +181,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
       sourcePath: 'Inbox/my-note.md',
       destinationPath: 'Read Later/my-note.md',
       error: undefined,
+      executedAction: 'read_later',
     }, 'english');
   });
 
@@ -246,6 +250,7 @@ describe('InboxCuratorPlugin Auto-execute', () => {
       sourcePath: 'Inbox/my-note.md',
       destinationPath: 'Tasks/my-note.md',
       error: undefined,
+      executedAction: 'task',
     }, 'english');
   });
 
@@ -772,6 +777,95 @@ describe('InboxCuratorPlugin Auto-execute', () => {
         expect(result.status).toBe('processed');
         expect(executeProposedAction).toHaveBeenCalledTimes(1);
       });
+    });
+  });
+
+  describe('automatic action binding (issue #11)', () => {
+    it('passes the reviewed action and the current allowlist to the execution layer', async () => {
+      plugin.settings.autoExecuteArchive = true;
+      plugin.settings.allowActionReadLater = false;
+
+      vi.mocked(runReviewPipeline).mockResolvedValue({
+        ok: true,
+        reviewResult: {
+          promptLanguage: 'english',
+          verdict: {
+            reliabilityLabel: 'high',
+            recommendedAction: 'archive',
+          },
+        },
+        writeResult: {
+          outputPath: 'AI Reviews/my-note.ai-review.md',
+        },
+      } as any);
+
+      vi.mocked(executeProposedAction).mockResolvedValue({
+        success: true,
+        status: 'executed',
+        actionTaken: 'archive',
+        destinationPath: 'ArchiveBase/my-note.md',
+      });
+
+      const job = createReviewJob('auto-create', 'Inbox/my-note.md', 0);
+      const result = await (plugin as any).runQueuedReviewJob(job);
+
+      expect(result.status).toBe('processed');
+      expect(executeProposedAction).toHaveBeenCalledWith(mockApp, expect.any(TFile), expect.objectContaining({
+        expectedAction: 'archive',
+        allowedActions: ['archive', 'task', 'delete_candidate'],
+      }));
+    });
+
+    it('skips without recording history when the frontmatter action changed after the review decision', async () => {
+      plugin.settings.autoExecuteArchive = true;
+      mockApp.vault.read.mockResolvedValue(
+        '---\nai_review_recommended_action: delete_candidate\n---\nBody',
+      );
+
+      vi.mocked(runReviewPipeline).mockResolvedValue({
+        ok: true,
+        reviewResult: {
+          promptLanguage: 'english',
+          verdict: {
+            reliabilityLabel: 'high',
+            recommendedAction: 'archive',
+          },
+        },
+        writeResult: {
+          outputPath: 'AI Reviews/my-note.ai-review.md',
+        },
+      } as any);
+
+      vi.mocked(executeProposedAction).mockResolvedValue({
+        success: false,
+        status: 'skipped',
+        error: 'Recommended action changed from archive to delete_candidate.',
+        action: 'delete_candidate',
+      });
+
+      const job = createReviewJob('auto-create', 'Inbox/my-note.md', 0);
+      const result = await (plugin as any).runQueuedReviewJob(job);
+
+      expect(result.status).toBe('processed');
+      expect(executeProposedAction).toHaveBeenCalledWith(mockApp, expect.any(TFile), expect.objectContaining({
+        expectedAction: 'archive',
+      }));
+      expect(appendAutoSortActionRecord).not.toHaveBeenCalled();
+      expect(appendAutoExecuteResult).toHaveBeenCalledWith(mockApp, 'AI Reviews/my-note.ai-review.md', {
+        recommendedAction: 'archive',
+        executed: false,
+        status: 'skipped',
+        sourcePath: 'Inbox/my-note.md',
+        destinationPath: undefined,
+        error: 'Recommended action changed from archive to delete_candidate.',
+      }, 'english');
+      expect(logOperation).toHaveBeenCalledWith(mockApp, expect.objectContaining({
+        event: 'auto_sort_skipped',
+        details: expect.objectContaining({
+          action: 'archive',
+          currentAction: 'delete_candidate',
+        }),
+      }));
     });
   });
 
