@@ -1,5 +1,9 @@
 import { App, Notice, TFile } from 'obsidian';
-import { getLastUndoableAutoSortRun, markAutoSortRunUndone } from './utils/autoSortHistory';
+import {
+  getLastUndoableAutoSortRun,
+  updateAutoSortRunUndoProgress,
+  type AutoSortUndoProgressUpdate,
+} from './utils/autoSortHistory';
 import { logOperation } from './utils/operationLog';
 import { t } from './i18n';
 
@@ -9,6 +13,7 @@ export interface UndoResult {
   failedCount: number;
   runId: string;
   totalActions: number;
+  remainingCount: number;
 }
 
 function buildRestoredPath(sourcePath: string, existingPaths: Set<string>): string {
@@ -39,12 +44,20 @@ export async function undoLastAutoSortRun(app: App): Promise<UndoResult | null> 
     return null;
   }
 
-  const actions = [...run.actions].reverse();
+  // Only actions that are not yet restored are retryable; successfully
+  // restored actions from earlier attempts must not be moved again.
+  const pending = run.actions
+    .map((action, actionIndex) => ({ action, actionIndex }))
+    .filter(({ action }) => action.restoredAt == null)
+    .reverse();
+
   let restoredCount = 0;
   let skippedCount = 0;
   let failedCount = 0;
   const skipped: string[] = [];
   const failed: string[] = [];
+  const restoredPaths: string[] = [];
+  const progressUpdates: AutoSortUndoProgressUpdate[] = [];
 
   const existingPaths = new Set<string>();
   const vaultFiles = app.vault.getMarkdownFiles();
@@ -52,13 +65,14 @@ export async function undoLastAutoSortRun(app: App): Promise<UndoResult | null> 
     existingPaths.add(f.path);
   }
 
-  for (const action of actions) {
+  for (const { action, actionIndex } of pending) {
     try {
       const destPath = action.destinationPath;
       const sourcePath = action.sourcePath;
 
       const destFile = app.vault.getAbstractFileByPath(destPath);
       if (!destFile || !(destFile instanceof TFile)) {
+        // Destination may reappear later, so leave the action unresolved/retryable.
         skippedCount++;
         skipped.push(`Destination not found: ${destPath}`);
         continue;
@@ -69,19 +83,36 @@ export async function undoLastAutoSortRun(app: App): Promise<UndoResult | null> 
 
       await app.fileManager.renameFile(destFile, resolvedSourcePath);
       restoredCount++;
+      restoredPaths.push(sourcePath);
+      progressUpdates.push({ actionIndex, restoredAt: Date.now() });
     } catch (err) {
+      // Transient rename failures also stay retryable.
       failedCount++;
       const msg = err instanceof Error ? err.message : String(err);
       failed.push(`${action.sourcePath}: ${msg}`);
     }
   }
 
-  await markAutoSortRunUndone(app, run.runId);
+  const progress = await updateAutoSortRunUndoProgress(app, run.runId, progressUpdates);
+  const allResolved = progress
+    ? progress.allResolved
+    : pending.length > 0 && restoredCount === pending.length;
+  const resolvedCount = progress?.resolvedCount ?? restoredCount;
+  const totalActions = progress?.totalActions ?? run.actions.length;
+  const remainingCount = Math.max(0, totalActions - resolvedCount);
 
-  // Build path map for logging (truncated if large)
-  const restoredPaths = actions.slice(0, restoredCount).map((a) => a.sourcePath);
+  const details = {
+    runId: run.runId,
+    restoredCount,
+    skippedCount,
+    failedCount,
+    remainingCount,
+    restoredPaths: restoredPaths.join('; ').slice(0, 500),
+    skippedReasons: skipped.join('; ').slice(0, 500),
+    failedReasons: failed.join('; ').slice(0, 500),
+  };
 
-  if (restoredCount === actions.length) {
+  if (allResolved) {
     new Notice(t('notice.undoSuccess', { count: restoredCount }));
     void logOperation(app, {
       timestamp: new Date().toISOString(),
@@ -89,29 +120,23 @@ export async function undoLastAutoSortRun(app: App): Promise<UndoResult | null> 
       event: 'auto_sort_undo_completed',
       notePath: run.runId,
       message: `Auto-sort undo completed: ${restoredCount} notes restored`,
-      details: {
-        runId: run.runId,
-        restoredCount,
-        skippedCount,
-        failedCount,
-      },
+      details,
     });
   } else if (restoredCount > 0) {
-    new Notice(t('notice.undoPartial', { restored: restoredCount, skipped: skippedCount }));
+    new Notice(
+      t('notice.undoPartial', {
+        restored: restoredCount,
+        skipped: skippedCount,
+        failed: failedCount,
+      }),
+    );
     void logOperation(app, {
       timestamp: new Date().toISOString(),
       level: 'WARN',
       event: 'auto_sort_undo_partial',
       notePath: run.runId,
-      message: `Auto-sort undo partially completed: ${restoredCount} restored, ${skippedCount} skipped, ${failedCount} failed`,
-      details: {
-        runId: run.runId,
-        restoredCount,
-        skippedCount,
-        failedCount,
-        skippedReasons: skipped.join('; ').slice(0, 500),
-        failedReasons: failed.join('; ').slice(0, 500),
-      },
+      message: `Auto-sort undo partially completed: ${restoredCount} restored, ${skippedCount} skipped, ${failedCount} failed, ${remainingCount} still retryable`,
+      details,
     });
   } else {
     new Notice(t('notice.undoFailed'));
@@ -120,17 +145,17 @@ export async function undoLastAutoSortRun(app: App): Promise<UndoResult | null> 
       level: 'ERROR',
       event: 'auto_sort_undo_failed',
       notePath: run.runId,
-      message: `Auto-sort undo failed: 0 notes restored`,
-      details: {
-        runId: run.runId,
-        restoredCount,
-        skippedCount,
-        failedCount,
-        skippedReasons: skipped.join('; ').slice(0, 500),
-        failedReasons: failed.join('; ').slice(0, 500),
-      },
+      message: `Auto-sort undo failed: 0 notes restored, ${remainingCount} still retryable`,
+      details,
     });
   }
 
-  return { restoredCount, skippedCount, failedCount, runId: run.runId, totalActions: actions.length };
+  return {
+    restoredCount,
+    skippedCount,
+    failedCount,
+    runId: run.runId,
+    totalActions,
+    remainingCount,
+  };
 }

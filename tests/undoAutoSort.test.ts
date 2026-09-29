@@ -2,12 +2,12 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { TFile } from 'obsidian';
 
 const mockGetLastUndoable = vi.fn();
-const mockMarkUndone = vi.fn();
+const mockUpdateProgress = vi.fn();
 const mockLogOperation = vi.fn();
 
 vi.mock('../src/utils/autoSortHistory', () => ({
   getLastUndoableAutoSortRun: mockGetLastUndoable,
-  markAutoSortRunUndone: mockMarkUndone,
+  updateAutoSortRunUndoProgress: mockUpdateProgress,
 }));
 
 vi.mock('../src/utils/operationLog', () => ({
@@ -19,8 +19,8 @@ vi.mock('../src/i18n', () => ({
     const messages: Record<string, string> = {
       'notice.undoNoRun': 'Inbox Curator: No auto-sort run to undo.',
       'notice.undoSuccess': `Inbox Curator: Restored ${params?.count} notes from the last auto-sort run.`,
-      'notice.undoPartial': `Inbox Curator: Restored ${params?.restored} notes. ${params?.skipped} could not be restored. See operation log.`,
-      'notice.undoFailed': 'Inbox Curator: Auto-sort undo failed. See operation log.',
+      'notice.undoPartial': `Inbox Curator: Restored ${params?.restored} notes. ${params?.skipped} skipped, ${params?.failed} failed. Unresolved notes can be retried.`,
+      'notice.undoFailed': 'Inbox Curator: Auto-sort undo failed. Unresolved notes can be retried.',
     };
     return messages[key] || key;
   },
@@ -107,7 +107,7 @@ describe('undoLastAutoSortRun', () => {
 
     expect(result).not.toBeNull();
     expect(result!.restoredCount).toBe(1);
-    expect(mockMarkUndone).toHaveBeenCalledWith(app, 'run-1');
+    expect(mockUpdateProgress).toHaveBeenCalledWith(app, 'run-1', expect.any(Array));
     expect(app.fileManager.renameFile).toHaveBeenCalledTimes(1);
   });
 
@@ -143,7 +143,7 @@ describe('undoLastAutoSortRun', () => {
       expect.objectContaining({ path: 'Inbox/test.md' }),
       'Inbox/test.md',
     );
-    expect(mockMarkUndone).toHaveBeenCalledWith(app, 'run-delete-candidate');
+    expect(mockUpdateProgress).toHaveBeenCalledWith(app, 'run-delete-candidate', expect.any(Array));
   });
 
   it('processes actions in reverse order', async () => {
@@ -325,7 +325,7 @@ describe('undoLastAutoSortRun', () => {
     const { undoLastAutoSortRun } = await import('../src/undoAutoSort');
     await undoLastAutoSortRun(app);
 
-    expect(mockMarkUndone).toHaveBeenCalledWith(app, 'run-6');
+    expect(mockUpdateProgress).toHaveBeenCalledWith(app, 'run-6', expect.any(Array));
   });
 
   it('does not undo already undone runs (handled by getLastUndoableAutoSortRun)', async () => {
@@ -337,7 +337,7 @@ describe('undoLastAutoSortRun', () => {
     const result = await undoLastAutoSortRun({} as any);
 
     expect(result).toBeNull();
-    expect(mockMarkUndone).not.toHaveBeenCalled();
+    expect(mockUpdateProgress).not.toHaveBeenCalled();
   });
 
   it('logs operation result on success', async () => {
@@ -419,5 +419,210 @@ describe('undoLastAutoSortRun', () => {
         level: 'WARN',
       }),
     );
+  });
+
+  it('leaves unresolved actions retryable after a partial failure', async () => {
+    mockGetLastUndoable.mockResolvedValue({
+      runId: 'run-partial',
+      timestamp: Date.now() - 1000,
+      source: 'auto-create',
+      actions: [
+        {
+          runId: 'run-partial',
+          timestamp: Date.now() - 1000,
+          action: 'archive',
+          sourcePath: 'Inbox/a.md',
+          destinationPath: 'Archive/a.md',
+          reviewMode: 'standard',
+          parseStatus: 'parsed',
+          confidence: 'high',
+          reliabilityLabel: 'high',
+        },
+        {
+          runId: 'run-partial',
+          timestamp: Date.now() - 500,
+          action: 'read_later',
+          sourcePath: 'Inbox/b.md',
+          destinationPath: 'Read Later/b.md',
+          reviewMode: 'standard',
+          parseStatus: 'parsed',
+          confidence: 'medium',
+          reliabilityLabel: 'medium',
+        },
+      ],
+    });
+    mockUpdateProgress.mockResolvedValue({
+      allResolved: false,
+      resolvedCount: 1,
+      totalActions: 2,
+      status: 'partial',
+    });
+
+    const { app, addFile } = createMockApp();
+    addFile('Archive/a.md');
+    // b's destination is temporarily missing - skipped but must stay retryable
+
+    const { undoLastAutoSortRun } = await import('../src/undoAutoSort');
+    const result = await undoLastAutoSortRun(app);
+
+    expect(result).not.toBeNull();
+    expect(result!.restoredCount).toBe(1);
+    expect(result!.skippedCount).toBe(1);
+    expect(result!.remainingCount).toBe(1);
+    // Only the successfully restored action is recorded; the skipped one stays unresolved.
+    expect(mockUpdateProgress).toHaveBeenCalledWith(app, 'run-partial', [
+      { actionIndex: 0, restoredAt: expect.any(Number) },
+    ]);
+    expect(mockLogOperation).toHaveBeenCalledWith(
+      app,
+      expect.objectContaining({ event: 'auto_sort_undo_partial', level: 'WARN' }),
+    );
+  });
+
+  it('does not reprocess actions restored in an earlier attempt and completes the run', async () => {
+    mockGetLastUndoable.mockResolvedValue({
+      runId: 'run-retry',
+      timestamp: Date.now() - 1000,
+      source: 'auto-create',
+      actions: [
+        {
+          runId: 'run-retry',
+          timestamp: Date.now() - 1000,
+          action: 'archive',
+          sourcePath: 'Inbox/a.md',
+          destinationPath: 'Archive/a.md',
+          reviewMode: 'standard',
+          parseStatus: 'parsed',
+          confidence: 'high',
+          reliabilityLabel: 'high',
+          restoredAt: Date.now() - 100,
+        },
+        {
+          runId: 'run-retry',
+          timestamp: Date.now() - 500,
+          action: 'read_later',
+          sourcePath: 'Inbox/b.md',
+          destinationPath: 'Read Later/b.md',
+          reviewMode: 'standard',
+          parseStatus: 'parsed',
+          confidence: 'medium',
+          reliabilityLabel: 'medium',
+        },
+      ],
+    });
+    mockUpdateProgress.mockResolvedValue({
+      allResolved: true,
+      resolvedCount: 2,
+      totalActions: 2,
+      status: 'complete',
+    });
+
+    const { app, addFile } = createMockApp();
+    addFile('Read Later/b.md');
+
+    const { undoLastAutoSortRun } = await import('../src/undoAutoSort');
+    const result = await undoLastAutoSortRun(app);
+
+    expect(result).not.toBeNull();
+    expect(result!.restoredCount).toBe(1);
+    // The already-restored note must not be moved again.
+    expect(app.fileManager.renameFile).toHaveBeenCalledTimes(1);
+    const retryRenameCall = vi.mocked(app.fileManager.renameFile).mock.calls[0];
+    expect(retryRenameCall[1]).toBe('Inbox/b.md');
+    expect(mockUpdateProgress).toHaveBeenCalledWith(app, 'run-retry', [
+      { actionIndex: 1, restoredAt: expect.any(Number) },
+    ]);
+    expect(mockLogOperation).toHaveBeenCalledWith(
+      app,
+      expect.objectContaining({ event: 'auto_sort_undo_completed', level: 'INFO' }),
+    );
+  });
+
+  it('keeps every action retryable when all destinations are missing', async () => {
+    mockGetLastUndoable.mockResolvedValue({
+      runId: 'run-failed',
+      timestamp: Date.now() - 1000,
+      source: 'auto-create',
+      actions: [
+        {
+          runId: 'run-failed',
+          timestamp: Date.now() - 1000,
+          action: 'archive',
+          sourcePath: 'Inbox/a.md',
+          destinationPath: 'Archive/a.md',
+          reviewMode: 'standard',
+          parseStatus: 'parsed',
+          confidence: 'high',
+          reliabilityLabel: 'high',
+        },
+        {
+          runId: 'run-failed',
+          timestamp: Date.now() - 500,
+          action: 'read_later',
+          sourcePath: 'Inbox/b.md',
+          destinationPath: 'Read Later/b.md',
+          reviewMode: 'standard',
+          parseStatus: 'parsed',
+          confidence: 'medium',
+          reliabilityLabel: 'medium',
+        },
+      ],
+    });
+    mockUpdateProgress.mockResolvedValue({
+      allResolved: false,
+      resolvedCount: 0,
+      totalActions: 2,
+      status: 'failed',
+    });
+
+    const { app } = createMockApp();
+
+    const { undoLastAutoSortRun } = await import('../src/undoAutoSort');
+    const result = await undoLastAutoSortRun(app);
+
+    expect(result).not.toBeNull();
+    expect(result!.restoredCount).toBe(0);
+    expect(result!.skippedCount).toBe(2);
+    expect(result!.remainingCount).toBe(2);
+    expect(app.fileManager.renameFile).not.toHaveBeenCalled();
+    // No progress is recorded, so the run is never marked fully undone.
+    expect(mockUpdateProgress).toHaveBeenCalledWith(app, 'run-failed', []);
+    expect(mockLogOperation).toHaveBeenCalledWith(
+      app,
+      expect.objectContaining({ event: 'auto_sort_undo_failed', level: 'ERROR' }),
+    );
+  });
+
+  it('processes legacy records that have no restoredAt field', async () => {
+    mockGetLastUndoable.mockResolvedValue({
+      runId: 'run-legacy',
+      timestamp: Date.now() - 1000,
+      source: 'auto-create',
+      actions: [
+        {
+          runId: 'run-legacy',
+          timestamp: Date.now() - 1000,
+          action: 'archive',
+          sourcePath: 'Inbox/legacy.md',
+          destinationPath: 'Archive/legacy.md',
+          reviewMode: 'standard',
+          parseStatus: 'parsed',
+          confidence: 'high',
+          reliabilityLabel: 'high',
+        },
+      ],
+    });
+
+    const { app, addFile } = createMockApp();
+    addFile('Archive/legacy.md');
+
+    const { undoLastAutoSortRun } = await import('../src/undoAutoSort');
+    const result = await undoLastAutoSortRun(app);
+
+    expect(result).not.toBeNull();
+    expect(result!.restoredCount).toBe(1);
+    expect(mockUpdateProgress).toHaveBeenCalledWith(app, 'run-legacy', [
+      { actionIndex: 0, restoredAt: expect.any(Number) },
+    ]);
   });
 });

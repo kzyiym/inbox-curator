@@ -6,6 +6,7 @@ import {
   appendAutoSortActionRecord,
   getLastUndoableAutoSortRun,
   markAutoSortRunUndone,
+  updateAutoSortRunUndoProgress,
   pruneAutoSortHistory,
   type AutoSortActionRecord,
   type AutoSortHistoryFile,
@@ -164,6 +165,96 @@ describe('autoSortHistory', () => {
     const history = await loadAutoSortHistory(app);
     expect(history.runs[0].undone).toBe(true);
     expect(history.runs[0].undoneAt).toBeGreaterThan(0);
+  });
+
+  it('keeps a run undoable until every action is restored', async () => {
+    await appendAutoSortActionRecord(app, { ...sampleRecord, runId: 'run-progress', timestamp: NOW - 200 });
+    await appendAutoSortActionRecord(app, {
+      ...sampleRecord,
+      runId: 'run-progress',
+      timestamp: NOW - 100,
+      action: 'read_later' as const,
+      destinationPath: 'Read Later/test.md',
+    });
+
+    const partial = await updateAutoSortRunUndoProgress(app, 'run-progress', [
+      { actionIndex: 0, restoredAt: NOW },
+    ]);
+
+    expect(partial).not.toBeNull();
+    expect(partial!.allResolved).toBe(false);
+    expect(partial!.status).toBe('partial');
+    expect(partial!.resolvedCount).toBe(1);
+    expect(partial!.totalActions).toBe(2);
+
+    const history = await loadAutoSortHistory(app);
+    expect(history.runs[0].undone).toBeFalsy();
+    expect(history.runs[0].lastUndoStatus).toBe('partial');
+    expect(history.runs[0].actions[0].restoredAt).toBe(NOW);
+    expect(history.runs[0].actions[1].restoredAt).toBeUndefined();
+
+    const last = await getLastUndoableAutoSortRun(app);
+    expect(last).not.toBeNull();
+    expect(last!.runId).toBe('run-progress');
+  });
+
+  it('marks a run fully undone once every action is restored', async () => {
+    await appendAutoSortActionRecord(app, { ...sampleRecord, runId: 'run-complete', timestamp: NOW - 200 });
+    await appendAutoSortActionRecord(app, {
+      ...sampleRecord,
+      runId: 'run-complete',
+      timestamp: NOW - 100,
+      action: 'read_later' as const,
+      destinationPath: 'Read Later/test.md',
+    });
+
+    const result = await updateAutoSortRunUndoProgress(app, 'run-complete', [
+      { actionIndex: 0, restoredAt: NOW },
+      { actionIndex: 1, restoredAt: NOW },
+    ]);
+
+    expect(result).not.toBeNull();
+    expect(result!.allResolved).toBe(true);
+    expect(result!.status).toBe('complete');
+
+    const history = await loadAutoSortHistory(app);
+    expect(history.runs[0].undone).toBe(true);
+    expect(history.runs[0].lastUndoStatus).toBe('complete');
+    expect(history.runs[0].undoneAt).toBeGreaterThan(0);
+
+    const last = await getLastUndoableAutoSortRun(app);
+    expect(last).toBeNull();
+  });
+
+  it('returns null when recording progress for an unknown run', async () => {
+    const result = await updateAutoSortRunUndoProgress(app, 'does-not-exist', []);
+    expect(result).toBeNull();
+  });
+
+  it('records progress for legacy records that lack the new fields', async () => {
+    await app.vault.adapter.write(HISTORY_PATH, JSON.stringify({
+      version: 1,
+      runs: [{
+        runId: 'legacy-undo',
+        timestamp: NOW - 10,
+        source: 'auto-create',
+        actions: [{ ...sampleRecord, runId: 'legacy-undo' }],
+      }],
+    }));
+
+    const before = await getLastUndoableAutoSortRun(app);
+    expect(before).not.toBeNull();
+    expect(before!.runId).toBe('legacy-undo');
+
+    const result = await updateAutoSortRunUndoProgress(app, 'legacy-undo', [
+      { actionIndex: 0, restoredAt: NOW },
+    ]);
+    expect(result!.allResolved).toBe(true);
+
+    const history = await loadAutoSortHistory(app);
+    expect(history.runs[0].actions[0].restoredAt).toBe(NOW);
+    expect(history.runs[0].undone).toBe(true);
+    expect(await getLastUndoableAutoSortRun(app)).toBeNull();
   });
 
   it('prunes runs over the max count', () => {

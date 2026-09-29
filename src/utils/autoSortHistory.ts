@@ -18,6 +18,12 @@ export type AutoSortActionRecord = {
   parseStatus: ReviewParseStatus;
   confidence: ReviewConfidence;
   reliabilityLabel: ReviewReliabilityLabel;
+  /**
+   * Set once Undo successfully moved this note back to its source path.
+   * Absent means the action is still unresolved and remains retryable.
+   * Purely additive so legacy history records stay readable.
+   */
+  restoredAt?: number;
 };
 
 export type AutoSortRunRecord = {
@@ -27,6 +33,26 @@ export type AutoSortRunRecord = {
   actions: AutoSortActionRecord[];
   undone?: boolean;
   undoneAt?: number;
+  /**
+   * Outcome of the most recent Undo attempt for this run.
+   * 'complete' is only recorded when every action has been restored.
+   */
+  lastUndoStatus?: AutoSortUndoStatus;
+  lastUndoAttemptAt?: number;
+};
+
+export type AutoSortUndoStatus = 'complete' | 'partial' | 'failed';
+
+export type AutoSortUndoProgressUpdate = {
+  actionIndex: number;
+  restoredAt?: number;
+};
+
+export type AutoSortUndoProgressResult = {
+  allResolved: boolean;
+  resolvedCount: number;
+  totalActions: number;
+  status: AutoSortUndoStatus;
 };
 
 export type AutoSortHistoryFile = {
@@ -98,10 +124,14 @@ export async function appendAutoSortActionRecord(
   await saveAutoSortHistory(app, pruned);
 }
 
+export function hasUnresolvedActions(run: AutoSortRunRecord): boolean {
+  return run.actions.some((action) => action.restoredAt == null);
+}
+
 export async function getLastUndoableAutoSortRun(app: App): Promise<AutoSortRunRecord | null> {
   const history = await loadAutoSortHistory(app);
   const sorted = [...history.runs].sort((a, b) => b.timestamp - a.timestamp);
-  return sorted.find((r) => !r.undone && r.actions.length > 0) ?? null;
+  return sorted.find((r) => !r.undone && r.actions.length > 0 && hasUnresolvedActions(r)) ?? null;
 }
 
 export async function markAutoSortRunUndone(
@@ -114,6 +144,52 @@ export async function markAutoSortRunUndone(
   if (run) {
     run.undone = true;
     run.undoneAt = undoneAt ?? Date.now();
+    run.lastUndoStatus = 'complete';
     await saveAutoSortHistory(app, history);
   }
+}
+
+/**
+ * Persist per-action restore progress for a run in a single history write.
+ * A run is marked fully undone only when every action has a restoredAt value;
+ * otherwise it stays undoable so unresolved actions can be retried.
+ * Returns null when the run no longer exists (e.g. pruned between attempts).
+ */
+export async function updateAutoSortRunUndoProgress(
+  app: App,
+  runId: string,
+  updates: AutoSortUndoProgressUpdate[],
+  attemptedAt?: number,
+): Promise<AutoSortUndoProgressResult | null> {
+  const history = await loadAutoSortHistory(app);
+  const run = history.runs.find((r) => r.runId === runId);
+  if (!run) return null;
+
+  const at = attemptedAt ?? Date.now();
+  for (const update of updates) {
+    const action = run.actions[update.actionIndex];
+    if (!action) continue;
+    if (update.restoredAt != null) {
+      action.restoredAt = update.restoredAt;
+    }
+  }
+
+  const totalActions = run.actions.length;
+  const resolvedCount = run.actions.filter((action) => action.restoredAt != null).length;
+  const allResolved = totalActions > 0 && resolvedCount === totalActions;
+  const status: AutoSortUndoStatus = allResolved
+    ? 'complete'
+    : resolvedCount > 0
+      ? 'partial'
+      : 'failed';
+
+  run.lastUndoStatus = status;
+  run.lastUndoAttemptAt = at;
+  if (allResolved) {
+    run.undone = true;
+    run.undoneAt = at;
+  }
+
+  await saveAutoSortHistory(app, history);
+  return { allResolved, resolvedCount, totalActions, status };
 }
